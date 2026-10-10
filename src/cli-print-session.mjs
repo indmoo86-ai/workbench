@@ -186,7 +186,7 @@ export class CliPrintSession {
     if (Array.isArray(m.message?.content)) {
       for (const block of m.message.content) {
         if (block?.type === 'tool_use' || block?.name) this.emit('tool', { text: block.name || block.type || tr('cliPrintSession.working2'), item: block });
-        if(block?.type==='tool_result'&&block.tool_use_id)this.emit('tool',{text:tr('cliPrintSession.toolResult'),item:{id:block.tool_use_id,status:block.is_error?'failed':'completed',is_error:Boolean(block.is_error)}});
+        if(block?.type==='tool_result'&&block.tool_use_id)this.emit('tool',{text:tr('cliPrintSession.toolResult'),item:{id:block.tool_use_id,status:block.is_error?'failed':'completed',is_error:Boolean(block.is_error),output:extractText(block.content).slice(0,12000)}});
       }
     }
   }

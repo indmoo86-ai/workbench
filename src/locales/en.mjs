@@ -845,7 +845,6 @@ Partial output (not a delivery): {p3}`,
   'roleCalls.targetRoleHasNoRepository': 'The target role has no repository directory',
   'roleCalls.sourceCallDoesNotBelong': 'The source call does not belong to this project',
   'roleCalls.sourceCallHasEndedBeen': 'The source call has ended, been cancelled, or the user has changed direction',
-  'roleCalls.discussionHasAlreadyUsedThree': 'This discussion has already used three consultation rounds; summarize the existing results and hand any remaining questions to the supervisor or the user',
   'roleCalls.userHasChangedDirectionOld': 'The user has changed direction; the old call chain cannot dispatch further',
   'roleCalls.collaborationCallsExceed4Levels': 'Collaboration calls exceed 4 levels; hand it back to the planner role',
   'roleCalls.rejectedRoleLoopInActive': 'Rejected a role loop in the active call chain',
@@ -1140,6 +1139,7 @@ Attachments: {p1} (the body does not include the attachments' full text)`,
   'runReports.businessReportNotRecordedDiscussion': 'Business report not recorded: a discussion is in progress or a question is awaiting an answer. Finish after reply/resolve as this turn requires; a waiting business turn simply ends; information needed from the user is left to the original business continuation turn to report.',
   'runReports.verdictMustBePassedFailed': 'verdict must be passed/failed/blocked/needs_input',
   'runReports.reportSummaryMustBe1': 'Report summary must be 1-3000 characters',
+  'runReports.placeholderNotEvidence': 'A report needs an actual conclusion and evidence, not test/TODO placeholders. Use wb help to inspect the format without submitting a business verdict.',
   'runReports.verificationEvidenceAllowsAtMost': 'Verification evidence allows at most 20 items of up to 1500 characters each',
   'runReports.passedVerdictMustIncludeActual': 'A passed verdict must include actual verification evidence; use blocked if it cannot be verified',
   'runReports.nextStepMustBeAt': 'Next step must be at most 1000 characters',
@@ -1152,7 +1152,7 @@ Memory/docs as needed: wb memory search, wb docs read; do not read all history e
 Consult with wb call --role ROLE --kind consult --request-id STABLE_ID --text DESCRIPTION; a same-project cross-device call is also delivered directly, with no supervisor relay needed. Ask one clear question at a time, attach the necessary background, file versions, and the expected answer; retry the same question with the same ID.
 Output your own analysis as a normal reply; put a targeted question in the text of the communication tool selected for this turn, and the platform separately shows the question record "sender role → @recipient role" and its linked reply. When discuss is open, prefer ask for clarifying the current task's rules; call is for independent analysis/review/output, or for targets that do not have discuss open. Do not copy a whole analysis into a consultation, and do not send the same group-chat note repeatedly.
 When you need several opinions, first wb call each of them, then wb wait with a short resume note and end the turn; the platform returns to the original session once the results are collected. Do not poll, sleep, or send keep-alive messages; the execution slot and the five-minute idle keep-alive are managed by the Worker.
-When consulted, give your conclusion and the necessary evidence directly; do not modify files by default, and do not call the asker back to hand over the answer. When a business task truly needs clarification from the upstream role that is waiting for you, follow the discuss protocol actually open this turn; if it is not open, you cannot get around the dependency check with a reverse call. Follow up only on unresolved questions, at most three rounds; end once resolved, and do not send acknowledgement/thank-you exchanges. An @ in group-chat text does not trigger dispatch.
+When consulted, give your conclusion and the necessary evidence directly; do not modify files by default, and do not call the asker back to hand over the answer. When a business task truly needs clarification from the upstream role that is waiting for you, follow the discuss protocol actually open this turn; if it is not open, you cannot get around the dependency check with a reverse call. Follow up only on unresolved questions within the platform's current collaboration budget; report outstanding items when it is exhausted. End once resolved, and do not send acknowledgement/thank-you exchanges. An @ in group-chat text does not trigger dispatch.
 When configuration is wrong or a call is rejected, report the blocker; do not bypass wb to curl the Home Agent interface directly. Use source IDs for long reports so they can be read on demand.
 The Worker records handoffs automatically, so there is no need to mechanically run wb boot and wb handoff; a detailed handoff can still use wb handoff.{p1}`,
   // src/runtime-probe.mjs

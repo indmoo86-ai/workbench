@@ -2,6 +2,8 @@ import {terminal} from './store.mjs';
 import { tr } from './i18n.mjs';
 
 const verdicts=new Set(['passed','failed','blocked','needs_input']);
+// Reject obvious probe placeholders without pretending to judge the truth of substantive evidence.
+const placeholder=value=>/^(?:test|testing|todo|tbd|placeholder|\u6d4b\u8bd5|\u5f85\u8865\u5145)[.!\u3002\s]*$/iu.test(value.trim());
 /** Discussions only handle information; they must not prematurely produce a business delivery or a prompt aimed at the user. Compatible with legacy plain Runs. */
 export function acceptsBusinessReport(run) {
   return Boolean(run&&!run.switchOperationId&&!run.discussionWaiting&&!run.discussionDeliveryId&&(!run.turnPurpose||run.turnPurpose==='task'));
@@ -26,6 +28,7 @@ export function saveRunReport(db,run,input) {
   const evidence=input.evidence||[];
   if(!Array.isArray(evidence)||evidence.length>20||evidence.some(e=>typeof e!=='string'||!e.trim()||e.length>1500)) throw new Error(tr('runReports.verificationEvidenceAllowsAtMost'));
   if(input.verdict==='passed'&&!evidence.length) throw new Error(tr('runReports.passedVerdictMustIncludeActual'));
+  if(placeholder(input.summary)||evidence.some(placeholder))throw new Error(tr('runReports.placeholderNotEvidence'));
   if(input.next!=null && (typeof input.next!=='string'||input.next.length>1000)) throw new Error(tr('runReports.nextStepMustBeAt'));
   const old=db.get('runReports',run.id);
   const report=db.put('runReports',{id:run.id,projectId:run.projectId,roleId:run.roleId,requestId:run.requestId,

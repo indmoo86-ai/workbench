@@ -29,7 +29,7 @@ import { publishDelivery, receiveDelivery } from './git-delivery.mjs';
 import { composeAgentInstructions, englishExecutionRules } from './platform-prompts.mjs';
 import { runtimeGuidance } from './runtime-guidance.mjs';
 import { prepareSupervisorDirectory, setupRepository } from './setup-workspace.mjs';
-import { startAgentBridge, agentProcessEnv } from './agent-bridge.mjs';
+import { startAgentBridge, agentProcessEnv, canSendAgentOperation } from './agent-bridge.mjs';
 import { outboxBatch } from './worker-outbox.mjs';
 import { prepareProjectSpace } from './project-space.mjs';
 import { publishProjectDelivery, receiveProjectDelivery, fetchExecutionDeliveries } from './project-delivery.mjs';
@@ -288,7 +288,7 @@ async function command(m) {
       }
       if (reservation.stopRequested || paused || ws?.readyState !== 1) { emit(c.runId,'status',{status:'interrupted',error:tr('worker.executionInterruptedByStopDisconnect')});return; }
       bridge = await startAgentBridge({ workspace: folder, runId: c.runId, home: homeHttp, token,
-        canSend: () => !paused && !quitting && !terminal.has(db.get('runs', c.runId)?.status) && !['stopping', 'reconciling'].includes(db.get('runs', c.runId)?.status) });
+        canSend: (pathname,input) => canSendAgentOperation({paused,quitting,connected:ws?.readyState===1,status:db.get('runs',c.runId)?.status},pathname,input) });
       const wbEnv = agentProcessEnv(await runtimeGitEnvironment({directory:join(data,'git-auth'),key:m.run.roleSessionId||c.runId,repositories:executionRepositories,credentials:m.gitCredentials,env:process.env}), {
         PATH: `${join(base, 'bin')}${delimiter}${process.env.PATH || ''}`,
         WB_PROJECT_ROOT: m.run.execution?.isolated ? folder : root,

@@ -68,7 +68,7 @@ export class RoleCalls {
       }
       let ancestor = normalized.parentRequestId ? this.db.get('coordinationRequests', normalized.parentRequestId) : null;
       if (ancestor && (callTerminal.has(ancestor.status) || ancestor.steeringTaskId)) throw new Error(tr('roleCalls.sourceCallHasEndedBeen'));
-      if(input.kind==='consult' && (ancestor?.consultRound||0)>=3)throw new Error(tr('roleCalls.discussionHasAlreadyUsedThree'));
+      // Schedule completion and different reviewers also cause continuations; bound actual calls with the root budget and cycle checks, not wake-up count.
       let depth = 0, rootRequestId = ancestor?.rootRequestId || ancestor?.id || normalized.id;
       while (ancestor) {
         if(ancestor.steeringTaskId)throw new Error(tr('roleCalls.userHasChangedDirectionOld'));

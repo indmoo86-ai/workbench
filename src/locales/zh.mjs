@@ -845,7 +845,6 @@ repository.clone=true 仅在目标不存在时克隆；false 检查已有仓库�
   'roleCalls.targetRoleHasNoRepository': '目标角色缺少仓库目录',
   'roleCalls.sourceCallDoesNotBelong': '来源调用不属于此项目',
   'roleCalls.sourceCallHasEndedBeen': '来源调用已结束、已取消或用户已调整方向',
-  'roleCalls.discussionHasAlreadyUsedThree': '本次讨论已完成三轮咨询，请汇总已有结果；仍有问题交给主管或用户',
   'roleCalls.userHasChangedDirectionOld': '用户已调整方向，旧调用链不能继续派单',
   'roleCalls.collaborationCallsExceed4Levels': '协作调用超过 4 层，请交回计划角色处理',
   'roleCalls.rejectedRoleLoopInActive': '拒绝活动调用链中的角色循环',
@@ -1140,6 +1139,7 @@ repository.clone=true 仅在目标不存在时克隆；false 检查已有仓库�
   'runReports.businessReportNotRecordedDiscussion': '未登记业务报告：当前正在讨论或已发问等待。请按本轮要求 reply/resolve 后结束，等待中的业务回合直接结束；需要用户补充的信息留给原业务续接回合报告。',
   'runReports.verdictMustBePassedFailed': 'verdict 必须为 passed/failed/blocked/needs_input',
   'runReports.reportSummaryMustBe1': '报告摘要需为 1–3000 字',
+  'runReports.placeholderNotEvidence': '报告须填写实际结论与证据，不能提交 test、TODO 等占位内容。查看格式请使用 wb help，不要用业务结论探测接口。',
   'runReports.verificationEvidenceAllowsAtMost': '验证证据最多 20 条，每条 1500 字',
   'runReports.passedVerdictMustIncludeActual': '通过结论必须附实际验证证据；无法验证请用 blocked',
   'runReports.nextStepMustBeAt': '下一步最多 1000 字',
@@ -1152,7 +1152,7 @@ repository.clone=true 仅在目标不存在时克隆；false 检查已有仓库�
 咨询 wb call --role 角色 --kind consult --request-id 固定编号 --text 说明；同项目跨设备也直接投递，不需要主管转述。每次问一个明确问题，附必要背景、文件版本和期望答案；同一问题重试沿用编号。
 自己的分析按普通回复输出；定向问题放在本轮所选通信工具的 text 中，平台单独展示“发送角色 → @接收角色”的提问记录和关联回复。已开放 discuss 时，当前任务的规则澄清优先 ask；call 用于独立分析/审核/产出，或未开放 discuss 的目标。不要把整段分析重复复制成咨询，也不要重复发送同样的群聊留话。
 需要多个意见时先分别 wb call，再 wb wait 简短续接说明并结束本轮，平台收齐结果后回到原会话。不要轮询、sleep 或发送保活消息；执行名额和五分钟空闲保活由 Worker 管理。
-收到咨询直接给结论和必要依据，不默认修改文件，不反向 call 提问者来交答案。业务任务中确需向等待你的上游澄清时，以本轮实际开放的 discuss 协议为准；未开放不能用反向 call 绕过依赖检查。只针对未解决问题追问，最多三轮；解决后结束，不发送收到/谢谢式往返。群聊正文 @ 不触发派单。
+收到咨询直接给结论和必要依据，不默认修改文件，不反向 call 提问者来交答案。业务任务中确需向等待你的上游澄清时，以本轮实际开放的 discuss 协议为准；未开放不能用反向 call 绕过依赖检查。只针对未解决问题按平台当前协作预算追问，预算耗尽时列明未完成事项；解决后结束，不发送收到/谢谢式往返。群聊正文 @ 不触发派单。
 配置错误或调用被拒绝时报告阻塞，不绕过 wb 直接 curl Home Agent 接口。长报告用来源编号供按需读取。
 Worker 自动记录交接，无需机械执行 wb boot 和 wb handoff，详细交接仍可 wb handoff。{p1}`,
   // src/runtime-probe.mjs

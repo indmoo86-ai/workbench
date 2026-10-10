@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { Store, terminal } from './store.mjs';
-import {assertAgentSender} from './agent-bridge.mjs';
+import {assertAgentSender,allowsPausedAgentOperation} from './agent-bridge.mjs';
 import {freezeExecutionConfiguration,supportsMinimalInstructions,instructionProtocolIssue} from './execution-configuration.mjs';
 import {validateCliCapacity,reservedTerminalSlots,registrationCapacity} from './device-capacity.mjs';
 import { SessionTools } from './session-tools.mjs';
@@ -492,6 +492,7 @@ const server = http.createServer(async (req, res) => {
         assertAgentSender(b);
         const run = db.get('runs', b.runId);
         if (!run || terminal.has(run.status) || ['stopping', 'reconciling'].includes(run.status)) throw new Error(tr('home.currentExecutionHasEndedStopping'));
+        if(db.get('settings','main')?.paused&&!allowsPausedAgentOperation(pathname,b))throw new Error(tr('home.remoteExecutionPaused'));
         if(run.switchOperationId&&!['/api/agent/setup/catalog','/api/agent/history/search','/api/agent/history/read','/api/agent/sessions/current','/api/agent/sessions/list','/api/agent/sessions/summary','/api/agent/sessions/read','/api/agent/conversation/summary'].includes(pathname))throw new Error('CLI handoff maintenance permits history reads only.');
         if(pathname==='/api/agent/source-sync'){const result=await sourceSync.agent.execute(run,b.action,b.input||{});change();return json(res,result);}
         if(pathname==='/api/agent/source-candidates'){const result=b.finish?await sourceSync.agent.completeCandidate(run,b.candidateId):sourceSync.agent.stageCandidate(run,b);change();return json(res,result);}
