@@ -17,8 +17,8 @@
 | [design-supervisor-timers](design-supervisor-timers.md) | `wb timer` scheduled jobs and low-cost progress patrol | Implemented in the current code |
 | [design-session-handoff](design-session-handoff.md) | Controlled cross-device role session handoff | Proposal. Not implemented |
 
-| [design-source-sync](design-source-sync.md) | Incremental source transfer, safe apply and modifier-owned conflict repair | Implemented and audited; physical two-device and four-CLI acceptance limits recorded |
+| [design-source-sync](design-source-sync.md) | Single authority for project-file sync, safe apply, conflicts and the continuous-folder upgrade | Sections 1-12 implemented/audited; section 13 proposed, not deployed |
 | [plan-source-sync](plan-source-sync.md) | Source synchronization implementation and verification gates | Archived implementation plan; current contract is design-source-sync |
-| [design-shared-documents](design-shared-documents.md) | Continuous project-folder synchronization and actual Mac-local file viewing, including shared documents | Revised proposal awaiting design approval; not deployed |
+| [design-shared-documents](design-shared-documents.md) | Actual Mac-local file reading, document links and Resources integration; consumes unified project-file sync | UI/reading proposal; no separate synchronization mechanism |
 
 Start with the README, then ARCHITECTURE. Read the PRD when you need the full product scope. ARCHITECTURE describes the actual code only and never treats a plan as a feature. Design documents may describe intended behavior; where they disagree with the code, the code is the fact.
