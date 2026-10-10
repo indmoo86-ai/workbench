@@ -1,6 +1,22 @@
 // Simplified Chinese message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'roleTemplates.planner': '计划',
+  'roleTemplates.plannerResponsibility': '负责复杂任务的开发计划和实施方案，明确范围、依赖、里程碑与验收标准，持续维护计划及变更；解释方案和计划细节，回答其他角色在实施过程中的疑问。',
+  'roleTemplates.developer': '执行',
+  'roleTemplates.developerResponsibility': '负责指派范围内的代码实现、修改、修复与自测，提供改动文件、代码版本和验证结果供审核及测试；持续承担原实现的后续修正，并向计划或总管澄清需求与方案问题。',
+  'roleTemplates.reviewer': '审核',
+  'roleTemplates.reviewerResponsibility': '独立检查方案和代码的正确性、可维护性与风险，向原修改者及计划或总管反馈有依据的问题和影响；复核修复结果或不修改的解释，确认问题是否解决。',
+  'roleTemplates.tester': '测试',
+  'roleTemplates.testerResponsibility': '依据需求和验收标准开展回归检查，并在已部署的测试版本上模拟真实用户操作；记录环境、版本、复现步骤与实际结果，向原执行角色反馈问题并复测修复。',
+  'roleTemplates.architect': '架构设计',
+  'roleTemplates.architectResponsibility': '负责系统边界、模块职责、接口与数据流设计，比较技术方案，分析跨模块变更的兼容性与一致性风险；向计划和执行角色提供设计决策及依据。',
+  'roleTemplates.debugger': '故障排查',
+  'roleTemplates.debuggerResponsibility': '负责难复现故障、运行异常与复杂缺陷的定位，结合日志、代码和环境信息追查根因；提出或实施针对性修复，向原执行角色或总管提供复现与验证结果。',
+  'roleTemplates.deployer': '构建部署',
+  'roleTemplates.deployerResponsibility': '负责指定版本的构建、环境检查、部署与服务验证，核对源码、产物和实际部署版本，明确目标配置与回滚方法；向总管及测试角色报告真实服务状态和发布结果。',
+  'roleTemplates.documenter': '文档维护',
+  'roleTemplates.documenterResponsibility': '依据已实现功能与已确认决策维护项目、接口、使用及运维文档，整理交接信息和示例；识别过时或矛盾内容，为其他角色提供清晰、可查证的当前资料。',
   "sourceSync.failure": "源代码同步：{code} {detail}",
   "sourceSync.systemName": "源代码同步",
   "sourceSync.continuedReceipt": "继续使用同一任务拥有的工作目录，原先已核对的源码输入为：{versions}。你上一轮的修改保留，不会被初始快照覆盖。请重读当前文件；这份回执不表示修改后的产物仍等于初始输入。",

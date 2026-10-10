@@ -1,38 +1,70 @@
 import { tr } from './i18n.mjs';
-/** Templates are copied only when the user creates a new role; they never create project seats automatically. */
+/** Responsibility-only presets for new roles; execution prompts remain empty and no project seats are created automatically. */
 export function defaultRoleTemplates() {
   return Object.freeze([
     {
-      key: 'reviewer',
-      responsibility: tr('collaboration.reviewerResponsibility'),
-      name: tr('defaultRoles.codeReviewer'),
-      mode: 'workspace-write',
-      modelHint: tr('defaultRoles.useTopTierModelFor'),
-      instructions: tr('collaboration.reviewerInstructions')
-    },
-    {
       key: 'planner',
-      responsibility: tr('collaboration.plannerResponsibility'),
-      name: tr('defaultRoles.planner'),
+      responsibility: tr('roleTemplates.plannerResponsibility'),
+      name: tr('roleTemplates.planner'),
       mode: 'workspace-write',
       modelHint: tr('defaultRoles.strongReasoningModelRecommendedFor'),
-      instructions: tr('collaboration.plannerInstructions')
+      instructions: ''
     },
     {
       key: 'developer',
-      responsibility: tr('collaboration.developerResponsibility'),
-      name: tr('defaultRoles.developer'),
+      responsibility: tr('roleTemplates.developerResponsibility'),
+      name: tr('roleTemplates.developer'),
       mode: 'workspace-write',
       modelHint: tr('defaultRoles.midTierModelRecommendedFor'),
-      instructions: tr('collaboration.developerInstructions')
+      instructions: ''
+    },
+    {
+      key: 'reviewer',
+      responsibility: tr('roleTemplates.reviewerResponsibility'),
+      name: tr('roleTemplates.reviewer'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.useTopTierModelFor'),
+      instructions: ''
     },
     {
       key: 'tester',
-      responsibility: tr('collaboration.testerResponsibility'),
-      name: tr('defaultRoles.tester'),
+      responsibility: tr('roleTemplates.testerResponsibility'),
+      name: tr('roleTemplates.tester'),
       mode: 'workspace-write',
       modelHint: tr('defaultRoles.fastModelRecommendedForRoutine'),
-      instructions: tr('collaboration.testerInstructions')
+      instructions: ''
+    },
+    {
+      key: 'architect',
+      responsibility: tr('roleTemplates.architectResponsibility'),
+      name: tr('roleTemplates.architect'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.strongReasoningModelRecommendedFor'),
+      instructions: ''
+    },
+    {
+      key: 'debugger',
+      responsibility: tr('roleTemplates.debuggerResponsibility'),
+      name: tr('roleTemplates.debugger'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.strongReasoningModelRecommendedFor'),
+      instructions: ''
+    },
+    {
+      key: 'deployer',
+      responsibility: tr('roleTemplates.deployerResponsibility'),
+      name: tr('roleTemplates.deployer'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.midTierModelRecommendedFor'),
+      instructions: ''
+    },
+    {
+      key: 'documenter',
+      responsibility: tr('roleTemplates.documenterResponsibility'),
+      name: tr('roleTemplates.documenter'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.fastModelRecommendedForRoutine'),
+      instructions: ''
     }
   ]);
 }

@@ -1,6 +1,22 @@
 // English message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'roleTemplates.planner': 'Planner',
+  'roleTemplates.plannerResponsibility': 'Develop and maintain implementation plans for complex tasks, including scope, dependencies, milestones and acceptance criteria. Explain plan details and changes and answer teammates\' questions about the solution.',
+  'roleTemplates.developer': 'Executor',
+  'roleTemplates.developerResponsibility': 'Implement assigned code changes and fixes, perform self-checks and provide the changed files, revision and verification results for review and testing. Own follow-up corrections to the original implementation and clarify requirements with the planner or supervisor.',
+  'roleTemplates.reviewer': 'Reviewer',
+  'roleTemplates.reviewerResponsibility': 'Independently review plans and code for correctness, maintainability and risks. Give evidence and impact for findings to the original implementer and planner or supervisor, and recheck fixes or explanations for leaving the code unchanged.',
+  'roleTemplates.tester': 'Tester',
+  'roleTemplates.testerResponsibility': 'Verify requirements and acceptance criteria through regression checks and realistic user operations on the deployed test version. Record the environment, revision, reproduction steps and actual results, report failures to the original implementer and retest fixes.',
+  'roleTemplates.architect': 'Architect',
+  'roleTemplates.architectResponsibility': 'Design system boundaries, module responsibilities, interfaces and data flows. Compare technical choices and assess cross-module changes, compatibility and consistency risks, providing design decisions and supporting evidence to the planner and implementers.',
+  'roleTemplates.debugger': 'Debugger',
+  'roleTemplates.debuggerResponsibility': 'Investigate hard-to-reproduce failures, runtime exceptions and complex defects using logs, code and environment evidence. Identify the root cause, propose or carry out targeted repairs, and provide reproduction and verification results to the original implementer or supervisor.',
+  'roleTemplates.deployer': 'Deployer',
+  'roleTemplates.deployerResponsibility': 'Handle builds, environment checks, deployment and service verification for the assigned release. Track source, artifact and deployed revisions, confirm the target configuration and rollback path, and report actual service status and release results to the supervisor and tester.',
+  'roleTemplates.documenter': 'Documenter',
+  'roleTemplates.documenterResponsibility': 'Maintain project, interface, usage and operations documentation based on implemented behavior and confirmed decisions. Organize handoff notes and examples, identify outdated or conflicting information, and give teammates clear references to the current source of truth.',
   "sourceSync.failure": "Source synchronization: {code} {detail}",
   "sourceSync.systemName": "Source synchronization",
   "sourceSync.continuedReceipt": "Continuing the same owned workspace from these previously verified source inputs: {versions}. Your prior turn edits are retained, not overwritten with the original snapshot. Re-read current files; this receipt is not a claim that your output still equals the initial input.",
