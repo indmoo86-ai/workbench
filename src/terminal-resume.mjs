@@ -70,11 +70,11 @@ function terminalProcesses(session,dbPath) {
   const live=p=>p&&!p.zombie;
   const wrapperOwned=live(wrapper)&&(session.wrapperIdentity?sameProcess(wrapper,session.wrapperIdentity):!wrapper.unknown&&wrapper.command.includes('terminal-resume.mjs')&&wrapper.command.includes(dbPath)&&wrapper.command.includes(session.id));
   if(wrapperOwned)owned.push(processKey(wrapper));
-  else if(live(wrapper)&&(!session.wrapperIdentity||wrapper.unknown))unknown=true;
+  else if(live(wrapper)&&(!session.wrapperIdentity||wrapper.unknown||wrapper.start===session.wrapperIdentity.start&&wrapper.uid!==session.wrapperIdentity.uid))unknown=true;
   const childOwned=live(child)&&(session.childIdentity?sameProcess(child,session.childIdentity):!child.unknown&&wrapperOwned&&child.ppid===wrapper.pid&&child.uid===wrapper.uid);
   if(childOwned)owned.push(processKey(child));
-  else if(live(child)&&(!session.childIdentity||child.unknown))unknown=true;
-  for(const expected of session.stopProcesses||[]){const actual=terminalProcessIdentity(expected.pid);if(live(actual)&&sameProcess(actual,expected))owned.push(expected);else if(actual?.unknown)unknown=true;}
+  else if(live(child)&&(!session.childIdentity||child.unknown||child.start===session.childIdentity.start&&child.uid!==session.childIdentity.uid))unknown=true;
+  for(const expected of session.stopProcesses||[]){const actual=terminalProcessIdentity(expected.pid);if(live(actual)&&sameProcess(actual,expected))owned.push(expected);else if(actual?.unknown||live(actual)&&actual.start===expected.start&&actual.uid!==expected.uid)unknown=true;}
   return {owned:[...new Map(owned.map(p=>[p.pid,p])).values()],unknown};
 }
 
