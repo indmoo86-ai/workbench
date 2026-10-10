@@ -19,6 +19,6 @@
 
 | [design-source-sync](design-source-sync.md) | Incremental source transfer, safe apply and modifier-owned conflict repair | Implemented and audited; physical two-device and four-CLI acceptance limits recorded |
 | [plan-source-sync](plan-source-sync.md) | Source synchronization implementation and verification gates | Archived implementation plan; current contract is design-source-sync |
-| [design-shared-documents](design-shared-documents.md) | Shared document viewing, local paths and two-way document reconciliation | Proposal awaiting design approval; not deployed |
+| [design-shared-documents](design-shared-documents.md) | Continuous project-folder synchronization and actual Mac-local file viewing, including shared documents | Revised proposal awaiting design approval; not deployed |
 
 Start with the README, then ARCHITECTURE. Read the PRD when you need the full product scope. ARCHITECTURE describes the actual code only and never treats a plan as a feature. Design documents may describe intended behavior; where they disagree with the code, the code is the fact.
