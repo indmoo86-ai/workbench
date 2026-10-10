@@ -46,7 +46,7 @@ import { saveRunReport } from './run-reports.mjs';
 import { ScheduledJobs } from './scheduled-jobs.mjs';
 import { TimerAgentActions } from './timer-agent.mjs';
 import { inspectRunProgress } from './run-monitor.mjs';
-import { projectTerminalLock, terminalCommand, terminalLaunchView } from './terminal-resume.mjs';
+import { projectTerminalLock, terminalCommand, terminalLaunchView, TERMINAL_PREPARATION_TTL_MS } from './terminal-resume.mjs';
 import { ProjectGitVersions } from './project-git-versions.mjs';
 import {SourceSyncHome} from './source-sync-transport.mjs';
 import {acceptSourceProvenance} from './source-sync-provenance.mjs';
@@ -318,27 +318,39 @@ function workerQuery(run, action, path, timeout = 10000) {
 }
 const terminalRefreshes=new Map();
 /** Only the Worker can inspect remote PIDs; unknown/offline checks retain the lock and released receipts wake the original queue. */
-function refreshProjectTerminals(projectId) {
-  if(terminalRefreshes.has(projectId))return terminalRefreshes.get(projectId);
+function refreshProjectTerminals(projectId,{automatic=false}={}) {
+  const key=`${projectId}:${automatic?'auto':'manual'}`;
+  if(terminalRefreshes.has(key))return terminalRefreshes.get(key);
   const operation=(async()=>{
     if(!db.get('projects',projectId))throw new Error(tr('store.projectNotFound'));
-    const claims=db.listProject('terminalSessions',projectId).filter(s=>!['released','cancelled'].includes(s.status)),groups=new Map(),results=[];
+    const claims=db.listProject('terminalSessions',projectId).filter(s=>{
+      if(['released','cancelled'].includes(s.status))return false;
+      if(!automatic)return true;
+      const worker=db.get('workers',s.nodeId),expired=Date.now()-Date.parse(s.createdAt)>=TERMINAL_PREPARATION_TTL_MS;
+      // Older Workers revoke unused links immediately, so never send them a fresh reservation automatically.
+      return online(s.nodeId)&&worker?.capabilities?.terminalControl===1&&(s.status!=='preparing'||expired)&&(worker.capabilities.terminalAutoReturn===1||expired);
+    }),groups=new Map(),results=[];
     for(const claim of claims){const group=groups.get(claim.nodeId)||[];group.push(claim);groups.set(claim.nodeId,group);}
     await Promise.all([...groups].map(async([nodeId,members])=>{
       let checked;
       try{
         if(!online(nodeId))throw new Error(tr('terminalControl.offline'));
         if(db.get('workers',nodeId)?.capabilities?.terminalControl!==1)throw new Error(tr('terminalControl.upgrade'));
-        const reply=await workerQuery({nodeId},'terminal_check',{projectId,nodeId,claims:members.map(({id,projectId,nodeId})=>({id,projectId,nodeId}))},20000);
+        const reply=await workerQuery({nodeId},'terminal_check',{projectId,nodeId,automatic,claims:members.map(({id,projectId,nodeId})=>({id,projectId,nodeId}))},20000);
         checked=reply.results;
-        if(!Array.isArray(checked)||checked.length!==members.length||members.some(s=>!checked.some(c=>c.id===s.id&&['released','active','unknown'].includes(c.processState)&&c.checkedAt)))throw new Error(tr('terminalControl.stopPending'));
+        if(!Array.isArray(checked)||checked.length!==members.length||members.some(s=>!checked.some(c=>c.id===s.id&&['released','active','unknown',...(automatic?['prepared']:[])].includes(c.processState)&&c.checkedAt)))throw new Error(tr('terminalControl.stopPending'));
       }catch(error){checked=members.map(s=>({id:s.id,processState:'unknown',checkedAt:new Date().toISOString(),reason:error.message}));}
       for(const result of checked){db.transaction(()=>{const current=db.get('terminalSessions',result.id);if(!current||current.projectId!==projectId||current.nodeId!==nodeId||['released','cancelled'].includes(current.status))return;
-        db.put('terminalSessions',{...current,processState:result.processState,lastCheckedAt:result.checkedAt,processError:result.reason||null,...(result.processState==='released'?{status:'released',releasedAt:result.checkedAt}:result.status==='stopping'?{status:'stopping'}:{})});});results.push({...result,nodeId});}
+        db.put('terminalSessions',{...current,processState:result.processState,lastCheckedAt:result.checkedAt,processError:result.reason||null,...(result.processState==='released'?{status:'released',releasedAt:result.checkedAt}:result.processState==='active'?{status:result.status==='stopping'?'stopping':'active'}:{})});});results.push({...result,nodeId});}
     }));
-    change();scheduleChat();return {results,released:results.filter(s=>s.processState==='released').length,active:results.filter(s=>s.processState==='active').length,unknown:results.filter(s=>s.processState==='unknown').length};
-  })().finally(()=>terminalRefreshes.delete(projectId));
-  terminalRefreshes.set(projectId,operation);return operation;
+    if(results.length||!automatic){change();scheduleChat();}return {results,released:results.filter(s=>s.processState==='released').length,active:results.filter(s=>s.processState==='active').length,unknown:results.filter(s=>s.processState==='unknown').length};
+  })().finally(()=>terminalRefreshes.delete(key));
+  terminalRefreshes.set(key,operation);return operation;
+}
+/** Reconcile without a browser: process proofs survive disconnects and wake only the original queue after release. */
+function reconcileTerminals(nodeId) {
+  const projects=new Set(db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)&&(!nodeId||s.nodeId===nodeId)).map(s=>s.projectId));
+  return Promise.all([...projects].filter(id=>db.get('projects',id)).map(id=>refreshProjectTerminals(id,{automatic:true}))).catch(error=>console.error('Terminal reconciliation failed:',error.message));
 }
 /** Stopping is an explicit human action, scoped to the saved lease rather than arbitrary browser-supplied PIDs. */
 async function returnTerminal(claim,action) {
@@ -949,7 +961,7 @@ wss.on('connection', ws => {
       if(['source_sync_receipt','source_sync_command_ack','source_sync_watch_ack','source_sync_watch_status','source_sync_dirty'].includes(m.type)){
         void sourceSync.message(nodeId,m).catch(e=>send(ws,{type:'error',error:e.message}));return;
       }
-      if (m.type === 'ready') { ws.workerReady = true; dispatch(nodeId); scheduleChat(); collectUsage(nodeId); }
+      if (m.type === 'ready') { ws.workerReady = true; void reconcileTerminals(nodeId); dispatch(nodeId); scheduleChat(); collectUsage(nodeId); }
       if (m.type === 'heartbeat') db.put('workers', { ...db.get('workers', nodeId), lastSeen: new Date().toISOString() });
       if(m.type==='launch_deferred') {
         const c=db.get('commands',m.id);
@@ -1030,10 +1042,11 @@ const heartbeat = setInterval(() => {
   for (const r of viewers) r.write(': keepalive\n\n');
 }, 15000);
 const chatScheduler = setInterval(scheduleChat, 1000);
+const terminalMonitor=setInterval(()=>{void reconcileTerminals();},15000);terminalMonitor.unref();
 const sourceSyncTimer=setInterval(()=>{void sourceSync.tick().catch(e=>console.error(e.message));},1000);sourceSyncTimer.unref();
 const wechatPoll = setInterval(() => { void wechat.tick().catch(error => { console.error(tr('home.wechatChannelCheckFailed'), error.message); }); }, 4000);
 wechatPoll.unref();
 const progressMonitor=setInterval(()=>{if(inspectRunProgress(db,online))change();},60000);progressMonitor.unref();
 const usageCollector = setInterval(() => { for(const nodeId of sockets.keys())collectUsage(nodeId); }, 6*60*60*1000);
 server.listen(port, host, () => console.log(tr('home.agentWorkbenchHttpData', { host, port, data })));
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { clearInterval(heartbeat); clearInterval(chatScheduler); clearInterval(usageCollector); usageRetry.stop(); for (const ws of wss.clients) ws.terminate(); for (const r of viewers) r.end(); server.close(() => { db.close(); process.exit(0); }); });
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { clearInterval(heartbeat); clearInterval(chatScheduler); clearInterval(terminalMonitor); clearInterval(usageCollector); usageRetry.stop(); for (const ws of wss.clients) ws.terminate(); for (const r of viewers) r.end(); server.close(() => { db.close(); process.exit(0); }); });

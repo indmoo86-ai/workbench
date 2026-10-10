@@ -9,11 +9,32 @@ export function planMemberLabel(request, run, task) {
   if(request.notExecutedReason || (!request.currentRunId&&request.status==='failed'))return 'Not executed';
   if(run?.status==='failed')return 'Execution failed';
   if(run?.status==='interrupted'||request.status==='cancelled')return 'Cancelled';
+  const active={queued:'Queued',running:'Running',starting:'Starting',preparing:'Preparing',stopping:'Stopping',reconciling:'Awaiting node confirmation',waiting_approval:'Awaiting confirmation'}[run?.status];
+  if(active)return active;
+  if(request.status==='waiting_call')return 'Waiting for other roles to reply';
+  if(request.status==='waiting_input')return 'Awaiting answer';
   if(run?.status==='succeeded') {
     const verdict=request.outcome||run.report?.verdict;
     return {passed:'Done',failed:'Verdict: not passed',blocked:'Verdict: blocked',needs_input:'Awaiting answer',unverified:'No verdict'}[verdict]||'To verify';
   }
   return task?.waitingReason||({succeeded:'Done',running:'Running',queued:'Queued',waiting_dependencies:'Waiting on prior steps',failed:'Failed'}[request.status]||'Waiting');
+}
+
+/** A scheduler stage can be open while every member is still queued; display execution evidence, not that lifecycle flag. */
+export function planStageActivity(stage, requests=[], runs=[], tasks=[]) {
+  const current=(stage?.members||[]).map(member=>{
+    let request=requests.find(r=>r.id===member.requestId);
+    for(let i=0;request?.continuationRequestId&&i<20;i++)request=requests.find(r=>r.id===request.continuationRequestId);
+    return {request,run:runs.find(r=>r.id===request?.currentRunId),task:tasks.find(t=>t.id===request?.taskId)};
+  });
+  const active=current.find(item=>['running','starting','preparing','stopping','reconciling','waiting_approval'].includes(item.run?.status))||current.find(item=>item.run?.status==='queued');
+  if(active)return {label:planMemberLabel(active.request,active.run,active.task),reason:''};
+  if(current.some(item=>item.request?.status==='waiting_call'))return {label:'Waiting for other roles to reply',reason:''};
+  if(current.some(item=>item.request?.status==='waiting_input'))return {label:'Awaiting answer',reason:''};
+  const queued=current.filter(item=>['queued','waiting_dependencies'].includes(item.request?.status));
+  const reason=queued.find(item=>item.task?.waitingReason)?.task.waitingReason||'';
+  if(queued.length)return {label:reason?'Blocked in queue':'Queued',reason};
+  return {label:'Waiting to advance',reason:''};
 }
 
 /** Show only the latest plan round created for the project; closing does not fall back to older rounds, and progress is still derived from call state. */

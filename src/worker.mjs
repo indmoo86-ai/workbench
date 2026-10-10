@@ -550,7 +550,7 @@ async function query(m) {
     if(m.action==='terminal_check') {
       const input=m.path;
       if(!Array.isArray(input?.claims)||input.nodeId!==identity.nodeId)throw new Error(tr('worker.invalidTakeoverId'));
-      const results=input.claims.map(binding=>{if(binding.projectId!==input.projectId||binding.nodeId!==identity.nodeId||typeof binding.id!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(binding.id))throw new Error(tr('worker.invalidTakeoverId'));return checkTerminalSession(db,binding,join(data,'worker.sqlite'));});
+      const results=input.claims.map(binding=>{if(binding.projectId!==input.projectId||binding.nodeId!==identity.nodeId||typeof binding.id!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(binding.id))throw new Error(tr('worker.invalidTakeoverId'));return checkTerminalSession(db,binding,join(data,'worker.sqlite'),{automatic:input.automatic===true});});
       reportCapacity();send({type:'reply',id:m.id,result:{results}});return;
     }
     if(m.action==='terminal_stop') {
@@ -792,7 +792,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {

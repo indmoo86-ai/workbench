@@ -11,6 +11,7 @@ import {syncError} from './source-sync-manifest.mjs';
 const sessionPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/;
 const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 const closed = new Set(['released', 'cancelled']);
+export const TERMINAL_PREPARATION_TTL_MS = 5 * 60 * 1000;
 
 /** Only accept the CLI's session fields; an arbitrary tool call id is never treated as a session. */
 export function nativeSessionId(raw, runtime) {
@@ -79,11 +80,16 @@ function terminalProcesses(session,dbPath) {
 }
 
 /** Revoke unused/dead links in the same transaction as native claiming; late preparation cannot resurrect the lease. */
-export function checkTerminalSession(db,binding,dbPath) {
+export function checkTerminalSession(db,binding,dbPath,{automatic=false}={}) {
   return db.transaction(()=>{
     const prior=db.get('terminalSessions',binding.id),checkedAt=new Date().toISOString();
     if(prior&&(prior.projectId!==binding.projectId||prior.nodeId!==binding.nodeId))throw new Error(tr('worker.invalidTakeoverId'));
     if(!prior||closed.has(prior.status)){db.put('terminalSessions',{...binding,...prior,status:'released',releasedAt:prior?.releasedAt||checkedAt});return {id:binding.id,status:'released',processState:'released',checkedAt};}
+    // Background checks allow time to open a new link; manual refresh remains an explicit revocation of unused links.
+    if(automatic&&prior.status==='prepared'&&!prior.pid&&!prior.childPid&&Date.now()-Date.parse(prior.createdAt)<TERMINAL_PREPARATION_TTL_MS) {
+      db.put('terminalSessions',{...prior,lastCheckedAt:checkedAt,processState:'prepared'});
+      return {id:prior.id,status:'prepared',processState:'prepared',checkedAt};
+    }
     const proof=terminalProcesses(prior,dbPath),processState=proof.unknown?'unknown':proof.owned.length?'active':'released';
     db.put('terminalSessions',{...prior,lastCheckedAt:checkedAt,processState,...(processState==='released'?{status:'released',releasedAt:checkedAt}:{})});
     return {id:prior.id,status:processState==='released'?'released':prior.status,processState,checkedAt,...(proof.unknown?{reason:tr('terminalControl.identityUnknown')}:{})};

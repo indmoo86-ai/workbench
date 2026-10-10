@@ -11,7 +11,7 @@ import { tokenUsageUI } from './token-usage.js';
 import { createScheduledJobsUI } from './scheduled-jobs.js';
 import { formatGitVersionStatus, formatProjectGitSummary } from './git-version.js';
 import { partitionRunLog, displayRunInput, contextUsageLabel, mergeRunEvents, shouldShowFinalResult, toolStatusLabel, stripAnsi, taskRunDisplayStatus } from './run-log-data.js';
-import { planDismissKey, planDockState, planMemberLabel } from './plan-dock.js';
+import { planDismissKey, planDockState, planMemberLabel, planStageActivity } from './plan-dock.js';
 import {createWorkspaceInspector,initWorkspaceColumns} from './workspace-inspector.js';
 import {applyStateUpdate} from './state-data.js';
 import { TOKEN_KEY, readApiToken, saveApiToken } from './browser-token.js';
@@ -561,9 +561,10 @@ function renderExecutionPlans() {
   const details=document.createElement('details');details.open=open;
   const summary=document.createElement('summary');
   const status={running:'Running',succeeded:'Completed',blocked:'Blocked',cancelled:'Cancelled',pending:'Not started',failed:'Failed',completed_with_issues:'Ended · with issues'};
+  const activity=plan=>planStageActivity(plan.stages?.find(stage=>stage.status==='running'),app.data.requests||[],app.data.runs||[],app.data.tasks||[]);
   const title=document.createElement('strong');title.textContent=t('Supervisor plan · {currentStage}', { currentStage: t(state.currentStage) });
   const progress=document.createElement('span');progress.className='execution-progress';progress.textContent=`${state.completed}/${state.total}`;
-  const badge=document.createElement('span');badge.className='execution-status';badge.textContent=status[state.current.status]||state.current.status;
+  const badge=document.createElement('span');badge.className='execution-status';badge.textContent=t(state.current.status==='running'?activity(state.current).label:status[state.current.status]||state.current.status);
   summary.append(title,progress,badge);details.append(summary);panel.append(details);
   if(state.dismissible.some(plan=>plan.id===state.current.id)) {
     const close=create('button','execution-plan-close');close.type='button';close.title='Close finished plan';close.setAttribute('aria-label','Close finished plan');
@@ -580,9 +581,10 @@ function renderExecutionPlans() {
   list.append(count);
   for(const plan of state.plans) {
     const item=document.createElement('section');item.className='execution-plan-item';
-    const heading=document.createElement('h3');heading.textContent=`${plan.reason} · ${t(status[plan.status]||plan.status)}`;
+    const progress=plan.status==='running'?activity(plan):null;
+    const heading=document.createElement('h3');heading.textContent=`${plan.reason} · ${t(progress?.label||status[plan.status]||plan.status)}`;
     item.append(heading);
-    const note=plan.error||plan.waitingReason||plan.fallbackReason;
+    const note=plan.error||plan.waitingReason||progress?.reason||plan.fallbackReason;
     if(note){const p=document.createElement('p');p.textContent=note;item.append(p);}
     if((plan.deliveryIds||[]).some(id=>{
       const delivery=(app.data.deliveries||[]).find(d=>d.id===id);
@@ -594,7 +596,7 @@ function renderExecutionPlans() {
       const row=document.createElement('div');row.className='execution-stage';
       const label=document.createElement('span');
       const mode=stage.exclusive?'Exclusive serial':stage.mode==='parallel' && plan.isolated!==false?'Parallel':'Sequential';
-      label.textContent=`${stage.index+1}. ${stage.title} · ${t(mode)} · ${plan.failurePolicy==='collect_reviews'&&stage.status==='failed'?t('Some failed or missing'):t(status[stage.status]||stage.status)}`;
+      label.textContent=`${stage.index+1}. ${stage.title} · ${t(mode)} · ${stage.status==='running'?t(planStageActivity(stage,app.data.requests||[],app.data.runs||[],app.data.tasks||[]).label):plan.failurePolicy==='collect_reviews'&&stage.status==='failed'?t('Some failed or missing'):t(status[stage.status]||stage.status)}`;
       const members=document.createElement('small');
       members.textContent=(stage.members||[]).map(m=>{
         let request=(app.data.requests||[]).find(r=>r.id===m.requestId);
@@ -997,7 +999,8 @@ function openRoleTerminal(role) {
     const ownerRole=claim?[...(app.data.roles||[]),...(app.data.supervisorRoles||[])].find(item=>item.id===(claim.roleId||run?.roleId)):role;
     const nodeId=claim?.nodeId||run?.nodeId||role.nodeId,worker=app.data.workers.find(item=>item.id===nodeId);
     const remote=workerKind(worker)==='cloud',sshDevice=(app.data.devices||[]).find(item=>item.nodeId===nodeId);
-    if(claim){const checked=create('p','workspace-note',!worker?.online?'Device offline; terminal process state unknown':claim.processState==='active'?'Terminal CLI is running':claim.processState==='unknown'?'Terminal process state unverified':'Terminal reserved; refresh to check the process');if(claim.lastCheckedAt)checked.append(document.createTextNode(' · '+t('Checked at: {time}',{time:formatTime(claim.lastCheckedAt)})));terminalDialog.append(checked);if(claim.processError)terminalDialog.append(create('p','workspace-note',claim.processError));}
+    if(claim){const checked=create('p','workspace-note',!worker?.online?'Device offline; terminal process state unknown':claim.processState==='active'?'Terminal CLI is running':claim.processState==='prepared'?'Waiting to open terminal':claim.processState==='unknown'?'Terminal process state unverified':'Terminal reserved; refresh to check the process');if(claim.lastCheckedAt)checked.append(document.createTextNode(' · '+t('Checked at: {time}',{time:formatTime(claim.lastCheckedAt)})));terminalDialog.append(checked);if(claim.processError)terminalDialog.append(create('p','workspace-note',claim.processError));}
+    if(worker?.capabilities?.terminalAutoReturn===1)terminalDialog.append(create('p','workspace-note','Exited terminals return automatically within about 15 seconds. Unopened links expire after 5 minutes.'));
     const workspace=(app.data.workspaces||[]).find(item=>item.id===`${role.projectId}:${nodeId}`||item.projectId===role.projectId&&item.nodeId===nodeId);
     if(run)info.textContent=t('Device: {v}\nFolder: {v2}\nRun user: {v3}\nSession ID: {v4}', { v: worker?.name||nodeId, v2: claim?.workspace||run.workspace||t('not recorded'), v3: claim?.user||run.nativeSession?.user||t('verified by Worker'), v4: claim?.sessionId||run.nativeSession?.id||run.threadId||t('not recorded; resume cannot be guaranteed') });
     else {
