@@ -69,6 +69,7 @@ export function supervisorSettings({ api, getData, getProject, refreshState, cre
   form.elements.nodeId.addEventListener('change', nodeChanged);
   form.elements.runtime.addEventListener('change', () => models());
   form.elements.model.addEventListener('change', () => efforts(form.elements.effort.value));
+  form.addEventListener('input', () => { feedback.hidden = true; });
   form.addEventListener('submit', async e => {
     e.preventDefault(); if (busy || !projectId) return;
     const id = projectId, fields = Object.fromEntries(new FormData(form));

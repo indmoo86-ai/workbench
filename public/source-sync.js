@@ -23,8 +23,8 @@ export function sourceSyncPanel({api:request,getData,getProject,refreshState=()=
   async function act(fn,b){if(action)return;action=true;if(b)b.disabled=true;const e=epoch;try{await fn();if(e===epoch){await load(true);await refreshState();}}catch(error){if(e===epoch){const note=el('p','workspace-note',error.message);note.setAttribute('role','alert');panel.append(note);}}finally{action=false;if(b?.isConnected)b.disabled=false;}}
   function draw(){
     panel.replaceChildren();if(!state)return;
-    const h=el('div','source-sync-heading');h.append(el('h3','',t('Source sync')),button('Configure source sync',configure));panel.append(h,el('p','workspace-note',t(state.config.enabled?'Enabled':'Disabled')));
-    panel.append(el('p','workspace-note',t('Saved source files, including uncommitted edits. Git delivery remains separate.')));
+    const h=el('div','source-sync-heading');h.append(el('h3','',t('Project file sync')),button('Configure project file sync',configure));panel.append(h,el('p','workspace-note',t(state.config.enabled?'Enabled':'Disabled')));
+    panel.append(el('p','workspace-note',t('Saved code, documents and resources; Git delivery remains separate.')));
     if(state.config.mode==='continuous')panel.append(el('p','workspace-note',t('Automatic two-way sync continues while this page is closed.')),el('p','workspace-note',`${t('Local display device')}: ${name(state.config.displayNodeId)}`));
     for(const watcher of state.watchers||[])if(watcher.generation===state.config.generation&&watcher.status!=='watching')panel.append(el('p','workspace-note',`${name(watcher.nodeId)} · ${status(watcher.status)}${watcher.error?' · '+watcher.error:''}`));
     if(state.config.enabled){
@@ -42,9 +42,9 @@ export function sourceSyncPanel({api:request,getData,getProject,refreshState=()=
     for(const c of state.conflicts.filter(c=>!['resolved','cancelled'].includes(c.status))){const row=el('div','source-sync-row');const open=button(c.path,()=>detail(c.id));open.setAttribute('translate','no');row.append(open,el('small','workspace-note',status(c.status)));panel.append(row);}
   }
   async function configure(){
-    await load(true);if(!state)return;const ctx=modal('Configure source sync'),{body,note,id,v}=ctx,config=state.config;let preview=null,pending=false;
+    await load(true);if(!state)return;const ctx=modal('Configure project file sync'),{body,note,id,v}=ctx,config=state.config;let preview=null,pending=false;
     body.append(el('p','workspace-note',t('Choose bound repositories and at least two devices. Preview scans without changing files. Disable sync before changing its scope.')));
-    if(config.enabled){body.append(button('Disable source sync',async b=>{b.disabled=true;try{await api(endpoint(id)+'/config',{enabled:false,revision:config.revision},'PUT');if(valid(id,v)){dialog.close();await load(true);}}catch(e){if(valid(id,v)){note.textContent=e.message;b.disabled=false;}}}));return;}
+    if(config.enabled){body.append(button('Disable project file sync',async b=>{b.disabled=true;try{await api(endpoint(id)+'/config',{enabled:false,revision:config.revision},'PUT');if(valid(id,v)){dialog.close();await load(true);}}catch(e){if(valid(id,v)){note.textContent=e.message;b.disabled=false;}}}));return;}
     const nodes=el('fieldset'),repos=el('fieldset');nodes.append(el('legend','',t('Devices')));repos.append(el('legend','',t('Repositories')));body.append(nodes,repos);
     const displayLabel=el('label','',t('Local display device')),display=el('select');display.setAttribute('aria-label',t('Local display device'));
     for(const w of getData().workers||[])if(w.platform==='darwin'&&w.capabilities?.sourceSyncDirectory===1){const option=el('option','',w.name||w.id);option.value=w.id;display.append(option);}displayLabel.append(display);body.append(displayLabel,el('p','workspace-note',t('Source, documents and resources share one background sync. Git commits are not synchronized.')));

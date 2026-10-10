@@ -287,6 +287,14 @@ input:focus, textarea:focus, select:focus { border-color: #66b996; box-shadow: 0
   padding: 16px 22px;
 }
 .project-settings-folder-block { margin: 0; }
+#settings-project-panel .project-basic-settings > form { margin-top: 16px; }
+#settings-project-panel .project-settings-folder-block[open] > .form-grid { margin-top: 16px; }
+#settings-project-panel .action-text-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; width: auto; flex-shrink: 0; }
+#settings-project-panel .action-text-button svg { width: 20px; height: 20px; flex-shrink: 0; }
+#settings-project-panel .path-picker { align-items: center; }
+#project-prepare-form > .form-actions { align-self: end; justify-content: flex-start; }
+#settings-project-panel .project-danger-zone { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-top: 20px; }
+#settings-project-panel .project-danger-zone > .form-feedback { flex-basis: 100%; }
 
 .content-grid { display: grid; grid-template-columns: minmax(230px, 34%) minmax(360px, 1fr); gap: 20px; padding-top: 25px; }
 .task-column { min-width: 0; }

@@ -30,6 +30,8 @@ The workbench does not replace the CLIs and does not proxy model APIs. It drives
 
 ## Language
 
+Project Settings provides separate, clearly labeled saves for basic information, folder binding and supervisor configuration, with results shown beside each action. Project file sync is available from Project Settings and Resources.
+
 The **Basic Settings** tab groups language (English / 简体中文), browser API Token, WeChat notifications and the remote execution switch. The verified Home access token is saved in this browser and reused after closing and reopening it; edit it in Basic Settings when needed. Use a trusted browser profile: clearing site data, private browsing or switching to a different browser/address can require setup again. Language localizes the UI and displayed defaults, independently of model-facing instruction language. This README and the [operating guide](docs/OPERATING-GUIDE.md) are also available in Simplified Chinese: [README.zh-CN.md](README.zh-CN.md) and [docs/OPERATING-GUIDE.zh-CN.md](docs/OPERATING-GUIDE.zh-CN.md).
 
 Project names remain user-defined text in the sidebar, its accessible labels and the workspace heading; switching the interface language does not rename them.

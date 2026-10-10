@@ -228,11 +228,13 @@ export const UI_ICON = {
   play: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><path d="M8 5v14l12-7z"/></svg>`
 };
 
-/** Replaces only the button content, keeping submit type, disabled state and the original click handler; the name serves both hover and screen readers. */
+/** Keep handlers and button state intact; important settings actions opt into visible labels for touch users. */
 export function setActionIcon(button,name,label) {
   if(!button || !UI_ICON[name])return button;
   const title=label||button.getAttribute('aria-label')||button.textContent.trim();
-  button.classList.add('action-icon-button');button.innerHTML=UI_ICON[name];
+  const showLabel=button.hasAttribute('data-action-label');
+  button.classList.add(showLabel?'action-text-button':'action-icon-button');button.innerHTML=UI_ICON[name];
+  if(showLabel){const text=document.createElement('span');text.textContent=title;button.append(text);}
   button.title=title;button.setAttribute('aria-label',title);
   button.querySelector('svg').setAttribute('aria-hidden','true');
   return button;
