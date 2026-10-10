@@ -20,6 +20,6 @@
 | [design-source-sync](design-source-sync.md) | Single authority for project-file sync, safe apply, conflicts and continuous folders | Implemented; legacy and directory acceptance limits are recorded separately |
 | [plan-source-sync](plan-source-sync.md) | Source synchronization implementation and verification gates | Archived implementation plan; current contract is design-source-sync |
 | [design-shared-documents](design-shared-documents.md) | Actual Mac-local file reading, document links and Resources integration; consumes unified project-file sync | Implemented; physical Mac/Linux and browser verification, no separate synchronizer |
-| [plan-project-file-sync](plan-project-file-sync.md) | Unified directory scopes, background synchronization and actual Mac file reading | Implementation in progress; not deployed |
+| [plan-project-file-sync](plan-project-file-sync.md) | Unified directory scopes, background synchronization and actual Mac file reading | Completed; local/remote release and selective project activation verified |
 
 Start with the README, then ARCHITECTURE. Read the PRD when you need the full product scope. ARCHITECTURE describes the actual code only and never treats a plan as a feature. Design documents may describe intended behavior; where they disagree with the code, the code is the fact.

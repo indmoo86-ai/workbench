@@ -1,6 +1,6 @@
 # Actual Mac-local file viewing and shared document access
 
-Status: implemented; actual-Mac reading and real browser access verified with a Linux Home in an isolated test. Deployment/activation are recorded separately.
+Status: implemented and deployed locally and on one remote Worker. Actual-Mac reading was verified both with an isolated Linux Home and on the active service. Activation and measured boundaries are recorded in design-source-sync section 13.6.
 The single synchronization contract is [design-source-sync, section 13](design-source-sync.md#13-unified-continuous-project-file-synchronization). This document specifies only browser/file-reading integration and replaces the document-only synchronization and Home display-copy proposal.
 
 ## 1. Display device and intended result
@@ -9,7 +9,7 @@ Resources, Recent Outputs, document/file contents, displayed paths and Open proj
 
 Source files, shared documents and resources reach the Mac through the unified project-file engine. Opening or refreshing the page may request its current state but is not required for synchronization. The page does not start a document-specific transfer queue.
 
-The unfinished read-only cache modules from the earlier attempt are not the implementation target. Reuse relevant authorization/link handling only; remove duplicate copy/synchronization responsibilities during implementation.
+The unshipped read-only cache prototype was removed. Shared documents use the existing file-transfer engine and direct Worker reads.
 
 ## 2. Local inventory and reading
 
@@ -35,7 +35,7 @@ Extend existing document/file authorization, Markdown links, workspace inspectio
 
 Preserve normal Run-document access. Shared/local project access uses an explicit bound-project route and must not expand a Run's permissions to arbitrary supplied roots. Enforce symlink/traversal/credential and cross-project checks on the Mac Worker.
 
-Consolidate or remove the provisional `project-documents.mjs` copy service before publication. Its prototype and four narrow reading tests do not prove bidirectional synchronization, browser acceptance or deployment.
+The provisional `project-documents.mjs` copy service is not retained. Its early reading tests are not counted as bidirectional, browser or deployment acceptance.
 
 ## 5. Acceptance
 
