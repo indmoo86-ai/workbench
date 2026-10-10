@@ -12,6 +12,8 @@ Terminal links preserve command spaces and literal `+` characters. Refreshing th
 
 Role quota percentages show reset details on hover or keyboard focus, and open the same details on click or touch. Vendor timezone text is preserved; missing reset times are explicitly marked unavailable.
 
+Claude Code reasoning-effort choices in role and supervisor settings come from each device's native model metadata. The check sends no user/model turn, starts no hooks or MCP servers and saves no native session. CLI defaults and existing role configuration stay unchanged; older CLIs without capability metadata keep unspecified choices. Compatible provider launchers retain their actual model name rather than appearing as Opus.
+
 A self-hosted workbench that turns the AI coding CLIs and accounts you already have (Codex, Claude Code, Grok Build, Antigravity) into one collaborating team. You talk to a project group chat, `@mention` roles, and the workbench launches the real CLI on the right machine, streams the progress back, and keeps the results, reviews and hand-offs in one place.
 
 > Status: development preview (`0.4.0`). It is built for a single trusted operator or a small trusted group. See [Limitations](#limitations-and-roadmap) before exposing it to a network.

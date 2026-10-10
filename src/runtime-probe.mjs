@@ -300,7 +300,38 @@ export async function inspectAgy() {
 }
 
 
-/** Claude Code: --version / auth status / model aliases; no conversation is started. */
+/** Read native model capabilities without a user turn, saved session, hooks or MCP startup. Older CLIs keep unspecified levels. */
+function probeClaudeModels(bin) {
+  return new Promise(resolve => {
+    const child = spawn(bin, ['-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose',
+      '--no-session-persistence', '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}',
+      '--settings', '{"disableAllHooks":true}'], { stdio: ['pipe', 'pipe', 'ignore'] });
+    const lines = createInterface({ input: child.stdout });
+    let settled = false, bytes = 0;
+    const finish = models => {
+      if (settled) return;
+      settled = true; clearTimeout(timer); lines.close();
+      child.stdin.end(); child.kill('SIGKILL');
+      resolve(models);
+    };
+    const timer = setTimeout(() => finish([]), 5000);
+    child.on('error', () => finish([]));
+    child.on('close', () => finish([]));
+    child.stdin.on('error', () => finish([]));
+    child.stdout.on('data', chunk => { bytes += chunk.length; if (bytes > 1048576) finish([]); });
+    lines.on('line', line => {
+      try {
+        const message = JSON.parse(line), response = message.response;
+        if (message.type !== 'control_response' || response?.request_id !== 'wb-model-capabilities') return;
+        const models = response.subtype === 'success' ? response.response?.models : null;
+        finish(Array.isArray(models) ? models : []);
+      } catch { /* Ignore non-protocol startup output; the bounded timeout still applies. */ }
+    });
+    child.stdin.write(`${JSON.stringify({ type: 'control_request', request_id: 'wb-model-capabilities', request: { subtype: 'initialize' } })}\n`);
+  });
+}
+
+/** Claude Code: read installation, authentication and model capabilities without starting a conversation. */
 export async function inspectClaude() {
   const result = baseRuntime('claude', 'Claude Code');
   const bin = process.env.CLAUDE_BIN || 'claude';
@@ -342,11 +373,18 @@ export async function inspectClaude() {
     { id: 'opus', name: 'Opus', effort: null, efforts: [] },
     { id: 'haiku', name: 'Haiku', effort: null, efforts: [] },
   ];
-  const models = authReady ? known : [];
+  const [nativeModels, quota] = await Promise.all([authReady ? probeClaudeModels(bin) : [], probeClaudeQuota(bin)]);
+  const models = authReady ? known.map(model => {
+    const native = nativeModels.find(m => m?.value === model.id)
+      || (providerModel ? nativeModels.find(m => m?.resolvedModel === providerModel) : null);
+    const efforts = native?.supportsEffort === true && Array.isArray(native.supportedEffortLevels)
+      ? [...new Set(native.supportedEffortLevels.filter(value => ['low', 'medium', 'high', 'xhigh', 'max'].includes(value)))] : [];
+    return { ...model, efforts };
+  }) : [];
   result.models = models;
   result.authReady = authReady;
   result.available = authReady && models.length > 0;
-  Object.assign(result, await probeClaudeQuota(bin));
+  Object.assign(result, quota);
   result.reason = !result.installed ? result.reason
     : !authReady ? tr('runtimeProbe.signInWithClaudeOn2')
     : !models.length ? tr('runtimeProbe.cliReturnedNoAvailableModels3')
