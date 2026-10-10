@@ -17,7 +17,7 @@ export function excludedSourcePath(path,policy={}) {
   const parts=String(path).split('/');
   const shared=policy.sharedDocs===true&&parts[0]==='.workbench'&&parts[1]==='docs'&&parts.length>2;
   if(!shared&&policy.onlySharedDocs||(policy.excludeRoots||[]).some(root=>root?(path===root||path.startsWith(root+'/')):!shared))return true;
-  return parts.some((part,i)=>!(shared&&i===0)&&(/^(?:\.git|\.workbench|\.worktrees|\.data|\.local|\.attachments|node_modules|vendor|dist|build|target|coverage|\.next|\.cache|__pycache__|\.venv|\.codex|\.claude|\.ssh|\.netrc|_netrc|\.npmrc)$/i.test(part)
+  return parts.some((part,i)=>!(shared&&i===0)&&(/^(?:\.git|\.workbench|\.worktrees|\.data|\.local|\.migration|\.DS_Store|\.attachments|node_modules|vendor|dist|build|target|coverage|\.next|\.cache|__pycache__|\.venv|\.codex|\.claude|\.ssh|\.netrc|_netrc|\.npmrc)$/i.test(part)
     ||part.startsWith('.wb-bridge-')||part.startsWith('.wb-source-sync-')||/^\.env(?:\..*)?$/i.test(part)&&!/^\.env\.(?:example|sample|template)$/i.test(part)
     ||/^(?:credentials?|secrets?|tokens?)(?:\.|$)/i.test(part)||/^(?:id_rsa|id_ed25519|id_ecdsa)(?:\.|$)/i.test(part)
     ||/\.(?:pem|key|p12|pfx|log)$/i.test(part)));

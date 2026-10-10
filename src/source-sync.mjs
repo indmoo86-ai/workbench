@@ -121,7 +121,7 @@ export class SourceSync {
   command(batch,binding,action,extra={}){
     const id=identity(batch.id,binding.repositoryId,binding.nodeId,action,...(binding.endpointId?[binding.endpointId]:[])),prior=this.db.get('sourceSyncCommands',id);if(prior)return prior;
     return this.db.put('sourceSyncCommands',{id,projectId:batch.projectId,batchId:batch.id,repositoryId:binding.repositoryId,nodeId:binding.nodeId,
-      generation:batch.generation,action,root:binding.root,repoUrl:binding.repoUrl,...(binding.scopeKind==='directory'?{scopeKind:'directory',scopePolicy:binding.scopePolicy}:{}),...(binding.sourceRunId?{sourceRunId:binding.sourceRunId}:{}),...(binding.endpointId?{endpointId:binding.endpointId,captureRole:binding.captureRole}:{}),secret:randomBytes(32).toString('hex'),status:'queued',...extra});
+      generation:batch.generation,action,preview:batch.kind==='preview',root:binding.root,repoUrl:binding.repoUrl,...(binding.scopeKind==='directory'?{scopeKind:'directory',scopePolicy:binding.scopePolicy}:{}),...(binding.sourceRunId?{sourceRunId:binding.sourceRunId}:{}),...(binding.endpointId?{endpointId:binding.endpointId,captureRole:binding.captureRole}:{}),secret:randomBytes(32).toString('hex'),status:'queued',...extra});
   }
   captures(batch,repositoryId){return this.records('sourceSyncCommands',batch.projectId).filter(c=>c.batchId===batch.id&&c.repositoryId===repositoryId&&c.action==='capture');}
   /** Returns persistent commands; connection code supplies resend timing and node authentication. */

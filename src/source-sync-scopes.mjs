@@ -12,6 +12,16 @@ export function sourceScopeBinding(db,projectId,repositoryId,nodeId){
   return db.get('repositoryWorkspaces',`${repositoryId}:${nodeId}`);
 }
 
+/** A read-only preview must not pin receiver state before its scope is explicitly activated. */
+export function recordSourceBinding(db,command,root){
+  const id=`${command.projectId}:${command.repositoryId}${command.sourceRunId?':'+command.sourceRunId:''}`,contract=JSON.stringify({scopeKind:command.scopeKind||'repository',scopePolicy:command.scopePolicy||{}});
+  const binding={id,projectId:command.projectId,repositoryId:command.repositoryId,root,generation:command.generation,contract};
+  if(command.preview)return binding;
+  const old=db.get('sourceSyncBindings',id);
+  if(old&&(old.generation>command.generation||old.generation===command.generation&&(old.root!==root||old.contract&&old.contract!==contract)))throw syncError('binding_changed');
+  return db.put('sourceSyncBindings',binding);
+}
+
 /** Partition container/repository layouts so each physical file has exactly one receiving scope. */
 export function buildSourceBindings(db,projectId,repositoryIds,nodeIds,{scopeKind}={}){
   const directory=scopeKind==='directory',withProject=repositoryIds.includes(projectFileScopeId(projectId));

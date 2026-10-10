@@ -50,6 +50,7 @@ import {SourceProvenanceTracker} from './source-sync-provenance.mjs';
 import {prepareSourceInputs,sourceOverlayUnchanged} from './source-sync-input.mjs';
 import {captureSourceCandidate,captureDirectoryCandidate} from './source-sync-candidate.mjs';
 import {readSourceBlob} from './source-sync-files.mjs';
+import {recordSourceBinding} from './source-sync-scopes.mjs';
 
 const SYSTEM_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
 const exec = promisify(execFile);
@@ -132,13 +133,10 @@ const sourceSync=new SourceSyncClient({db,data,home:homeUrl.replace(/^ws/i,'http
   takeoverState:projectId=>Boolean(projectTerminalLock(db,projectId,identity.nodeId)),
   resolveBinding:async command=>{
     if(command.nodeId!==identity.nodeId)throw syncError('receipt_owner_mismatch');
-    const root=await projectRoot(command.root),id=`${command.projectId}:${command.repositoryId}${command.sourceRunId?':'+command.sourceRunId:''}`;
+    const root=await projectRoot(command.root);
     if(command.sourceRunId){const source=db.get('runs',command.sourceRunId),repo=source?.repositories?.find(r=>r.id===command.repositoryId);
       if(source?.projectId!==command.projectId||!repo||await projectRoot(repo.localRoot)!==root)throw syncError('binding_changed');}
-    const old=db.get('sourceSyncBindings',id);
-    const contract=JSON.stringify({scopeKind:command.scopeKind||'repository',scopePolicy:command.scopePolicy||{}});
-    if(old&&(old.generation>command.generation||old.generation===command.generation&&(old.root!==root||old.contract&&old.contract!==contract)))throw syncError('binding_changed');
-    const binding={id,projectId:command.projectId,repositoryId:command.repositoryId,root,generation:command.generation,contract};db.put('sourceSyncBindings',binding);return binding;
+    return recordSourceBinding(db,command,root);
   }});
 
 /** The local outbox is written to disk first and deleted only after Home confirms, so "sent" is never treated as "received". */
