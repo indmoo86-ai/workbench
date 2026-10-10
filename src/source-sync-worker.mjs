@@ -110,15 +110,16 @@ export class SourceSyncWorker {
   }
   canStart(projectId) {return !this.db.get('sourceSyncReservations',projectId);}
   async execute(command) {
+    const observing=command.scopeKind==='directory'&&command.action==='capture';
     const fingerprint=contentHash(JSON.stringify(command)),old=this.db.get('sourceSyncCommands',command.id);
     if(old&&old.fingerprint!==fingerprint)throw syncError('command_conflict');
     if(old?.result&&['completed','partial_conflict','cancelled','blocked'].includes(old.result.status))return old.result;
     if(this.running.has(command.id))return {status:'reconciling'};
     this.db.put('sourceSyncCommands',{id:command.id,projectId:command.projectId,command,fingerprint,status:'pending'});
     if(this.paused()&&!this.db.get('sourceSyncReservations',command.projectId))return {status:'blocked',reason:'paused'};
-    if(this.takeoverState(command.projectId)||this.activeRuns().some(r=>(r.projectId==='*'||r.projectId===command.projectId)&&!['succeeded','failed','interrupted'].includes(r.status)))return {status:'waiting_idle'};
+    if(!observing&&(this.takeoverState(command.projectId)||this.activeRuns().some(r=>(r.projectId==='*'||r.projectId===command.projectId)&&!['succeeded','failed','interrupted'].includes(r.status))))return {status:'waiting_idle'};
     const held=this.db.get('sourceSyncReservations',command.projectId);if(held&&held.commandId!==command.id)return {status:'waiting_idle'};
-    this.running.add(command.id);this.db.put('sourceSyncReservations',{id:command.projectId,commandId:command.id,repositoryId:command.repositoryId});
+    this.running.add(command.id);if(!observing)this.db.put('sourceSyncReservations',{id:command.projectId,commandId:command.id,repositoryId:command.repositoryId});
     try{
       const binding=await this.resolveBinding(command);
       if(!binding||binding.generation!==command.generation)throw syncError('binding_changed');
@@ -135,14 +136,14 @@ export class SourceSyncWorker {
       this.db.transaction(()=>{
         this.db.put('sourceSyncCommands',{...this.db.get('sourceSyncCommands',command.id),status:result.status,result});
         this.db.put('sourceSyncReceipts',{id:command.id,projectId:command.projectId,generation:command.generation,fingerprint,result,createdAt:now()});
-        this.db.remove('sourceSyncReservations',command.projectId);
+        if(this.db.get('sourceSyncReservations',command.projectId)?.commandId===command.id)this.db.remove('sourceSyncReservations',command.projectId);
       });return result;
     }catch(error){
       const uncertain=this.db.list('sourceSyncJournals').some(j=>j.commandId===command.id&&j.status==='prepared');
       const result={status:uncertain?'reconciling':'blocked',reason:error.code||'apply_failed'};
       this.db.transaction(()=>{
         this.db.put('sourceSyncCommands',{...this.db.get('sourceSyncCommands',command.id),status:result.status,...(!uncertain?{result}:{})});
-        if(!uncertain){this.db.put('sourceSyncReceipts',{id:command.id,projectId:command.projectId,generation:command.generation,fingerprint,result,createdAt:now()});this.db.remove('sourceSyncReservations',command.projectId);}
+        if(!uncertain){this.db.put('sourceSyncReceipts',{id:command.id,projectId:command.projectId,generation:command.generation,fingerprint,result,createdAt:now()});if(this.db.get('sourceSyncReservations',command.projectId)?.commandId===command.id)this.db.remove('sourceSyncReservations',command.projectId);}
       });return result;
     }finally{this.running.delete(command.id);}
   }

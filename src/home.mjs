@@ -23,6 +23,7 @@ import { RoleCalls } from './role-calls.mjs';
 import {RoleDiscussions} from './role-discussions.mjs';
 import {supportsDiscussion} from './discussion-policy.mjs';
 import {recentProjectArtifacts} from './run-artifacts.mjs';
+import {ProjectFiles} from './project-files.mjs';
 import { RoleSteering } from './role-steering.mjs';
 import { WorkspaceStateFeed } from './workspace-state.mjs';
 import { messageProgress, reconcileCallResults } from './message-progress.mjs';
@@ -127,6 +128,7 @@ const outputChanged=()=>{if(!changeTimer){changeTimer=setTimeout(change,100);cha
 const send = (ws, payload) => { if (ws?.readyState === 1) ws.send(JSON.stringify(payload)); };
 const online = id => sockets.get(id)?.readyState === 1;
 const sourceSync=new SourceSyncHome({db,data,online,socket:id=>sockets.get(id),change,rooms,query:workerQuery});
+const projectFiles=new ProjectFiles({db,online,query:workerQuery});
 const setup = new ProjectSetup(db, rooms, workerQuery, online, change);
 const credentials = new CredentialStore(join(data, 'credentials'));
 const hosting = new Hosting(db, credentials);
@@ -816,7 +818,11 @@ const server = http.createServer(async (req, res) => {
         }
       }
       if ((m = pathname.match(/^\/api\/projects\/([^/]+)\/artifacts$/)) && req.method === 'GET') {
+        if(db.get('sourceSyncConfigs',m[1])?.scopeKind==='directory')return json(res,await projectFiles.list(m[1]));
         return json(res,await recentProjectArtifacts(db,m[1],workerQuery,online));
+      }
+      if((m=pathname.match(/^\/api\/projects\/([^/]+)\/(local-files|local-file)$/))&&req.method==='GET'){
+        return json(res,m[2]==='local-files'?await projectFiles.list(m[1]):await projectFiles.read(m[1],url.searchParams.get('scopeId'),url.searchParams.get('path'),{metadata:url.searchParams.get('metadata')==='1'}));
       }
       if ((m = pathname.match(/^\/api\/runs\/([^/]+)\/(detail|events|files|file|document)$/)) && req.method === 'GET') {
         const r = db.get('runs', m[1]); if (!r) throw new Error(tr('home.runNotFound2'));
@@ -826,6 +832,7 @@ const server = http.createServer(async (req, res) => {
           if(!Number.isSafeInteger(after)||after<0)throw new Error(tr('home.invalidEventCursor'));
           return json(res, { events: db.events(r.id,after) });
         }
+        if(['file','document'].includes(m[2])){const ref=projectFiles.reference(r,url.searchParams.get('path'));if(ref)return json(res,await projectFiles.read(r.projectId,ref.scopeId,ref.path,{metadata:url.searchParams.get('metadata')==='1'}));}
         const result = await workerQuery(r, m[2], url.searchParams.get('path'),m[2]==='document'?30000:10000);
         return json(res, result);
       }
@@ -903,7 +910,7 @@ wss.on('connection', ws => {
         send(ws, { type: 'registered', paused: !!db.get('settings', 'main')?.paused, language: getLanguage(),...(m.node.capabilities?.cliCapacity===1?{capacity:limits.desiredCapacity}:{}) }); change(); return;
       }
       if (!nodeId || sockets.get(nodeId) !== ws) throw new Error(tr('home.nodeNotRegisteredYet'));
-      if(m.type==='source_sync_receipt'||m.type==='source_sync_command_ack'){
+      if(['source_sync_receipt','source_sync_command_ack','source_sync_watch_ack','source_sync_watch_status','source_sync_dirty'].includes(m.type)){
         void sourceSync.message(nodeId,m).catch(e=>send(ws,{type:'error',error:e.message}));return;
       }
       if (m.type === 'ready') { ws.workerReady = true; dispatch(nodeId); scheduleChat(); collectUsage(nodeId); }

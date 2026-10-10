@@ -115,7 +115,7 @@ export async function captureSourceSnapshot(options) {
 /** Directory scopes use saved-content baselines and the same hash/transfer contract as repository scopes. */
 export async function captureDirectorySnapshot(options) {
   const root=await realpath(options.root),policy=options.scopePolicy||{},entries=Object.create(null),excluded=[];
-  let visited=0,changedBytes=0,ignored=[];
+  let visited=0,fileCount=0,changedBytes=0,ignored=[];
   // Git ignore is an optional file-selection source, never the directory scope's version history.
   try{if(await realpath((await git(root,['rev-parse','--show-toplevel'])).trim())===root)ignored=(await git(root,['ls-files','-z','--others','--ignored','--exclude-standard','--directory'])).split('\0').filter(Boolean);}catch(e){if(!e.stderr?.includes('not a git repository')&&!String(e.message).includes('not a git repository')&&e.code!=='ENOENT')throw e;}
   const isIgnored=path=>ignored.some(p=>path===p||path.startsWith(p.endsWith('/')?p:p+'/'));
@@ -131,7 +131,7 @@ export async function captureDirectorySnapshot(options) {
         await walk(join(dir,item.name),path+'/');continue;
       }
       const captured=await readSourceFile(root,path,policy);if(!captured.entry)throw syncError('source_busy',path);
-      entries[path]=captured.entry;if(Object.keys(entries).length>SOURCE_SYNC_LIMITS.paths)throw syncError('manifest_too_large');
+      entries[path]=captured.entry;if(++fileCount>SOURCE_SYNC_LIMITS.paths)throw syncError('manifest_too_large');
       if(!entryEqual(captured.entry,options.baselineEntries?.[path]||null))changedBytes+=captured.entry.size;
       if(changedBytes>SOURCE_SYNC_LIMITS.batchBytes)throw syncError('batch_too_large');
       if(options.blobRoot)await saveSourceBlob(options.blobRoot,captured.bytes);

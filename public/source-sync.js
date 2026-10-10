@@ -25,6 +25,8 @@ export function sourceSyncPanel({api:request,getData,getProject,refreshState=()=
     panel.replaceChildren();if(!state)return;
     const h=el('div','source-sync-heading');h.append(el('h3','',t('Source sync')),button('Configure source sync',configure));panel.append(h,el('p','workspace-note',t(state.config.enabled?'Enabled':'Disabled')));
     panel.append(el('p','workspace-note',t('Saved source files, including uncommitted edits. Git delivery remains separate.')));
+    if(state.config.mode==='continuous')panel.append(el('p','workspace-note',t('Automatic two-way sync continues while this page is closed.')),el('p','workspace-note',`${t('Local display device')}: ${name(state.config.displayNodeId)}`));
+    for(const watcher of state.watchers||[])if(watcher.generation===state.config.generation&&watcher.status!=='watching')panel.append(el('p','workspace-note',`${name(watcher.nodeId)} · ${status(watcher.status)}${watcher.error?' · '+watcher.error:''}`));
     if(state.config.enabled){
       const field=el('label','',t('Source device')),select=el('select');select.setAttribute('aria-label',t('Source device'));
       for(const id of state.config.nodeIds||[]){const w=device(id),o=el('option','',`${name(id)} · ${t(!w?.online?'Offline':w.capabilities?.sourceSync!==1?'Worker update required':'Online')}`);o.value=id;select.append(o);}
@@ -44,18 +46,22 @@ export function sourceSyncPanel({api:request,getData,getProject,refreshState=()=
     body.append(el('p','workspace-note',t('Choose bound repositories and at least two devices. Preview scans without changing files. Disable sync before changing its scope.')));
     if(config.enabled){body.append(button('Disable source sync',async b=>{b.disabled=true;try{await api(endpoint(id)+'/config',{enabled:false,revision:config.revision},'PUT');if(valid(id,v)){dialog.close();await load(true);}}catch(e){if(valid(id,v)){note.textContent=e.message;b.disabled=false;}}}));return;}
     const nodes=el('fieldset'),repos=el('fieldset');nodes.append(el('legend','',t('Devices')));repos.append(el('legend','',t('Repositories')));body.append(nodes,repos);
+    const displayLabel=el('label','',t('Local display device')),display=el('select');display.setAttribute('aria-label',t('Local display device'));
+    for(const w of getData().workers||[])if(w.platform==='darwin'&&w.capabilities?.sourceSyncDirectory===1){const option=el('option','',w.name||w.id);option.value=w.id;display.append(option);}displayLabel.append(display);body.append(displayLabel,el('p','workspace-note',t('Source, documents and resources share one background sync. Git commits are not synchronized.')));
     const selected=(set)=>[...set.querySelectorAll('input:checked')].map(i=>i.value);
     const checkbox=(parent,text,value,disabled=false)=>{const label=el('label','source-sync-choice'),input=el('input');input.type='checkbox';input.value=value;input.disabled=disabled;label.append(input,el('span','',text));parent.append(label);input.addEventListener('change',()=>{preview=null;enable.disabled=true;previewBody.replaceChildren();});};
-    for(const w of getData().workers||[]){const supported=w.capabilities?.sourceSync===1;checkbox(nodes,`${w.name||w.id} · ${t(!supported?'Worker update required':w.online?'Online':'Offline')}`,w.id,!supported);}
+    for(const w of getData().workers||[]){const supported=w.capabilities?.sourceSyncDirectory===1;checkbox(nodes,`${w.name||w.id} · ${t(!supported?'Worker update required':w.online?'Online':'Offline')}`,w.id,!supported);}
+    checkbox(repos,t('Project files and shared documents'),`project-files:${id}`);repos.querySelector('input').checked=true;
     for(const r of (getData().repositories||[]).filter(r=>r.projectId===id))checkbox(repos,r.name||r.key,r.id);
     const previewBody=el('div','source-sync-preview');let enable;
+    display.addEventListener('change',()=>{preview=null;enable.disabled=true;previewBody.replaceChildren();});
     const scan=button('Preview scope',async b=>{if(pending)return;pending=true;b.disabled=true;enable.disabled=true;const nodeIds=selected(nodes),repositoryIds=selected(repos);for(const i of body.querySelectorAll('input'))i.disabled=true;
-      try{let batch=await api(endpoint(id)+'/preview',{requestId:crypto.randomUUID(),nodeIds,repositoryIds});
+      try{display.disabled=true;let batch=await api(endpoint(id)+'/preview',{requestId:crypto.randomUUID(),nodeIds,repositoryIds,scopeKind:'directory',mode:'continuous',displayNodeId:display.value});
         while(valid(id,v)&&!terminal.has(batch.status)){note.textContent=status(batch.status);await new Promise(r=>setTimeout(r,1000));const result=await api(endpoint(id)+'/batches/'+batch.id);batch=result.batch;}
         if(!valid(id,v))return;if(batch.status!=='preview_ready')throw Error(batch.reason||status(batch.status));
         const result=await api(endpoint(id)+'/batches/'+batch.id);if(!valid(id,v))return;preview=batch;previewBody.replaceChildren();
         for(const c of result.captures){const section=el('details'),summary=el('summary','',`${name(c.nodeId)} · ${c.repositoryId} · ${Object.keys(c.entries||{}).length}`);section.append(summary);const pre=el('pre','artifact-code',JSON.stringify({root:c.root,files:Object.keys(c.entries||{}),excluded:c.excluded},null,2));pre.setAttribute('translate','no');section.append(pre);previewBody.append(section);}note.textContent=t('Scope ready');enable.disabled=false;
-      }catch(e){if(valid(id,v))note.textContent=e.message;}finally{pending=false;if(valid(id,v)){b.disabled=false;for(const i of repos.querySelectorAll('input'))i.disabled=false;for(const i of nodes.querySelectorAll('input'))i.disabled=device(i.value)?.capabilities?.sourceSync!==1;}}
+      }catch(e){if(valid(id,v))note.textContent=e.message;}finally{pending=false;if(valid(id,v)){display.disabled=false;b.disabled=false;for(const i of repos.querySelectorAll('input'))i.disabled=false;for(const i of nodes.querySelectorAll('input'))i.disabled=device(i.value)?.capabilities?.sourceSyncDirectory!==1;}}
     });
     enable=button('Enable reviewed scope',async b=>{if(!preview||pending)return;pending=true;b.disabled=true;try{await api(endpoint(id)+'/config',{enabled:true,revision:config.revision,previewBatchId:preview.id},'PUT');if(valid(id,v)){dialog.close();await load(true);}}catch(e){if(valid(id,v)){note.textContent=e.message;b.disabled=false;}}finally{pending=false;}});enable.disabled=true;body.append(scan,previewBody,enable);
   }

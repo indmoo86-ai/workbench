@@ -42,6 +42,16 @@ export function entryEqual(a,b) {
   return a===null||b===null?a===b:a.hash===b.hash&&a.size===b.size&&a.executable===b.executable;
 }
 
+/** Link unique same-content add/delete pairs while retaining per-file, non-atomic receipts. */
+export function linkSourceMoves(changes){
+  for(const removed of changes.filter(c=>c.before&&c.after===null)){
+    const matches=changes.filter(c=>c.before===null&&c.after&&entryEqual(removed.before,c.after));
+    if(matches.length!==1||changes.filter(c=>c.after===null&&c.before&&entryEqual(c.before,removed.before)).length!==1)continue;
+    const added=matches[0],move={id:contentHash(JSON.stringify([removed.path,added.path,added.after.hash])),from:removed.path,to:added.path};removed.move=move;added.move=move;
+  }
+  return changes;
+}
+
 /** Proven absence is null; an unknown baseline must never masquerade as an absent file. */
 export function compareEntry(base,local,incoming) {
   validateEntry(base);validateEntry(local);validateEntry(incoming);

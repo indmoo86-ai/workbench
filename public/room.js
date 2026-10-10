@@ -1,6 +1,6 @@
 import { t, dateLocale } from './i18n.js';
 import { agentIconEl, UI_ICON, workerDisplayName } from './role-icons.js';
-import { renderMarkdown, linkRunDocuments } from './markdown.js';
+import { renderMarkdown, linkRunDocuments, localizeDocumentLinks } from './markdown.js';
 import { createHistoryViewer } from './history-view.js';
 import {createRoleSwitchUI} from './role-switch.js';
 import {createRoleHistoryTabs} from './role-history.js';
@@ -536,7 +536,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
   }
 
   /** Collapsing only affects display; viewing and copying the full text always use the complete original. */
-  const renderLinkedMarkdown=(text,runId)=>linkRunDocuments(renderMarkdown(text),runId);
+  const renderLinkedMarkdown=(text,runId)=>localizeDocumentLinks(linkRunDocuments(renderMarkdown(text),runId),runId,api);
   function replyPreview(text, markdown = true, runId = null) {
     const preview = create('div', 'chat-reply-preview');
     preview.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', text));

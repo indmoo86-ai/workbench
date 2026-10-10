@@ -4,6 +4,21 @@
  * Brand and product names (Codex, Gitee, GitHub, Windows App, iTerm, ...) are intentionally left as they are inside sentences.
  */
 export default {
+  'Local project files': '本机项目文件',
+  'Local display device': '本机显示设备',
+  'Project files and shared documents': '项目文件与共享文档',
+  'Automatic two-way sync continues while this page is closed.': '后台自动双向同步，关闭页面后仍继续。',
+  'Source, documents and resources share one background sync. Git commits are not synchronized.': '源码、文档和资源使用同一套后台同步。Git 提交不随文件同步。',
+  'Waiting for local synchronization': '等待同步到本机',
+  'Local file not found.': '本机文件不存在。',
+  'Binary file; preview unavailable.': '这是二进制文件，暂不支持页面预览。',
+  'File synchronized; text preview exceeds 600 KB.': '文件已同步，内容超过 600 KB 的预览上限。',
+  'Conflict detected; showing actual local file.': '存在同步冲突，当前展示本机实际文件。',
+  'Showing local changes; synchronization pending.': '当前展示本机修改，同步尚未完成。',
+  'Showing a bounded selection of local files.': '当前展示部分本机文件。',
+  'Reading actual files on the selected Mac.': '读取绑定 Mac 上的实际项目文件。',
+  'No local project files available.': '暂无可查看的本机项目文件。',
+  'Local files unavailable: {message}': '无法读取本机文件：{message}',
   'Native configuration update event': '原生会话配置更新事件',
   'SSH: {user}@{host}:{port}': 'SSH：{user}@{host}:{port}',
   'Open new session via SSH': '通过 SSH 打开新会话',

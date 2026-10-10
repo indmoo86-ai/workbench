@@ -18,21 +18,35 @@ export function createWorkspaceInspector({api,getProject,getData,openDevices,ope
   const refresh=document.querySelector('#refresh-artifacts');refresh.innerHTML=UI_ICON.refresh;
   const manage=document.querySelector('#manage-inspector-devices');manage.innerHTML=UI_ICON.settings||UI_ICON.project;manage.addEventListener('click',openDevices);
   let selected='roles',projectId=null,generation=0,detailVersion=0,loadedAt=0,busy=false;
+  let resourcesLoadedAt=0,resourcesBusy=false;
+  const localList=document.querySelector('#local-project-files-list'),localNote=document.querySelector('#local-project-files-note');
   document.querySelector('#close-artifact-detail').addEventListener('click',()=>dialog.close());
   dialog.addEventListener('close',()=>{detailVersion++;});
   async function detail(file){
     const version=++detailVersion;
     document.querySelector('#artifact-detail-title').textContent=file.name;
     const worker=getData().workers.find(w=>w.id===file.nodeId);
-    document.querySelector('#artifact-detail-meta').textContent=`${file.type} · ${file.runtime||t('Modifying CLI unknown')} · ${date(file.modifiedAt)} · ${worker?.name||file.nodeId}\n${file.path}`;
+    document.querySelector('#artifact-detail-meta').textContent=`${file.type} · ${file.runtime||t('Modifying CLI unknown')} · ${date(file.modifiedAt)} · ${worker?.name||file.nodeId}\n${file.path||t('Waiting for local synchronization')}`;
     content.textContent='Reading file…';dialog.showModal();
     // An older Worker may only lack the metadata query; the existing content API still works, so details are not blocked.
-    const markdown=/\.(md|markdown)$/i.test(file.path),text=/\.(md|markdown|txt)$/i.test(file.path);
+    const path=file.relativePath||file.path,markdown=/\.(md|markdown)$/i.test(path),text=/\.(md|markdown|txt)$/i.test(path);
     try{
-      const result=await api(`/api/runs/${encodeURIComponent(file.runId)}/${text?'document':'file'}?path=${encodeURIComponent(file.path)}`);
+      const result=await api(file.shared?`/api/projects/${encodeURIComponent(file.projectId)}/local-file?${new URLSearchParams({scopeId:file.scopeId,path})}`:`/api/runs/${encodeURIComponent(file.runId)}/${text?'document':'file'}?path=${encodeURIComponent(path)}`);
       if(version!==detailVersion||!dialog.open)return;
+      if(result.shared){document.querySelector('#artifact-detail-meta').textContent=result.path||t('Waiting for local synchronization');
+        if(result.content===null){content.textContent=t(result.preview==='binary'?'Binary file; preview unavailable.':result.preview==='too_large'?'File synchronized; text preview exceeds 600 KB.':'Waiting for local synchronization');return;}}
       content.replaceChildren(markdown?renderMarkdown(result.content):el('pre','artifact-code',result.content));
+      if(result.syncState==='conflict'||result.syncState==='local_changes')content.prepend(el('p','workspace-note',t(result.syncState==='conflict'?'Conflict detected; showing actual local file.':'Showing local changes; synchronization pending.')));
     }catch(error){if(version===detailVersion&&dialog.open)content.textContent=t('Unable to preview online: {message}. File info is kept; view it in the workspace of the corresponding device.', { message: error.message });}
+  }
+  async function loadResources(force=false){
+    if(selected!=='resources'||!projectId||resourcesBusy||!force&&Date.now()-resourcesLoadedAt<10000)return;
+    const version=generation,id=projectId;resourcesBusy=true;
+    try{const result=await api(`/api/projects/${encodeURIComponent(id)}/local-files`);if(version!==generation)return;
+      localList.replaceChildren();localNote.textContent=result.errors?.length?result.errors.map(e=>e.error).join(' · '):t(result.partial?'Showing a bounded selection of local files.':'Reading actual files on the selected Mac.');
+      for(const file of result.items){const row=el('button','artifact-row'),body=el('span','artifact-row-body');row.type='button';body.append(el('strong','',file.name),el('small','',file.path||t('Waiting for local synchronization')));body.lastChild.setAttribute('translate','no');row.append(body);row.addEventListener('click',()=>void detail(file));localList.append(row);}
+      if(!result.items.length)localList.append(el('p','workspace-note',t('No local project files available.')));
+    }catch(error){if(version===generation)localNote.textContent=t('Local files unavailable: {message}',{message:error.message});}finally{if(version===generation){resourcesBusy=false;resourcesLoadedAt=Date.now();}}
   }
   async function load(force=false){
     if(selected!=='artifacts'||!projectId||busy||(!force&&Date.now()-loadedAt<30000))return;
@@ -61,14 +75,14 @@ export function createWorkspaceInspector({api,getProject,getData,openDevices,ope
     document.querySelector('#inspector-role-actions').hidden=name!=='roles';
     refresh.hidden=name!=='artifacts';
     tabs.forEach((tab,i)=>{const active=names[i]===name;tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1;});
-    void load();sourceSync.render();
+    void load();void loadResources();sourceSync.render();
   }
   tabs.forEach((tab,i)=>{tab.addEventListener('click',()=>select(names[i]));tab.addEventListener('keydown',event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)){event.preventDefault();const next=event.key==='Home'?0:event.key==='End'?names.length-1:(i+(event.key==='ArrowRight'?1:-1)+names.length)%names.length;select(names[next]);tabs[next].focus();}});});
   refresh.addEventListener('click',()=>void load(true));
   return {render(){
     sourceSync.render();
     const next=getProject()?.id||null;
-    if(next!==projectId){projectId=next;generation++;detailVersion++;if(dialog.open)dialog.close();loadedAt=0;busy=false;refresh.disabled=false;list.replaceChildren();note.textContent=next?'':'Please select a project';}
+    if(next!==projectId){projectId=next;generation++;detailVersion++;if(dialog.open)dialog.close();loadedAt=0;resourcesLoadedAt=0;resourcesBusy=false;localList.replaceChildren();localNote.textContent='';busy=false;refresh.disabled=false;list.replaceChildren();note.textContent=next?'':'Please select a project';}
     const devices=document.querySelector('#inspector-device-list');devices.replaceChildren();
     for(const worker of getData().workers||[]){
       const row=el('button','inspector-device-row'),local=workerKind(worker)==='local';row.type='button';
@@ -78,7 +92,7 @@ export function createWorkspaceInspector({api,getProject,getData,openDevices,ope
       row.addEventListener('click',()=>local?void openProjectFolder(worker,row):openDevices());devices.append(row);
     }
     if(!devices.childElementCount)devices.append(el('p','artifact-list-note','No devices registered'));
-    void load();
+    void load();void loadResources();
   }};
 }
 

@@ -1,5 +1,6 @@
 import {contentHash,validateEntry,syncError} from './source-sync-manifest.mjs';
 import {conflictHashes} from './source-sync-conflicts.mjs';
+import {sourceScopeBinding} from './source-sync-scopes.mjs';
 
 /** All project roles can inspect sync facts; assignment and proposal are tied to actual Run identity. */
 export class SourceSyncAgent {
@@ -35,7 +36,8 @@ export class SourceSyncAgent {
       const id=contentHash(run.id+':'+input.requestId),fingerprint=contentHash(JSON.stringify(input)),prior=this.db.get('sourceSyncCandidates',id);
       if(prior){if(prior.fingerprint!==fingerprint)throw syncError('request_conflict');return {candidateId:id,status:prior.status,result:prior.result,error:prior.error};}
       this.db.put('sourceSyncCandidates',{id,projectId:run.projectId,runId:run.id,conflictId:c.id,generation:c.generation,assignmentId:c.assignmentId,fingerprint,input,status:'capturing'});
-      void this.query(run,'source_sync_candidate',{candidateId:id,conflictId:c.id,repositoryId:c.repositoryId,path:c.path},90000).catch(error=>{
+      const directory=c.scopeKind==='directory'?{scopeKind:'directory',scopePolicy:c.scopePolicy,root:sourceScopeBinding(this.db,c.projectId,c.repositoryId,run.nodeId)?.localRoot,assignmentId:c.assignmentId}:{};
+      void this.query(run,'source_sync_candidate',{candidateId:id,conflictId:c.id,repositoryId:c.repositoryId,path:c.path,...directory},90000).catch(error=>{
         const value=this.db.get('sourceSyncCandidates',id);if(value?.status==='capturing')this.db.put('sourceSyncCandidates',{...value,status:'blocked',error:error.code||'capture_failed'});
       });
       return {candidateId:id,status:'capturing',next:'Use wb sync status with candidateId before reporting completion.'};
@@ -47,10 +49,11 @@ export class SourceSyncAgent {
   /** Candidate scope is checked on the Worker against its pinned resolution manifest, not against model prose. */
   stageCandidate(run,input){
     const value=this.candidate(run,input.candidateId),c=this.conflict(run,value.conflictId);validateEntry(input.entry);
-    if(!run.sourceInputs?.some(i=>i.repositoryId===c.repositoryId&&i.manifestId===input.baselineManifestId)||!Array.isArray(input.changedPaths)||input.changedPaths.some(p=>p!==c.path))throw syncError('candidate_scope_changed');
-    const capturedFingerprint=contentHash(JSON.stringify({entry:input.entry,baselineManifestId:input.baselineManifestId,changedPaths:input.changedPaths}));
+    const matches=c.scopeKind==='directory'?input.scopeKind==='directory'&&input.baselineManifestId===c.assignmentId&&input.path===c.path&&input.root===sourceScopeBinding(this.db,c.projectId,c.repositoryId,run.nodeId)?.localRoot:run.sourceInputs?.some(i=>i.repositoryId===c.repositoryId&&i.manifestId===input.baselineManifestId);
+    if(!matches||!Array.isArray(input.changedPaths)||input.changedPaths.some(p=>p!==c.path))throw syncError('candidate_scope_changed');
+    const capturedFingerprint=contentHash(JSON.stringify({entry:input.entry,root:input.root,baselineManifestId:input.baselineManifestId,changedPaths:input.changedPaths}));
     if(value.capturedFingerprint&&value.capturedFingerprint!==capturedFingerprint)throw syncError('candidate_changed');
-    const staged={...value,entry:input.entry,scopeVerified:true,baselineManifestId:input.baselineManifestId,capturedFingerprint};this.db.put('sourceSyncCandidates',staged);return {candidateId:value.id,staged:true};
+    const staged={...value,entry:input.entry,root:input.root,scopeVerified:true,baselineManifestId:input.baselineManifestId,capturedFingerprint};this.db.put('sourceSyncCandidates',staged);return {candidateId:value.id,staged:true};
   }
   async completeCandidate(run,id){
     const value=this.candidate(run,id);if(!value.scopeVerified||value.entry===undefined)throw syncError('candidate_not_ready');

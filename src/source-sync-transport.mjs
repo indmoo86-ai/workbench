@@ -6,7 +6,9 @@ import {SourceSyncWorker} from './source-sync-worker.mjs';
 import {SourceSyncConflicts} from './source-sync-conflicts.mjs';
 import {SourceSyncAgent} from './source-sync-agent.mjs';
 import {runtimeIssue} from './runtime-probe.mjs';
-import {SOURCE_SYNC_CAPTURE_POLICY,manifestDigest,syncError,contentHash} from './source-sync-manifest.mjs';
+import {validateSourceCapture,syncError,contentHash} from './source-sync-manifest.mjs';
+import {sourceScopeBinding} from './source-sync-scopes.mjs';
+import {SourceSyncWatch} from './source-sync-watch.mjs';
 import {saveSourceBlob,readSourceBlob} from './source-sync-files.mjs';
 
 const json=(res,value,status=200)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
@@ -22,11 +24,18 @@ export class SourceSyncHome {
   }
   busy(projectId,nodeId){return this.db.list('sourceSyncCommands').some(c=>c.projectId===projectId&&c.nodeId===nodeId&&!c.result&&c.action==='apply');}
   async tick(){if(this.ticking)return;this.ticking=true;try{
+    this.watchTick();
     this.conflicts.tick();
     for(const c of this.sync.schedule()){
       const socket=this.socket(c.nodeId);if(!socket?.workerReady||socket.readyState!==1)continue;
       if(c.lastSentAt&&Date.now()-Date.parse(c.lastSentAt)<5000)continue;
-      const binding=this.db.get('repositoryWorkspaces',`${c.repositoryId}:${c.nodeId}`);
+      const binding=sourceScopeBinding(this.db,c.projectId,c.repositoryId,c.nodeId);
+      if(c.scopeKind==='directory'){
+        const batch=this.db.get('sourceSyncBatches',c.batchId);
+        try{const current=this.sync.bindings(c.projectId,batch.repositoryIds,batch.nodeIds,batch).find(b=>b.repositoryId===c.repositoryId&&b.nodeId===c.nodeId);
+          if(!current||current.root!==c.root||JSON.stringify(current.scopePolicy)!==JSON.stringify(c.scopePolicy))throw syncError('binding_changed');
+        }catch(e){this.sync.acceptReceipt(c.nodeId,{commandId:c.id,result:{status:'blocked',reason:e.code||'binding_changed'}});continue;}
+      }
       const source=c.sourceRunId?this.db.get('runs',c.sourceRunId):null,expectedRoot=source?.repositories?.find(r=>r.id===c.repositoryId)?.localRoot;
       const origin=this.db.get('sourceSyncBatches',c.batchId)?.actor?.runId;
       if(origin&&['failed','interrupted'].includes(this.db.get('runs',origin)?.status)){this.sync.acceptReceipt(c.nodeId,{commandId:c.id,result:{status:'blocked',reason:'source_run_failed'}});continue;}
@@ -36,7 +45,46 @@ export class SourceSyncHome {
       socket.send(JSON.stringify({type:'source_sync_command',commandId:c.id,batchId:c.batchId,projectId:c.projectId,secret:c.secret}));
     }
   }finally{this.ticking=false;}}
+  /** Persist each observation once and coalesce later saves; file notifications never invoke a model. */
+  watchTick(){
+    const configs=this.db.list('sourceSyncConfigs').filter(c=>c.enabled&&c.scopeKind==='directory'&&c.mode==='continuous');
+    for(const worker of this.db.list('workers').filter(w=>w.capabilities?.sourceSyncDirectory===1)){
+      const socket=this.socket(worker.id);if(!socket?.workerReady||socket.readyState!==1)continue;
+      const scopes=configs.flatMap(c=>c.bindings.filter(b=>b.nodeId===worker.id&&sourceScopeBinding(this.db,c.projectId,b.repositoryId,b.nodeId)?.localRoot===b.root).map(b=>({...b,projectId:c.projectId,generation:c.generation})));
+      const version=contentHash(JSON.stringify(scopes));
+      if(socket.sourceWatchAck!==version&&(!socket.sourceWatchSent||Date.now()-socket.sourceWatchSent>5000)){socket.sourceWatchSent=Date.now();socket.send(JSON.stringify({type:'source_sync_watch_config',version,scopes}));}
+    }
+    if(this.db.get('settings','main')?.paused)return;
+    for(const config of configs){
+      const notices=this.db.listProject('sourceSyncWatchNotices',config.projectId).filter(n=>n.generation===config.generation&&!n.handled);
+      for(const n of notices.filter(n=>n.batchId)){
+        const batch=this.db.get('sourceSyncBatches',n.batchId);
+        if(['completed','partial_conflict'].includes(batch?.status))this.db.put('sourceSyncWatchNotices',{...n,handled:true});
+        else if(['blocked','cancelled'].includes(batch?.status)&&Date.now()-Date.parse(n.queuedAt)>30000)this.db.put('sourceSyncWatchNotices',{...n,batchId:null});
+      }
+      if(this.db.listProject('sourceSyncBatches',config.projectId).some(b=>!['completed','partial_conflict','blocked','cancelled','preview_ready','evidence_ready'].includes(b.status)))continue;
+      const pending=this.db.listProject('sourceSyncWatchNotices',config.projectId).filter(n=>n.generation===config.generation&&!n.handled&&!n.batchId);if(!pending.length)continue;
+      const sourceNodeId=config.nodeIds.includes(pending[0].nodeId)?pending[0].nodeId:config.nodeIds[0];
+      try{const batch=this.sync.request(config.projectId,{requestId:contentHash(JSON.stringify(pending.map(n=>[n.noticeId,n.attempts||0]))),sourceNodeId,targetNodeIds:config.nodeIds.filter(id=>id!==sourceNodeId)} ,{kind:'watcher'});
+        for(const n of pending)this.db.put('sourceSyncWatchNotices',{...n,batchId:batch.id,queuedAt:new Date().toISOString(),attempts:(n.attempts||0)+1});
+      }catch(e){for(const n of pending)this.db.put('sourceSyncWatchNotices',{...n,error:e.code||'queue_failed'});}
+    }
+  }
+  watchMessage(nodeId,message){
+    if(message.type==='source_sync_watch_ack'){const socket=this.socket(nodeId);if(socket)socket.sourceWatchAck=message.version;return;}
+    const config=this.sync.config(message.projectId);
+    if(!config.enabled||config.scopeKind!=='directory'||config.mode!=='continuous'||config.generation!==message.generation||!config.nodeIds.includes(nodeId)||!config.repositoryIds.includes(message.repositoryId)){
+      if(message.type==='source_sync_dirty')this.socket(nodeId)?.send(JSON.stringify({type:'source_sync_dirty_ack',noticeId:message.noticeId,disposition:'obsolete'}));return;
+    }
+    const id=`${nodeId}:${message.projectId}:${message.repositoryId}`;
+    if(message.type==='source_sync_watch_status'){this.db.put('sourceSyncWatchStates',{id,projectId:message.projectId,nodeId,repositoryId:message.repositoryId,generation:message.generation,status:message.status,error:message.error,checkedAt:message.checkedAt,digest:message.digest});return;}
+    if(!/^[a-f0-9-]{36}$/.test(message.noticeId||'')||!/^[a-f0-9]{64}$/.test(message.digest||''))throw syncError('invalid_notice');
+    const prior=this.db.get('sourceSyncWatchNotices',id);
+    if(prior?.noticeId!==message.noticeId)this.db.put('sourceSyncWatchNotices',{id,projectId:message.projectId,nodeId,repositoryId:message.repositoryId,generation:message.generation,noticeId:message.noticeId,digest:message.digest,observedAt:message.observedAt});
+    this.socket(nodeId)?.send(JSON.stringify({type:'source_sync_dirty_ack',noticeId:message.noticeId}));
+  }
   async message(nodeId,message){
+    if(['source_sync_watch_ack','source_sync_watch_status','source_sync_dirty'].includes(message.type)){this.watchMessage(nodeId,message);return;}
     if(this.db.get('sourceSyncTombstones',message.commandId)?.nodeId===nodeId){this.socket(nodeId)?.send(JSON.stringify({type:'source_sync_receipt_ack',commandId:message.commandId,disposition:'project_deleted'}));return;}
     const c=this.db.get('sourceSyncCommands',message.commandId);if(!c||c.nodeId!==nodeId)throw syncError('receipt_owner_mismatch');
     if(message.type==='source_sync_command_ack'){this.db.put('sourceSyncCommands',{...c,ackedAt:new Date().toISOString()});return;}
@@ -66,9 +114,8 @@ export class SourceSyncHome {
     if(m[2]==='capture'&&req.method==='PUT'&&c.action==='capture'){
       const bundle=await body(req);
       // Reject old captures before accepting any content uploads, not after their bytes have been staged.
-      if([bundle.base,bundle.manifest].some(s=>s?.capturePolicy!==SOURCE_SYNC_CAPTURE_POLICY))throw syncError('snapshot_policy_unsupported');
-      for(const s of [bundle.base,bundle.manifest])if(!s||manifestDigest(s.entries)!==s.digest||!/^[a-f0-9]{40,64}$/.test(s.baseCommit||''))throw syncError('invalid_manifest');
-      if(bundle.base.baseCommit!==bundle.manifest.baseCommit||c.baseCommit&&c.baseCommit!==bundle.base.baseCommit)throw syncError('git_baseline_mismatch');
+      for(const s of [bundle.base,bundle.manifest])validateSourceCapture(s,c);
+      if(c.scopeKind!=='directory'&&(bundle.base.baseCommit!==bundle.manifest.baseCommit||c.baseCommit&&c.baseCommit!==bundle.base.baseCommit))throw syncError('git_baseline_mismatch');
       const fingerprint=contentHash(JSON.stringify(bundle)),old=this.db.get('sourceSyncUploads',c.id);
       if(old&&old.fingerprint!==fingerprint)throw syncError('capture_changed');
       this.db.put('sourceSyncUploads',{id:c.id,projectId:c.projectId,bundle,fingerprint});
@@ -128,6 +175,7 @@ export class SourceSyncClient {
   constructor({db,data,home,send,resolveBinding,activeRuns,takeoverState,paused}){
     Object.assign(this,{db,home,send,paused});this.blobRoot=join(data,'source-sync-blobs');this.inFlight=new Set();this.sent=new Map();
     this.worker=new SourceSyncWorker({db,blobRoot:this.blobRoot,resolveBinding,activeRuns,takeoverState,paused});
+    this.watch=new SourceSyncWatch({db,send,resolveBinding,blocked:projectId=>Boolean(db.get('sourceSyncReservations',projectId))});
   }
   async request(message,path,method='GET',value){
     const response=await fetch(`${this.home}/api/worker/source-sync/${message.commandId}/${path}`,{method,headers:{Authorization:`Bearer ${message.secret}`,...(value&&!Buffer.isBuffer(value)?{'Content-Type':'application/json'}:{})},body:value===undefined?undefined:Buffer.isBuffer(value)?value:JSON.stringify(value),signal:AbortSignal.timeout(60000)});
@@ -146,6 +194,7 @@ export class SourceSyncClient {
         if(!present){const r=await this.request(message,`blobs/${entry.hash}`),bytes=Buffer.from(await r.arrayBuffer());if(bytes.length!==entry.size||contentHash(bytes)!==entry.hash)throw syncError('blob_corrupt');await saveSourceBlob(this.blobRoot,bytes);}
       }
       const result=await this.worker.execute(command);
+      this.watch.received(command,result);
       if(result.status==='completed'&&command.action==='capture'){
         const needed=await (await this.request(message,'capture','PUT',{base:result.base,manifest:result.manifest})).json();
         for(const entry of needed.missing)await this.request(message,`blobs/${entry.hash}`,'PUT',await readSourceBlob(this.blobRoot,entry.hash));

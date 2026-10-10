@@ -4,6 +4,7 @@ import {contentHash,manifestDigest,validateEntry,syncError} from './source-sync-
 import {terminal} from './store.mjs';
 import {tr} from './i18n.mjs';
 import {isRoleConfigured} from './default-roles.mjs';
+import {sourceScopeBinding} from './source-sync-scopes.mjs';
 
 export const conflictHashes=c=>({base:c.base?.hash??null,sides:c.sides.map(s=>s.entry?.hash??null)});
 
@@ -30,12 +31,12 @@ export class SourceSyncConflicts {
       if((conflict.staleCount||0)>=2){this.escalate(conflict,'repeated_stale_proposal');continue;}
       if(conflict.evidencePending){this.sync.refreshEvidence?.(conflict);continue;}
       const records=this.db.listProject('sourceSyncProvenance',conflict.projectId);
-      const writers=conflict.sides.map(side=>side.unknown?{certainty:'unknown',roleId:null}:attributeSourceChange({records,repositoryId:conflict.repositoryId,path:conflict.path,afterHash:side.entry?.hash??null,nodeId:side.nodeId,sourceRunId:side.sourceRunId}));
+      const writers=conflict.sides.map(side=>side.unknown?{certainty:'unknown',roleId:null}:attributeSourceChange({records,repositoryId:conflict.repositoryId,path:conflict.path,afterHash:side.entry?.hash??null,nodeId:side.nodeId,sourceRunId:side.sourceRunId,root:conflict.scopeKind==='directory'?side.root:undefined}));
       const c=this.db.put('sourceSyncConflicts',{...conflict,writers});
       const originalTasks=writers.map(w=>w.runId&&this.db.get('runs',w.runId)).filter(Boolean).map(r=>this.db.get('tasks',r.taskId)).filter(Boolean);
       if(originalTasks.some(t=>t.requiresIndependentReview||t.reviewerRoleId||t.execution?.acceptance?.reviewerRoleId))c.requiresIndependentReview=true;
       this.db.put('sourceSyncConflicts',c);
-      const owner=writers.map(w=>w.roleId&&this.db.get('roles',w.roleId)).find(r=>r?.enabled&&!r.archivedAt&&isRoleConfigured(r)&&this.db.get('repositoryWorkspaces',`${conflict.repositoryId}:${r.nodeId}`)&&this.reachability(r));
+      const owner=writers.map(w=>w.roleId&&this.db.get('roles',w.roleId)).find(r=>r?.enabled&&!r.archivedAt&&isRoleConfigured(r)&&sourceScopeBinding(this.db,c.projectId,c.repositoryId,r.nodeId)&&this.reachability(r));
       if(owner)this.assign(c.id,c.generation,owner.id,{kind:'automatic'});else this.escalate(c,'modifier_unavailable');
     }
     for(const run of this.db.list('runs').filter(r=>r.sourceConflictId&&terminal.has(r.status)))this.finish(run.id);
@@ -55,14 +56,14 @@ export class SourceSyncConflicts {
     if(!c||c.generation!==generation||['resolved','cancelled'].includes(c.status))throw syncError('conflict_changed');
     if(actor.kind==='agent'&&actor.roleId!==this.db.get('projects',c.projectId)?.supervisorRoleId)throw syncError('assignment_not_allowed');
     if(['verifying','resolved_pending_sync'].includes(c.status))throw syncError('sync_busy');
-    if(role?.projectId!==c.projectId||!role.enabled||role.archivedAt||!isRoleConfigured(role)||!this.db.get('repositoryWorkspaces',`${c.repositoryId}:${role.nodeId}`))throw syncError('modifier_unavailable');
+    if(role?.projectId!==c.projectId||!role.enabled||role.archivedAt||!isRoleConfigured(role)||!sourceScopeBinding(this.db,c.projectId,c.repositoryId,role.nodeId))throw syncError('modifier_unavailable');
     if(c.ownerRoleId===roleId&&['queued','resolving','verifying','resolved_pending_sync'].includes(c.status))return c;
     if(this.db.list('runs').some(r=>r.sourceConflictId===c.id&&!terminal.has(r.status)))throw syncError('owner_still_running');
     if(c.ownerTaskId){const task=this.db.get('tasks',c.ownerTaskId);if(task)this.db.put('tasks',{...task,status:'cancelled'});}
     const attempts=(c.attempts||0)+1;if(attempts>2&&actor.kind!=='human')return this.escalate(c,'repair_limit');
     const canonical=this.db.get('sourceSyncManifests',`${c.projectId}:${c.repositoryId}`);if(!canonical)throw syncError('baseline_missing');
     const written=(c.writers||[]).findIndex(w=>w.roleId===roleId),own=c.sides[written]||c.sides.find(s=>s.nodeId===role.nodeId)||c.sides[0];if(own.unknown)throw syncError('evidence_missing');
-    const entries={...canonical.entries,[c.path]:own.entry},digest=manifestDigest(entries),assignmentId=randomUUID();
+    const entries={...canonical.entries,[c.path]:own.entry},digest=manifestDigest(entries,canonical.scopePolicy),assignmentId=randomUUID(),directory=c.scopeKind==='directory';
     const version={...canonical,id:contentHash(assignmentId),entries,digest};this.db.put('sourceSyncVersions',version);
     const sourceInputs=[{repositoryId:c.repositoryId,baseCommit:canonical.baseCommit,generation:c.syncGeneration,manifestRevision:canonical.revision,manifestHash:digest,manifestId:version.id}];
     const peerRoleIds=[...new Set((c.writers||[]).map(w=>w.roleId).filter(id=>id&&id!==roleId))],peerTaskIds=[];
@@ -71,9 +72,9 @@ export class SourceSyncConflicts {
     const peerTaskId=peerTaskIds[0]||null;
     const repo=this.db.get('repositories',c.repositoryId);
     const message=this.rooms.postSystemTask(c.projectId,{id:`sync-repair-${c.id}-${generation}-${attempts}`,roleId,
-      source:{kind:'repair',conflictId:c.id,generation,assignmentId},sourceInputs,
-      execution:{isolated:true,batchId:`sync-${c.id}`,purpose:'develop',repositoryKeys:[repo.key],writeRepositories:[repo.key],baselines:[{id:repo.id,key:repo.key,commit:canonical.baseCommit}],inputs:[]},
-      text:tr('sourceSync.repairTask',{id:c.id,path:c.path,generation,hashes:JSON.stringify(conflictHashes(c)),peerTaskId:peerTaskIds.join(', ')||'none'})});
+      source:{kind:'repair',conflictId:c.id,generation,assignmentId},sourceInputs:directory?[]:sourceInputs,
+      execution:directory?null:{isolated:true,batchId:`sync-${c.id}`,purpose:'develop',repositoryKeys:[repo.key],writeRepositories:[repo.key],baselines:[{id:repo.id,key:repo.key,commit:canonical.baseCommit}],inputs:[]},
+      text:tr('sourceSync.repairTask',{id:c.id,path:c.path,generation,hashes:JSON.stringify(conflictHashes(c)),peerTaskId:peerTaskIds.join(', ')||'none'})+(directory?`\nDirectory synchronization conflict. Read both saved versions with wb sync read. The candidate is read from ${sourceScopeBinding(this.db,c.projectId,c.repositoryId,role.nodeId).localRoot}/${c.path}; isolated changes must be delivered there first. Only this file will be proposed; distribution still requires review and fresh destination checks.`:'')});
     return this.db.put('sourceSyncConflicts',{...c,status:'queued',ownerRoleId:roleId,ownerTaskId:message.taskIds[0],assignmentId,peerTaskId,peerTaskIds,attempts,proposal:null,reason:null});
   });}
   owns(run,c){return run?.projectId===c.projectId&&run.roleId===c.ownerRoleId&&run.sourceConflictId===c.id&&run.sourceConflictGeneration===c.generation&&run.sourceConflictAssignmentId===c.assignmentId;}
@@ -86,7 +87,7 @@ export class SourceSyncConflicts {
     validateEntry(candidate.entry);
     const proof=sourceVerificationProof(this.db.events(run.id));
     if(!proof.length)throw syncError('verification_required');
-    const proposal={id:candidate.id,runId:run.id,entry:candidate.entry,expectedHashes:input.expectedHashes,rationale:input.rationale,evidence:input.evidence,verificationEventIds:proof.map(e=>e.id)};
+    const proposal={id:candidate.id,runId:run.id,entry:candidate.entry,...(c.scopeKind==='directory'?{sourceNodeId:run.nodeId,sourceRoot:candidate.root}:{}),expectedHashes:input.expectedHashes,rationale:input.rationale,evidence:input.evidence,verificationEventIds:proof.map(e=>e.id)};
     this.db.put('sourceSyncConflicts',{...c,status:'resolving',proposal});return {conflictId:c.id,status:'proposed',note:tr('sourceSync.proposalPending')};
   });}
   finish(runId){

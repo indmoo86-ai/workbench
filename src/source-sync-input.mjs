@@ -12,6 +12,7 @@ export function sourceConflictContext(value={}) {
 /** Freeze the completed batch's version, never whatever canonical happens to be current later. */
 export function freezeSourceInputs(db,batchId,nodeId,projectId) {
   const batch=db.get('sourceSyncBatches',batchId);
+  if(batch?.projectId===projectId&&batch.scopeKind==='directory')throw syncError('directory_sync_is_not_git_delivery');
   if(batch?.projectId!==projectId||batch.status!=='completed'||batch.sourceInputsReady===false||!(batch.sourceInputNodeIds||batch.nodeIds).includes(nodeId)||!batch.sourceInputs?.length)throw syncError('source_input_not_ready');
   return structuredClone(batch.sourceInputs);
 }

@@ -15,6 +15,7 @@ import { promisify } from 'node:util';
 import { Store, terminal } from './store.mjs';
 import {validateCliCapacity,reservedTerminalSlots} from './device-capacity.mjs';
 import { readRunDocument } from './run-document.mjs';
+import {readProjectFile,listProjectFiles} from './project-file-read.mjs';
 import { CodexSession } from './codex.mjs';
 import { CliPrintSession } from './cli-print-session.mjs';
 import { browseFolders } from './folders.mjs';
@@ -47,7 +48,7 @@ import {SourceSyncClient} from './source-sync-transport.mjs';
 import {syncError} from './source-sync-manifest.mjs';
 import {SourceProvenanceTracker} from './source-sync-provenance.mjs';
 import {prepareSourceInputs,sourceOverlayUnchanged} from './source-sync-input.mjs';
-import {captureSourceCandidate} from './source-sync-candidate.mjs';
+import {captureSourceCandidate,captureDirectoryCandidate} from './source-sync-candidate.mjs';
 import {readSourceBlob} from './source-sync-files.mjs';
 
 const SYSTEM_TIME_ZONE = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
@@ -135,8 +136,9 @@ const sourceSync=new SourceSyncClient({db,data,home:homeUrl.replace(/^ws/i,'http
     if(command.sourceRunId){const source=db.get('runs',command.sourceRunId),repo=source?.repositories?.find(r=>r.id===command.repositoryId);
       if(source?.projectId!==command.projectId||!repo||await projectRoot(repo.localRoot)!==root)throw syncError('binding_changed');}
     const old=db.get('sourceSyncBindings',id);
-    if(old&&(old.generation>command.generation||old.generation===command.generation&&old.root!==root))throw syncError('binding_changed');
-    const binding={id,projectId:command.projectId,repositoryId:command.repositoryId,root,generation:command.generation};db.put('sourceSyncBindings',binding);return binding;
+    const contract=JSON.stringify({scopeKind:command.scopeKind||'repository',scopePolicy:command.scopePolicy||{}});
+    if(old&&(old.generation>command.generation||old.generation===command.generation&&(old.root!==root||old.contract&&old.contract!==contract)))throw syncError('binding_changed');
+    const binding={id,projectId:command.projectId,repositoryId:command.repositoryId,root,generation:command.generation,contract};db.put('sourceSyncBindings',binding);return binding;
   }});
 
 /** The local outbox is written to disk first and deleted only after Home confirms, so "sent" is never treated as "received". */
@@ -325,7 +327,9 @@ async function command(m) {
       }
       db.put('runtimeEnvironments',{id:c.runId,env:resumeEnvironment(wbEnv)});
       if(m.run.sourceSyncTracking){
-        provenance=new SourceProvenanceTracker({db,run:{...m.run,workspace:folder},repositories:executionRepositories,blobRoot:sourceSync.blobRoot,
+        const watched=db.get('sourceSyncWatchConfig','main')?.scopes.filter(s=>s.projectId===m.run.projectId)||[];
+        const tracking=watched.length?watched.map(s=>({id:s.repositoryId,localRoot:s.root,scopeKind:s.scopeKind,scopePolicy:s.scopePolicy})):executionRepositories;
+        provenance=new SourceProvenanceTracker({db,run:{...m.run,workspace:folder},repositories:tracking,blobRoot:sourceSync.blobRoot,
           publish:proof=>emit(c.runId,'source_provenance',proof)});
         await provenance.start();
       }
@@ -488,6 +492,11 @@ async function query(m) {
   }
   const modifies=['repository_setup','execution_receive','execution_baseline_advance','terminal_prepare','terminal_new'].includes(m.action);
   try {
+    if(m.action==='project_file'||m.action==='project_files'){
+      const root=await projectRoot(m.path?.root),args={...m.path,root};
+      const result=m.action==='project_files'?await listProjectFiles(args):await readProjectFile(args);
+      send({type:'reply',id:m.id,result});return;
+    }
     if(['role_switch_inspect','role_switch_prepare','role_switch_release','role_switch_status'].includes(m.action)) {
       if(m.path?.nodeId!==identity.nodeId)throw new Error('CLI switch addressed to another Worker.');
       const method=m.action.slice('role_switch_'.length);
@@ -497,12 +506,13 @@ async function query(m) {
     if(modifies){if(db.list('sourceSyncReservations').length)throw syncError('sync_busy');db.put('sourceSyncOperations',{id:m.id,projectId:m.path?.projectId||db.get('runs',m.runId)?.projectId||'*',status:'running'});}
     if(m.action==='source_sync_candidate'){
       const run=db.get('runs',m.runId),input=m.path,repo=run?.repositories?.find(r=>r.id===input.repositoryId),frozen=run?.sourceInputs?.find(r=>r.repositoryId===input.repositoryId);
-      if(!run||terminal.has(run.status)||!run.sourceConflictId||run.sourceConflictId!==input.conflictId||!repo||!frozen)throw syncError('candidate_not_ready');
+      const directory=input.scopeKind==='directory';
+      if(!run||terminal.has(run.status)||!run.sourceConflictId||run.sourceConflictId!==input.conflictId||(!directory&&(!repo||!frozen))||(directory&&input.assignmentId!==run.sourceConflictAssignmentId))throw syncError('candidate_not_ready');
       const home=homeUrl.replace(/^ws/i,'http').replace(/\/worker\/?$/,'');
       const request=async(path,method='GET',body)=>{const response=await fetch(home+path,{method,headers:{Authorization:`Bearer ${token}`,...(body&&!Buffer.isBuffer(body)?{'Content-Type':'application/json'}:{})},body:body===undefined?undefined:Buffer.isBuffer(body)?body:JSON.stringify(body),signal:AbortSignal.timeout(60000)});if(!response.ok){const error=await response.json();throw syncError(error.code||'candidate_failed');}return response.json();};
-      const baseline=await request(`/api/agent/source-inputs/${run.id}/${frozen.manifestId}`);
-      const candidate=await captureSourceCandidate({root:await projectRoot(repo.localRoot),path:input.path,baseline,blobRoot:sourceSync.blobRoot});
-      await request('/api/agent/source-candidates','POST',{runId:run.id,candidateId:input.candidateId,baselineManifestId:frozen.manifestId,...candidate});
+      const baseline=directory?null:await request(`/api/agent/source-inputs/${run.id}/${frozen.manifestId}`);
+      const candidate=directory?await captureDirectoryCandidate({root:await projectRoot(input.root),path:input.path,scopePolicy:input.scopePolicy,assignmentId:input.assignmentId,blobRoot:sourceSync.blobRoot}):await captureSourceCandidate({root:await projectRoot(repo.localRoot),path:input.path,baseline,blobRoot:sourceSync.blobRoot});
+      await request('/api/agent/source-candidates','POST',{runId:run.id,candidateId:input.candidateId,baselineManifestId:frozen?.manifestId,...candidate});
       if(candidate.entry)await request(`/api/agent/source-candidates/${run.id}/${input.candidateId}/blob`,'PUT',await readSourceBlob(sourceSync.blobRoot,candidate.entry.hash));
       const result=await request('/api/agent/source-candidates','POST',{runId:run.id,candidateId:input.candidateId,finish:true});
       send({type:'reply',id:m.id,result});return;
@@ -770,7 +780,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { minimalInstructions:1,terminalFresh:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncTools:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { minimalInstructions:1,terminalFresh:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {
@@ -780,6 +790,8 @@ function connect() {
         configurationQueries.delete(m.id);clearTimeout(query.timer);m.error?query.reject(new Error(m.error)):query.resolve(m.result);return;
       }
       if(m.type==='source_sync_command'){void sourceSync.execute(m);return;}
+      if(m.type==='source_sync_watch_config'){await sourceSync.watch.configure(m);return;}
+      if(m.type==='source_sync_dirty_ack'){sourceSync.watch.acknowledge(m.noticeId);return;}
       if(m.type==='source_sync_cancel'){sourceSync.cancel(m.commandId);return;}
       if(m.type==='source_sync_receipt_ack'){sourceSync.acknowledge(m.commandId);return;}
       if (m.type === 'registered') {
@@ -813,12 +825,13 @@ function connect() {
   });
 }
 const outboxTimer=setInterval(flushOutbox,1000);outboxTimer.unref();
-const sourceSyncTimer=setInterval(()=>{if(registered)sourceSync.flush();},1000);sourceSyncTimer.unref();
+const sourceSyncTimer=setInterval(()=>{if(registered)sourceSync.flush();void sourceSync.watch.tick().catch(e=>console.error('Source sync observation failed:',e.code||e.message));},500);sourceSyncTimer.unref();
 const heartbeat = setInterval(() => send({ type: 'heartbeat' }), 15000);
 const runtimeTimer = setInterval(() => { if (ws?.readyState === 1) void refreshRuntimes(); }, 300000);
 connect();
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
   quitting = true; clearInterval(heartbeat); clearInterval(runtimeTimer);clearInterval(outboxTimer);clearTimeout(reconnectCleanup);
+  clearInterval(sourceSyncTimer);sourceSync.watch.close();
   void warmSessions.closeAll();
   for(const controller of organizerControllers)controller.abort();
   for (const s of sessions.values()) { if (typeof s.stop === 'function' && !s.preparing) void s.stop(); else s.stopRequested = true; }
