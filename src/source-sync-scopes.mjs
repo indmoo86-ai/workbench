@@ -22,7 +22,8 @@ export function buildSourceBindings(db,projectId,repositoryIds,nodeIds,{scopeKin
     if(binding?.projectId!==projectId||!binding.localRoot)throw syncError('binding_missing');
     if(binding.readOnly||repo?.readOnly)throw syncError('scope_read_only');
     const root=resolve(binding.localRoot);
-    if(directory&&db.listProject('runs',projectId).some(r=>r.nodeId===nodeId&&r.execution?.isolated&&(r.workspace===root||r.repositories?.some(repo=>repo.localRoot===root))))throw syncError('deliver_to_project_first');
+    // Resumed history may retain registered repository metadata: only the actual isolated workspace owns private paths.
+    if(directory&&db.listProject('runs',projectId).some(r=>r.nodeId===nodeId&&r.execution?.isolated&&r.workspace&&r.workspace!==r.projectRoot&&beneath(r.workspace,root)!==null))throw syncError('deliver_to_project_first');
     if(!directory)return {repositoryId,nodeId,root,repoUrl:repo.repoUrl};
     const projectRoot=db.get('workspaces',`${projectId}:${nodeId}`)?.localRoot;
     const others=db.list('repositoryWorkspaces').filter(b=>b.projectId===projectId&&b.nodeId===nodeId&&b.repositoryId!==repositoryId&&b.localRoot);
