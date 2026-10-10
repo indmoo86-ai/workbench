@@ -1,7 +1,7 @@
 # Actual Mac-local file viewing and shared document access
 
-Status: revised UI/reading proposal; not implemented or deployed.
-The single synchronization contract is [design-source-sync, section 13](design-source-sync.md#13-proposed-upgrade-unified-continuous-project-file-synchronization). This document specifies only browser/file-reading integration and replaces the document-only synchronization and Home display-copy proposal.
+Status: implemented; actual-Mac reading and real browser access verified with a Linux Home in an isolated test. Deployment/activation are recorded separately.
+The single synchronization contract is [design-source-sync, section 13](design-source-sync.md#13-unified-continuous-project-file-synchronization). This document specifies only browser/file-reading integration and replaces the document-only synchronization and Home display-copy proposal.
 
 ## 1. Display device and intended result
 
@@ -47,4 +47,4 @@ Consolidate or remove the provisional `project-documents.mjs` copy service befor
 - Verify English/Chinese, nested/non-ASCII names, duplicate filenames across scopes, project switching and delayed responses.
 - Preserve normal Run reading and reject escaped/unbound paths. Report browser acceptance separately from physical transfer acceptance.
 
-This design revision changes no running service or synchronization scope. Synchronization policy and its measured release boundary are maintained only in design-source-sync.
+Synchronization policy and its measured acceptance boundary are maintained only in design-source-sync. Enabling a scope is distinct from installing the software; no page-private copy service is retained.

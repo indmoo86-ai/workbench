@@ -1,3 +1,5 @@
+import {t} from './i18n.js';
+
 /**
  * Renders Agent output as a safe Markdown subset.
  * Only DOM nodes are created and raw HTML is never accepted, so model messages cannot become a script entry point.
@@ -129,7 +131,7 @@ export function localizeDocumentLinks(root,runId,api){
     void cached.promise.then(result=>{
       if(!result.shared)return;link.dataset.syncState=result.syncState;
       if(result.path){if(link.textContent===original)link.textContent=result.path;link.title=result.path;link.setAttribute('translate','no');}
-      else{link.title='Waiting for local synchronization';if(link.textContent===original)link.textContent=`${original.split('/').at(-1)} · Waiting for local synchronization`;}
+      else{link.title=t('Waiting for local synchronization');if(link.textContent===original)link.textContent=`${original.split('/').at(-1)} · ${t('Waiting for local synchronization')}`;}
     }).catch(()=>{});
   }
   return root;
@@ -183,6 +185,8 @@ function appendInline(parent, input) {
     if (code) {
       const node = element('code'); node.textContent = code[1]; parent.append(node); cursor += code[0].length; continue;
     }
+    const documentPath=text.slice(cursor).match(/^(?:\/(?!\/)|\.\.?\/|\.workbench\/docs\/)[^\s`<>"'，。；：！？、()\[\]]+\.(?:md|markdown|txt)(?=$|[\s，。；：！？、()\[\]])/i);
+    if(documentPath){parent.append(document.createTextNode(documentPath[0]));cursor+=documentPath[0].length;continue;}
     const strong = text.slice(cursor).match(/^(\*\*|__)(?=\S)([\s\S]*?\S)\1/);
     if (strong) {
       const node = element('strong'); appendInline(node, strong[2]); parent.append(node); cursor += strong[0].length; continue;
@@ -203,7 +207,7 @@ function appendInline(parent, input) {
       cursor += link[0].length; continue;
     }
     let end = cursor + 1;
-    while (end < text.length && !/[\n\\`*_[\]]/.test(text[end])) end += 1;
+    while (end < text.length && !/[\n\\`*_[\]/]/.test(text[end])) end += 1;
     parent.append(document.createTextNode(text.slice(cursor, end))); cursor = end;
   }
 }

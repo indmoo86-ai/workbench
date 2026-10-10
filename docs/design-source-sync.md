@@ -154,9 +154,9 @@ Attribution is limited to successful native write events whose before/after byte
 
 Recovery tests cover process interruption, not arbitrary power-loss durability or an OS-wide file compare-and-swap guarantee. Scanning large committed trees currently invokes Git per file; performance at the configured limits is not benchmarked. Private recovery files and content staging are retained, and interrupted upload reservations can conservatively consume quota until inspected. No automatic garbage collection is claimed.
 
-## 13. Proposed upgrade: unified continuous project-file synchronization
+## 13. Unified continuous project-file synchronization
 
-Status: design only. Sections 1-12 describe the current repository-based release and its measured limits. This section is the authority for the continuous project-folder upgrade; [Mac-local file viewing](design-shared-documents.md) consumes it without defining another synchronizer.
+Status: implemented and tested in isolated local and physical Mac/Linux environments. Sections 1-12 describe the legacy repository-based release and its measured limits. This section is the authority for continuous project-folder synchronization; [Mac-local file viewing](design-shared-documents.md) consumes it without defining another synchronizer. Deployment and activation remain separate operations.
 
 ### 13.1 One engine, one owner per file
 
@@ -212,3 +212,9 @@ Extend current regression gates with real Mac/Linux checks:
 8. After the Mac receipt, the page reads that actual Mac file. Moving Home does not change the display node; remote-only files remain waiting until physically present there.
 
 Implementation, physical/background tests, browser tests, commit/push and deployment are reported separately. Existing section 12 results do not establish acceptance of this upgrade.
+
+### 13.6 Observed implementation boundary
+
+The directory implementation passed 84 focused local regressions, including the existing Git-mode suite, and the 13-test maintained suite. A real Linux Home, Linux Worker and Mac Worker exchanged saved source, shared documents and a binary resource without a browser or model calls; observed ordinary-save times were approximately 2.7-3.7 seconds across two runs, not a latency guarantee. Physical rename/delete, Worker restart/offline saves and conflicting edits preserved the intended versions. Real browser Resources and document pages displayed the actual Mac path/content while Home ran on Linux. Lost-receipt recovery also has local multi-process coverage. A third physical device was unavailable; no three-physical-device or new four-CLI repair acceptance is claimed by these tests.
+
+Review regressions cover policy-2 conflict preservation before migration, explicit nested document-scope ownership and isolated relative-document links. Filename/parent collisions block preparation explicitly before writes. The existing modifier/candidate workflow has directory contract tests; arbitrary external shell edits remain unknown-author changes and escalate to the supervisor. Directory sync cannot be used as a pinned Git delivery receipt. Observers currently recapture bounded eligible file hashes on a change hint or reconciliation; only missing changed content is transferred. Hashing is not a block-level delta or a second version-control system. Scope disable is blocked while unresolved conflicts remain; use global pause to stop work without discarding them.

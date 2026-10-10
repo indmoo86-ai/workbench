@@ -21,7 +21,8 @@ export class ProjectFiles {
     if(!this.db.get('projects',run.projectId))throw syncError('project_missing');
     const config=this.db.get('sourceSyncConfigs',run.projectId);if(config?.scopeKind!=='directory')return null;
     if(typeof path!=='string'||path.length>4096)return null;
-    const absolute=isAbsolute(path)?resolve(path):resolve(path.startsWith('.workbench/docs/')?run.projectRoot||run.workspace:run.workspace,path);
+    if(!isAbsolute(path)&&!run.workspace)return null;
+    const absolute=isAbsolute(path)?resolve(path):resolve(run.workspace,path);
     for(const binding of config.bindings.filter(b=>b.nodeId===run.nodeId).sort((a,b)=>b.root.length-a.root.length)){
       if(sourceScopeBinding(this.db,run.projectId,binding.repositoryId,run.nodeId)?.localRoot!==binding.root)continue;
       const rel=relative(binding.root,absolute);if(!rel||isAbsolute(rel)||rel==='..'||rel.startsWith('../'))continue;

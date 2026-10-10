@@ -65,7 +65,7 @@ export class SourceSync {
     if(this.records('sourceSyncBatches',projectId).some(b=>b.kind!=='preview'&&!done.has(b.status)))throw syncError('sync_busy');
     if(this.records('sourceSyncCommands',projectId).some(c=>!c.result))throw syncError('sync_busy');
     if(!input.enabled){
-      if(old.scopeKind==='directory'&&this.records('sourceSyncConflicts',projectId).some(c=>!['resolved','cancelled'].includes(c.status)))throw syncError('unresolved_conflicts');
+      if(this.records('sourceSyncConflicts',projectId).some(c=>!['resolved','cancelled'].includes(c.status)))throw syncError('unresolved_conflicts');
       if(this.db.list('runs').some(r=>r.projectId===projectId&&r.sourceConflictId&&!['succeeded','failed','interrupted'].includes(r.status)))throw syncError('owner_still_running');
       for(const conflict of this.records('sourceSyncConflicts',projectId).filter(c=>!['resolved','cancelled'].includes(c.status))){this.db.put('sourceSyncConflicts',{...conflict,status:'cancelled'});
         for(const task of this.db.list('tasks').filter(t=>t.projectId===projectId&&[t.sourceConflictId,t.sourceConflictPeerId,t.sourceConflictAssignmentRequestId].includes(conflict.id)&&!t.currentRunId))this.db.put('tasks',{...task,status:'cancelled'});
@@ -186,6 +186,7 @@ export class SourceSync {
     for(const repositoryId of batch.repositoryIds){
       const canonical=this.db.get('sourceSyncManifests',`${batch.projectId}:${repositoryId}`);
       const captures=this.captures(batch,repositoryId),offered=captures.flatMap(c=>Object.entries(c.result.manifest.entries).filter(([,entry])=>entry).map(([path])=>path));
+      try{manifestDigest(Object.fromEntries(captures.flatMap(c=>Object.entries(c.result.manifest.entries).filter(([,entry])=>entry))),canonical?.scopePolicy);}catch(e){this.blockPreparation(batch,e.code||'invalid_manifest');return;}
       for(const capture of captures){
         const ack=this.db.get('sourceSyncDevices',`${batch.projectId}:${repositoryId}:${capture.nodeId}`);
         const known=new Set([...Object.entries(canonical?.entries||{}).filter(([,entry])=>entry).map(([path])=>path),...Object.entries(ack?.entries||{}).filter(([,entry])=>entry).map(([path])=>path),...offered]);

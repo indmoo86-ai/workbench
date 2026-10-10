@@ -42,6 +42,7 @@ export function createWorkspaceInspector({api,getProject,getData,openDevices,ope
   async function loadResources(force=false){
     if(selected!=='resources'||!projectId||resourcesBusy||!force&&Date.now()-resourcesLoadedAt<10000)return;
     const version=generation,id=projectId;resourcesBusy=true;
+    localNote.textContent=t('Reading actual files on the selected Mac.');
     try{const result=await api(`/api/projects/${encodeURIComponent(id)}/local-files`);if(version!==generation)return;
       localList.replaceChildren();localNote.textContent=result.errors?.length?result.errors.map(e=>e.error).join(' · '):t(result.partial?'Showing a bounded selection of local files.':'Reading actual files on the selected Mac.');
       for(const file of result.items){const row=el('button','artifact-row'),body=el('span','artifact-row-body');row.type='button';body.append(el('strong','',file.name),el('small','',file.path||t('Waiting for local synchronization')));body.lastChild.setAttribute('translate','no');row.append(body);row.addEventListener('click',()=>void detail(file));localList.append(row);}
