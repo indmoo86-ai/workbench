@@ -6,6 +6,8 @@ Device details include a per-device **Maximum running CLIs** setting. Managed ro
 
 Role Details includes a History tab. Clear history removes that role's old session associations and starts a new native CLI session on the next execution; project chat, code files and other roles are preserved.
 
+Reviewer presets describe task-scoped document, plan and code review, not an automatic handoff to an execution role. Independent findings go back as agreed for the current task; authorship is established from records, not role names. Factual consultation remains available. New role presets still leave execution prompts empty.
+
 The role-card terminal button also offers a new interactive CLI session without requiring past execution records. It uses the role's saved device, model and project folder; past sessions can still be resumed explicitly. Home verifies terminal processes every 15 seconds and when a Worker becomes ready, including after restart or reconnect. Exited takeovers return automatically; unused terminal links expire after 5 minutes. Both status refresh buttons can also return unused or exited takeovers immediately, allowing the original queue to continue. The terminal dialog offers **Stop CLI and return**: it stops only verified processes for that takeover and waits for exit before releasing it. Background checks never stop live CLIs; offline, unsupported or unverified Workers retain their locks. Plan cards distinguish an active CLI from queued work and show the blocking reason.
 
 Terminal links preserve command spaces and literal `+` characters. Refreshing the page also corrects older prepared links without clearing history or replacing the terminal takeover.
