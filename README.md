@@ -6,7 +6,7 @@ Device details include a per-device **Maximum running CLIs** setting. Managed ro
 
 Role Details includes a History tab. Clear history removes that role's old session associations and starts a new native CLI session on the next execution; project chat, code files and other roles are preserved.
 
-The role-card terminal button also offers a new interactive CLI session without requiring past execution records. It uses the role's saved device, model and project folder; past sessions can still be resumed explicitly. Return manual terminal control to the platform after closing the CLI.
+The role-card terminal button also offers a new interactive CLI session without requiring past execution records. It uses the role's saved device, model and project folder; past sessions can still be resumed explicitly. Both status refresh buttons verify terminal processes and return unused or exited takeovers, allowing the original queue to continue. The terminal dialog also offers **Stop CLI and return**: it stops only verified processes for that takeover and waits for exit before releasing it. Offline or unsupported Workers retain their locks and show an unverified state.
 
 Terminal links preserve command spaces and literal `+` characters. Refreshing the page also corrects older prepared links without clearing history or replacing the terminal takeover.
 

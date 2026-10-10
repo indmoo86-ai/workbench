@@ -7,7 +7,7 @@ export function validateCliCapacity(value) {
 
 /** Prepared terminal takeovers reserve a slot before the user starts the CLI. */
 export function reservedTerminalSlots(db,nodeId) {
-  return db.list('terminalSessions').filter(s=>s.nodeId===nodeId&&['preparing','prepared','active'].includes(s.status)).length;
+  return db.list('terminalSessions').filter(s=>s.nodeId===nodeId&&['preparing','prepared','active','stopping'].includes(s.status)).length;
 }
 
 /** Older Workers cannot be overallocated; new Workers apply saved limits before ready. */

@@ -34,7 +34,7 @@ import { outboxBatch } from './worker-outbox.mjs';
 import { prepareProjectSpace } from './project-space.mjs';
 import { publishProjectDelivery, receiveProjectDelivery, fetchExecutionDeliveries } from './project-delivery.mjs';
 import { collectCcusageReport } from './token-usage.mjs';
-import { nativeEnvironment, findSessionHistory, projectTerminalLock, processAlive, releaseTerminalSession, resumeEnvironment, freshTerminalArgs } from './terminal-resume.mjs';
+import { nativeEnvironment, findSessionHistory, projectTerminalLock, processAlive, releaseTerminalSession, checkTerminalSession, stopTerminalSession, resumeEnvironment, freshTerminalArgs } from './terminal-resume.mjs';
 import { receiveAttachments } from './attachments.mjs';
 import { inspectExecutionRepositories, prepareExecutionWorkspace, executionConflict, verifyExecutionVersions } from './execution-workspace.mjs';
 import { createRunInput, instructionDelivery,executionInstructionComponents,executionEnvironmentHint } from './run-input.mjs';
@@ -117,6 +117,7 @@ const warmSessions = new WarmSessions({max:capacity,changed:()=>{send({type:'war
 /** Slot reservations count before asynchronous preparation; retained processes are reclaimed, never active work. */
 function occupiedSlots(){return sessions.size+organizerRunning+reservedTerminalSlots(db,identity.nodeId);}
 function reportCapacity(){send({type:'capacity_state',capacity,usage:{active:sessions.size,retained:warmSessions.snapshot().length,organizer:organizerRunning,terminal:reservedTerminalSlots(db,identity.nodeId)}});}
+const terminalStops=new Map();
 async function applyCapacity(value) {
   capacity=validateCliCapacity(value);db.put('settings',{id:'cli-capacity',capacity});warmSessions.max=capacity;
   await warmSessions.trim(occupiedSlots());reportCapacity();return {capacity};
@@ -546,6 +547,19 @@ async function query(m) {
       const files=await receiveAttachments({items:input.items,workspace,transferId:input.transferId,home,token});
       send({type:'reply',id:m.id,result:{files}});return;
     }
+    if(m.action==='terminal_check') {
+      const input=m.path;
+      if(!Array.isArray(input?.claims)||input.nodeId!==identity.nodeId)throw new Error(tr('worker.invalidTakeoverId'));
+      const results=input.claims.map(binding=>{if(binding.projectId!==input.projectId||binding.nodeId!==identity.nodeId||typeof binding.id!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(binding.id))throw new Error(tr('worker.invalidTakeoverId'));return checkTerminalSession(db,binding,join(data,'worker.sqlite'));});
+      reportCapacity();send({type:'reply',id:m.id,result:{results}});return;
+    }
+    if(m.action==='terminal_stop') {
+      const binding=m.path;
+      if(binding?.nodeId!==identity.nodeId||typeof binding.id!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(binding.id))throw new Error(tr('worker.invalidTakeoverId'));
+      let pending=terminalStops.get(binding.id);
+      if(!pending){pending=stopTerminalSession(db,binding,join(data,'worker.sqlite')).finally(()=>terminalStops.delete(binding.id));terminalStops.set(binding.id,pending);}
+      const result=await pending;reportCapacity();send({type:'reply',id:m.id,result});return;
+    }
     if(m.action==='terminal_prepare' || m.action==='terminal_release' || m.action==='terminal_new') {
       const id=m.path?.id;
       if(typeof id!=='string' || !/^[a-zA-Z0-9-]{8,100}$/.test(id))throw new Error(tr('worker.invalidTakeoverId'));
@@ -778,7 +792,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { minimalInstructions:1,terminalFresh:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {

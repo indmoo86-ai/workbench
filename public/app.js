@@ -844,7 +844,8 @@ function renderRoles() {
     }
     const activityRow = create('div', 'role-activity-row');
     activityRow.append(create('p', 'role-activity', activity.detail));
-    if((app.data.terminalSessions||[]).some(s=>s.projectId===role.projectId&&s.nodeId===role.nodeId))activityRow.firstChild.textContent='Terminal takeover · to be returned to the platform';
+    const takeover=(app.data.terminalSessions||[]).find(s=>s.projectId===role.projectId&&s.nodeId===role.nodeId);
+    if(takeover)activityRow.firstChild.textContent=takeover.processState==='unknown'?'Terminal takeover · process state unverified':takeover.processState==='active'?'Terminal CLI running · return after stopping':'Terminal takeover · refresh to check the process';
     if (configured) {
       const quota = roleNameQuota(quotaForRole(runtime, worker, role.model));
       if (quota.childElementCount) activityRow.append(quota);
@@ -860,6 +861,7 @@ function renderRoles() {
     card.addEventListener('keydown', (e) => { if (e.target===card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } });
     dom.roleList.append(card);
   }
+  terminalDialog?.refreshState?.();
 }
 
 const gitVersionRequests=new Set();
@@ -971,11 +973,15 @@ function openRoleTerminal(role) {
   if(!terminalDialog){terminalDialog=create('dialog','terminal-dialog');terminalDialog.setAttribute('aria-label','Terminal session');document.body.append(terminalDialog);}
   let operationId=crypto.randomUUID();const useLocalSshKey=['localhost','127.0.0.1','[::1]'].includes(location.hostname);
   const activeStatuses=new Set(['queued','starting','running','waiting_user','stopping','reconciling']);
+  let returning=false,lastSignature='';
+  const claimFor=mode=>{const r=app.data.runs.find(r=>r.id===mode),nodeId=r?.nodeId||role.nodeId;return (app.data.terminalSessions||[]).find(s=>s.projectId===role.projectId&&s.nodeId===nodeId);};
+  const signature=mode=>{const c=claimFor(mode),r=app.data.runs.find(r=>r.id===mode),nodeId=c?.nodeId||r?.nodeId||role.nodeId,w=app.data.workers.find(w=>w.id===nodeId);return JSON.stringify([c?.id,c?.status,c?.processState,c?.lastCheckedAt,c?.processError,w?.online,w?.capabilities?.terminalControl,w?.capacity,w?.organizerBusy,app.data.settings?.paused,app.data.runs.filter(r=>r.nodeId===nodeId&&activeStatuses.has(r.status)).map(r=>[r.id,r.status]),(app.data.roleSwitches||[]).filter(s=>s.roleId===role.id).map(s=>[s.id,s.status])]);};
   const render=(selectedMode='')=>{
     terminalDialog.replaceChildren();
-    const claim=(app.data.terminalSessions||[]).find(s=>s.projectId===role.projectId&&s.nodeId===role.nodeId);
+    const claim=claimFor(selectedMode);
     const runs=app.data.runs.filter(r=>r.projectId===role.projectId&&r.roleId===role.id&&!r.historyClearedAt).slice().reverse();
     const mode=claim?(claim.kind==='new'?'':claim.runId||''):selectedMode;
+    lastSignature=signature(mode);
     const heading=create('div','dialog-heading');
     const close=create('button','secondary compact','Close');close.type='button';close.onclick=()=>terminalDialog.close();
     heading.append(create('h2','',t('{name} · Terminal Session', { name: role.name })),close);terminalDialog.append(heading);
@@ -988,9 +994,10 @@ function openRoleTerminal(role) {
     const run=claim&&claim.kind!=='new'?app.data.runs.find(r=>r.id===claim.runId):runs.find(r=>r.id===select.value);
     select.onchange=()=>render(select.value);
     const info=create('p','workspace-note');
-    const ownerRole=claim?.kind==='new'?[...(app.data.roles||[]),...(app.data.supervisorRoles||[])].find(item=>item.id===claim.roleId):role;
+    const ownerRole=claim?[...(app.data.roles||[]),...(app.data.supervisorRoles||[])].find(item=>item.id===(claim.roleId||run?.roleId)):role;
     const nodeId=claim?.nodeId||run?.nodeId||role.nodeId,worker=app.data.workers.find(item=>item.id===nodeId);
     const remote=workerKind(worker)==='cloud',sshDevice=(app.data.devices||[]).find(item=>item.nodeId===nodeId);
+    if(claim){const checked=create('p','workspace-note',!worker?.online?'Device offline; terminal process state unknown':claim.processState==='active'?'Terminal CLI is running':claim.processState==='unknown'?'Terminal process state unverified':'Terminal reserved; refresh to check the process');if(claim.lastCheckedAt)checked.append(document.createTextNode(' · '+t('Checked at: {time}',{time:formatTime(claim.lastCheckedAt)})));terminalDialog.append(checked);if(claim.processError)terminalDialog.append(create('p','workspace-note',claim.processError));}
     const workspace=(app.data.workspaces||[]).find(item=>item.id===`${role.projectId}:${nodeId}`||item.projectId===role.projectId&&item.nodeId===nodeId);
     if(run)info.textContent=t('Device: {v}\nFolder: {v2}\nRun user: {v3}\nSession ID: {v4}', { v: worker?.name||nodeId, v2: claim?.workspace||run.workspace||t('not recorded'), v3: claim?.user||run.nativeSession?.user||t('verified by Worker'), v4: claim?.sessionId||run.nativeSession?.id||run.threadId||t('not recorded; resume cannot be guaranteed') });
     else {
@@ -1000,11 +1007,11 @@ function openRoleTerminal(role) {
     }
     if(remote&&sshDevice)info.textContent+=`\n${t('SSH: {user}@{host}:{port}',{user:sshDevice.user,host:sshDevice.host,port:sshDevice.port})}`;
     info.style.whiteSpace='pre-wrap';terminalDialog.append(info);
-    if(claim?.kind==='new'&&claim.roleId!==role.id)terminalDialog.append(create('p','workspace-note',t('This project device is under terminal control for {name}.',{name:ownerRole?.name||claim.roleId})));
+    if(claim&&ownerRole&&ownerRole.id!==role.id)terminalDialog.append(create('p','workspace-note',t('This project device is under terminal control for {name}.',{name:ownerRole.name})));
     const currentSwitches=app.stateCache?.state?.roleSwitches||[],switching=currentSwitches.some(item=>item.projectId===role.projectId&&item.roleId===role.id&&!['committed','cancelled'].includes(item.status));
     const missingFreshConfig=!run&&(!role.nodeId||!role.runtime||!role.model||!workspace?.localRoot);
     const busy=app.data.runs.some(item=>item.projectId===role.projectId&&item.nodeId===nodeId&&activeStatuses.has(item.status));
-    const occupied=app.data.runs.filter(item=>item.nodeId===nodeId&&activeStatuses.has(item.status)).length+(app.data.terminalSessions||[]).filter(item=>item.nodeId===nodeId&&['preparing','prepared','active'].includes(item.status)).length+(worker?.organizerBusy||0);
+    const occupied=app.data.runs.filter(item=>item.nodeId===nodeId&&activeStatuses.has(item.status)).length+(app.data.terminalSessions||[]).filter(item=>item.nodeId===nodeId&&['preparing','prepared','active','stopping'].includes(item.status)).length+(worker?.organizerBusy||0);
     const gate=claim?'':app.data.settings?.paused?'Remote dispatch is paused':switching?'This role is switching CLI; wait for the handoff to finish.':missingFreshConfig?'Configure the role device, CLI, model and project workspace before opening a terminal session.':!worker?.online?'Device offline or not connected':busy?'This project is still running on that device; view live replies in the web page first and resume after it finishes.':occupied>=(worker?.capacity||1)?'Device CLI limit reached; return an unused terminal to the platform or wait for running work.':'';
     const feedback=create('p','inline-error',claim?.error||gate);feedback.hidden=!(claim?.error||gate);feedback.setAttribute('role','status');terminalDialog.append(feedback);
     const actions=create('div','form-actions');terminalDialog.append(actions);
@@ -1016,11 +1023,15 @@ function openRoleTerminal(role) {
         copy.onclick=async()=>{try{await navigator.clipboard.writeText(claim.command);copy.textContent='Copied';}catch{feedback.hidden=false;feedback.textContent='Clipboard unavailable; use the iTerm entry.';}};actions.append(copy);
       }
       const release=create('button','secondary','Return to platform');release.type='button';
-      release.onclick=async()=>{release.disabled=true;try{
+      const stop=create('button','danger','Stop CLI and return');stop.type='button';
+      const stopGate=!worker?.online?'Device offline; reconnect before stopping the CLI':worker?.capabilities?.terminalControl!==1?'Upgrade this Worker to check or stop terminal processes.':'';
+      stop.disabled=!!stopGate;if(stopGate)stop.title=stopGate;
+      const returnControl=async action=>{returning=true;release.disabled=true;stop.disabled=true;feedback.hidden=false;feedback.textContent=action==='stop'?'Stopping terminal CLI…':'Returning terminal control…';try{
         const path=claim.kind==='new'?`/api/projects/${encodeURIComponent(claim.projectId)}/roles/${encodeURIComponent(claim.roleId)}/terminal`:`/api/runs/${encodeURIComponent(claim.runId)}/terminal`;
-        await api(path,{method:'POST',json:claim.kind==='new'?{action:'release',id:claim.id}:{action:'release'}});if(claim.kind==='new')operationId=crypto.randomUUID();await refreshState({quiet:true});render(mode);
-      }catch(e){feedback.hidden=false;feedback.textContent=e.message;release.disabled=false;}};
-      actions.append(release);
+        await api(path,{method:'POST',json:{action,id:claim.id}});if(claim.kind==='new')operationId=crypto.randomUUID();await refreshState({quiet:true});render(mode);
+      }catch(e){feedback.hidden=false;feedback.textContent=e.message;release.disabled=false;stop.disabled=!!stopGate;}finally{returning=false;}};
+      release.onclick=()=>void returnControl('release');stop.onclick=()=>{if(confirm(t('Stop this terminal CLI and return control to Workbench? Unfinished terminal work will be interrupted.')))void returnControl('stop');};
+      actions.append(release,stop);
     } else {
       const prepare=create('button','primary',run?'Verify and prepare resume':'Open new session');prepare.type='button';prepare.disabled=!!gate;
       prepare.onclick=async()=>{prepare.disabled=true;try{
@@ -1034,6 +1045,7 @@ function openRoleTerminal(role) {
   terminalDialog.languageCleanup?.();
   const languageCleanup=onLanguageChange(()=>{if(terminalDialog.open)render(terminalDialog.querySelector('select')?.value||'');});
   terminalDialog.languageCleanup=languageCleanup;terminalDialog.addEventListener('close',languageCleanup,{once:true});
+  terminalDialog.refreshState=()=>{const mode=terminalDialog.querySelector('select')?.value||'';if(terminalDialog.open&&!returning&&signature(mode)!==lastSignature)render(mode);};
   render();if(!terminalDialog.open)terminalDialog.showModal();
 }
 
@@ -2041,7 +2053,7 @@ document.querySelector('#close-history').addEventListener('click', () => documen
 document.querySelector('#close-device-edit').addEventListener('click', () => document.querySelector('#device-edit-dialog').close());
 document.querySelector('#device-edit-dialog').addEventListener('close', () => document.querySelector('#device-edit-content').replaceChildren());
 document.querySelector('#close-run').addEventListener('click', () => { dom.runDialog.close(); app.requestVersion++; });
-document.querySelector('#refresh-state').addEventListener('click', () => refreshState());
+document.querySelector('#refresh-state').addEventListener('click', () => {void roleRefresh.refreshTerminals().catch(error=>setError(error.message));});
 document.querySelector('#close-file-dialog').addEventListener('click', () => dom.fileDialog.close());
 dom.fileDialog.addEventListener('close', () => { app.fileReadVersion++; });
 

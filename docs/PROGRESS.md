@@ -13,3 +13,9 @@
 - Scoped results to their originating operation, clear stale results when that section is edited, and aligned the device-folder action with its selector. Project settings and Resources now use the same project file sync name.
 - Real isolated browser checks cover basic/supervisor save isolation, folder binding, folder preparation, sync entry, language switching, cancelled deletion and three viewport sizes. Syntax checks and the existing test suite passed; private screenshots and execution records remain outside Git.
 - The same checks passed against a Linux-hosted isolated Home/Worker. Runtime revision `26eda55` was installed into the existing local Home/Worker and connected remote Worker; post-release browser checks and asset comparisons passed. Configuration, native-session associations and execution history were retained, and the previous dispatch-pause setting was restored.
+
+## 2026-10-10 — Terminal takeover recovery
+
+- Status refresh now verifies terminal processes with the corresponding Worker and returns unused or exited takeovers. Offline, unsupported or unverified processes retain their locks. A human-only stop-and-return action terminates only identity-verified processes and waits for exit before releasing the project queue.
+- Recorded owner/start identity for new launchers and CLIs, retained stopping capacity, and fenced late preparation/completion. Terminal dialogs update their device, takeover and execution gates with current state and identify the actual takeover owner.
+- Nine real-process checks passed on both macOS and Linux. Isolated browser acceptance covers refresh, graceful/forced exit, cancellation, offline/old capability handling, language/mobile layout, actual Codex terminal startup and stopping, exact historical resume, and original native-session continuation without duplicate queue execution. Private fixtures and screenshots remain ignored.

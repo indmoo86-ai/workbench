@@ -259,7 +259,7 @@ function snapshot() {
     discussionThreads:db.list('discussionThreads'),discussionDeliveries:db.list('discussionDeliveries'),
     roleSwitches:db.list('roleSwitches').map(roleSwitchView),
     sourceSyncSummaries:db.list('projects').map(p=>({id:p.id,projectId:p.id,enabled:sourceSync.sync.config(p.id).enabled,conflicts:db.listProject('sourceSyncConflicts',p.id).filter(c=>!['resolved','cancelled'].includes(c.status)).length})),
-    terminalSessions: db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)).map(terminalLaunchView),
+    terminalSessions: db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)).map(s=>terminalLaunchView({...s,roleId:s.roleId||db.get('runs',s.runId)?.roleId})),
     attachmentTransfers:db.list('attachmentTransfers').slice(-200).map(({fingerprint,...t})=>t),
     hostingAccounts: db.list('hostingAccounts'), devices: db.list('devices').map(d => ({ ...d, status: online(d.nodeId) ? 'online' : d.status })), repositoryOperations: db.list('repositoryOperations'),
     repositories: db.list('repositories'), repositoryWorkspaces: db.list('repositoryWorkspaces'), setupProposals: db.list('setupProposals'), projectGitVersions:db.list('projectGitVersions'),
@@ -315,6 +315,41 @@ function workerQuery(run, action, path, timeout = 10000) {
     queries.set(id, { nodeId: run.nodeId, resolve: value => { clearTimeout(timer); resolveQuery(value); }, reject: e => { clearTimeout(timer); reject(e); } });
     send(sockets.get(run.nodeId), { type: 'query', id, runId: run.id, action, path, language: getLanguage() });
   });
+}
+const terminalRefreshes=new Map();
+/** Only the Worker can inspect remote PIDs; unknown/offline checks retain the lock and released receipts wake the original queue. */
+function refreshProjectTerminals(projectId) {
+  if(terminalRefreshes.has(projectId))return terminalRefreshes.get(projectId);
+  const operation=(async()=>{
+    if(!db.get('projects',projectId))throw new Error(tr('store.projectNotFound'));
+    const claims=db.listProject('terminalSessions',projectId).filter(s=>!['released','cancelled'].includes(s.status)),groups=new Map(),results=[];
+    for(const claim of claims){const group=groups.get(claim.nodeId)||[];group.push(claim);groups.set(claim.nodeId,group);}
+    await Promise.all([...groups].map(async([nodeId,members])=>{
+      let checked;
+      try{
+        if(!online(nodeId))throw new Error(tr('terminalControl.offline'));
+        if(db.get('workers',nodeId)?.capabilities?.terminalControl!==1)throw new Error(tr('terminalControl.upgrade'));
+        const reply=await workerQuery({nodeId},'terminal_check',{projectId,nodeId,claims:members.map(({id,projectId,nodeId})=>({id,projectId,nodeId}))},20000);
+        checked=reply.results;
+        if(!Array.isArray(checked)||checked.length!==members.length||members.some(s=>!checked.some(c=>c.id===s.id&&['released','active','unknown'].includes(c.processState)&&c.checkedAt)))throw new Error(tr('terminalControl.stopPending'));
+      }catch(error){checked=members.map(s=>({id:s.id,processState:'unknown',checkedAt:new Date().toISOString(),reason:error.message}));}
+      for(const result of checked){db.transaction(()=>{const current=db.get('terminalSessions',result.id);if(!current||current.projectId!==projectId||current.nodeId!==nodeId||['released','cancelled'].includes(current.status))return;
+        db.put('terminalSessions',{...current,processState:result.processState,lastCheckedAt:result.checkedAt,processError:result.reason||null,...(result.processState==='released'?{status:'released',releasedAt:result.checkedAt}:result.status==='stopping'?{status:'stopping'}:{})});});results.push({...result,nodeId});}
+    }));
+    change();scheduleChat();return {results,released:results.filter(s=>s.processState==='released').length,active:results.filter(s=>s.processState==='active').length,unknown:results.filter(s=>s.processState==='unknown').length};
+  })().finally(()=>terminalRefreshes.delete(projectId));
+  terminalRefreshes.set(projectId,operation);return operation;
+}
+/** Stopping is an explicit human action, scoped to the saved lease rather than arbitrary browser-supplied PIDs. */
+async function returnTerminal(claim,action) {
+  let result;
+  if(action==='stop'){
+    if(db.get('workers',claim.nodeId)?.capabilities?.terminalControl!==1)throw new Error(tr('terminalControl.upgrade'));
+    result=await workerQuery(claim,'terminal_stop',{id:claim.id,projectId:claim.projectId,nodeId:claim.nodeId},30000);
+    if(result?.released!==true||result.id!==claim.id)throw new Error(tr('terminalControl.stopPending'));
+  }else result=await workerQuery(claim,'terminal_release',{id:claim.id});
+  db.transaction(()=>{const current=db.get('terminalSessions',claim.id);if(current&&current.projectId===claim.projectId&&current.nodeId===claim.nodeId)db.put('terminalSessions',{...current,status:'released',processState:'released',releasedAt:new Date().toISOString()});});
+  change();scheduleChat();return {released:true,forced:result.forced===true};
 }
 const server = http.createServer(async (req, res) => {
   try {
@@ -746,13 +781,13 @@ const server = http.createServer(async (req, res) => {
         for(const id of stopped.stopRunIds){const target=db.get('runs',id);if(target)dispatch(target.nodeId);}
         change();return json(res,stopped.run);
       }
+      if((m=pathname.match(/^\/api\/projects\/([^/]+)\/terminals\/refresh$/))&&req.method==='POST')return json(res,await refreshProjectTerminals(m[1]));
       if((m=pathname.match(/^\/api\/projects\/([^/]+)\/roles\/([^/]+)\/terminal$/)) && req.method==='POST') {
         const [_,projectId,roleId]=m,b=await body(req);
-        if(b.action==='release') {
+        if(['release','stop'].includes(b.action)) {
           const claim=db.get('terminalSessions',b.id);
           if(claim?.kind!=='new'||claim.projectId!==projectId||claim.roleId!==roleId)throw new Error(tr('home.thereNoTerminalTakeoverFor'));
-          await workerQuery(claim,'terminal_release',{id:claim.id});
-          db.put('terminalSessions',{...db.get('terminalSessions',claim.id),status:'released'});change();scheduleChat();return json(res,{released:true});
+          return json(res,await returnTerminal(claim,b.action));
         }
         if(b.action!=='prepare'||typeof b.operationId!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(b.operationId))throw new Error(tr('home.invalidTakeoverAction'));
         const repeated=db.get('terminalSessions',b.operationId);
@@ -784,11 +819,10 @@ const server = http.createServer(async (req, res) => {
       if ((m = pathname.match(/^\/api\/runs\/([^/]+)\/terminal$/)) && req.method === 'POST') {
         const b=await body(req), r=db.get('runs',m[1]);
         if(!r)throw new Error(tr('home.runNotFound'));
-        const existing=projectTerminalLock(db,r.projectId,r.nodeId);
-        if(b.action==='release') {
-          if(!existing || existing.runId!==r.id)throw new Error(tr('home.thereNoTerminalTakeoverFor'));
-          await workerQuery(r,'terminal_release',{id:existing.id});
-          db.put('terminalSessions',{...existing,status:'released'});change();scheduleChat();return json(res,{released:true});
+        const existing=['release','stop'].includes(b.action)&&b.id?db.get('terminalSessions',b.id):projectTerminalLock(db,r.projectId,r.nodeId);
+        if(['release','stop'].includes(b.action)) {
+          if(!existing || existing.runId!==r.id||existing.projectId!==r.projectId||existing.nodeId!==r.nodeId)throw new Error(tr('home.thereNoTerminalTakeoverFor'));
+          return json(res,await returnTerminal(existing,b.action));
         }
         if(b.action!=='prepare')throw new Error(tr('home.invalidTakeoverAction'));
         if(r.historyClearedAt)throw new Error(tr('roleSessions.historyWasCleared'));
@@ -810,11 +844,13 @@ const server = http.createServer(async (req, res) => {
           const identityFile=b.useLocalSshKey===true && process.platform==='darwin' && device ? (await credentials.get(device.id))?.keyPath : null;
           const command=terminalCommand(info,device || null,identityFile);
           const value=terminalLaunchView({...claim,...info,status:'prepared',command});
-          db.put('terminalSessions',value);change();return json(res,value);
+          db.transaction(()=>{if(db.get('terminalSessions',claim.id)?.status!=='preparing')throw new Error(tr('roleTerminal.pending'));db.put('terminalSessions',value);});change();return json(res,value);
         } catch(error) {
+          if(['released','cancelled'].includes(db.get('terminalSessions',claim.id)?.status))throw error;
           let status='blocked';
           try { await workerQuery(r,'terminal_release',{id:claim.id});status='released'; } catch {}
-          db.put('terminalSessions',{...claim,status,error:error.message});change();throw error;
+          const current=db.get('terminalSessions',claim.id);
+          if(!['released','cancelled'].includes(current?.status))db.put('terminalSessions',{...current,...claim,status,error:error.message});change();throw error;
         }
       }
       if ((m = pathname.match(/^\/api\/projects\/([^/]+)\/artifacts$/)) && req.method === 'GET') {

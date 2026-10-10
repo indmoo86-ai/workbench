@@ -13,10 +13,10 @@ export function longTextFileName(text) {
   return `${stem.replace(/\.(md|markdown|txt)$/i, '')}.md`;
 }
 
-/** Merge device probes per project; only queries status and never restarts, resumes or dispatches any role task. */
+/** Refresh real terminal processes before CLI probes; stale takeover receipts let the original queued work continue. */
 export function createRoleRefresh({api,refreshState,getData,getProject,button,feedback,onUpdate=()=>{}}) {
   let busy=false;
-  const notices=new Map(),checks=new Map();
+  const notices=new Map(),checks=new Map(),terminalChecks=new Map();
   const binding=role=>JSON.stringify([role.nodeId,role.runtime,role.model]);
   const setCheck=(role,state)=>checks.set(role.id,{...state,binding:binding(role),checkedAt:new Date().toISOString()});
   const transient=error=>![401,403,429].includes(error.status)&&(error.isNetworkError||error.status>=500||/timed? ?out|disconnect|ECONNRESET|ETIMEDOUT|temporarily unavailable|超时|断开|暂时不可用/i.test(error.message||''));
@@ -28,14 +28,25 @@ export function createRoleRefresh({api,refreshState,getData,getProject,button,fe
     button.title=busy?'Querying CLI status and remaining quota…':'Refresh role status and remaining quota';
     feedback.hidden=!notice;feedback.textContent=notice||'';
   }
+  /** Both refresh buttons share one per-project check; offline/old Workers are reported without removing their lock. */
+  function refreshTerminals() {
+    const project=getProject();if(!project)return refreshState().then(()=> '');
+    if(terminalChecks.has(project.id))return terminalChecks.get(project.id);
+    const operation=(async()=>{const result=await api(`/api/projects/${encodeURIComponent(project.id)}/terminals/refresh`,{method:'POST',json:{},signal:AbortSignal.timeout(25000)});
+      const summary=t('Terminal processes checked: {released} returned, {active} running, {unknown} unverified.',result);
+      const reasons=[...new Set(result.results.filter(r=>r.reason).map(r=>r.reason))];
+      notices.set(project.id,[summary,...reasons].join(' '));await refreshState({quiet:true});update();onUpdate();return [summary,...reasons].join(' ');
+    })().finally(()=>terminalChecks.delete(project.id));terminalChecks.set(project.id,operation);return operation;
+  }
   async function refresh() {
     const project=getProject();
     if(busy||!project||!rolesFor(project.id).length)return;
     const roles=rolesFor(project.id),workers=getData().workers||[],groups=new Map();
     for(const role of roles){const group=groups.get(role.nodeId)||[];group.push(role);groups.set(role.nodeId,group);}
     busy=true;notices.set(project.id,'Refreshing CLI status and remaining quota…');for(const role of roles)setCheck(role,{state:'checking'});update();onUpdate();
-    const warnings=[];let checked=0,retried=0;
+    const warnings=[];let checked=0,retried=0,terminalSummary='';
     try {
+      try{terminalSummary=await refreshTerminals();}catch(error){warnings.push(t('Terminal check failed: {message}',{message:error.message}));}
       await Promise.all([...groups].map(async([nodeId,members])=>{
         const worker=workers.find(item=>item.id===nodeId),label=worker?.name||members.map(role=>role.name).join(t(', '));
         if(!worker?.online){warnings.push(t('{label}: device offline or not connected', { label }));for(const role of members)setCheck(role,{state:'failed',error:'Device offline or not connected'});return;}
@@ -62,13 +73,13 @@ export function createRoleRefresh({api,refreshState,getData,getProject,button,fe
       }));
       await refreshState({quiet:true});
       const devices = t(checked===1?'{count} device':'{count} devices', { count: checked });
-      notices.set(project.id,`${warnings.length?t('Checked {devices}; {warnings}. Quota that could not be obtained keeps its previous value or is unknown', { devices, warnings: warnings.join(t('; ')) }):t('Refreshed role status and quota on {devices} · {time}', { devices, time: new Date().toLocaleTimeString(dateLocale()) })}${retried?t(retried===1?' · {count} transient check failure was retried':' · {count} transient check failures were retried', { count: retried }):''}${t('. Old tasks were not re-run; history is preserved.')}`);
+      notices.set(project.id,`${terminalSummary?terminalSummary+' ':''}${warnings.length?t('Checked {devices}; {warnings}. Quota that could not be obtained keeps its previous value or is unknown', { devices, warnings: warnings.join(t('; ')) }):t('Refreshed role status and quota on {devices} · {time}', { devices, time: new Date().toLocaleTimeString(dateLocale()) })}${retried?t(retried===1?' · {count} transient check failure was retried':' · {count} transient check failures were retried', { count: retried }):''}${t('. Old tasks were not re-run; history is preserved.')}`);
     }catch(error){notices.set(project.id,t('Refresh incomplete: {message}', { message: error.message }));}
     finally{busy=false;update();onUpdate();}
   }
   button.addEventListener('click',()=>void refresh());
   update();
-  return {refresh,update,getCheck:role=>{const check=checks.get(role.id);return check?.binding===binding(role)?check:null;}};
+  return {refresh,refreshTerminals,update,getCheck:role=>{const check=checks.get(role.id);return check?.binding===binding(role)?check:null;}};
 }
 
 /** Keep the full streamed body; the CLI completion snapshot replaces the current segment to avoid duplicating delta and snapshot. */
