@@ -1468,7 +1468,13 @@ wb handoff last      Read the most recent handoff
 Handoff example:
   wb handoff --done "Fixed login validation" --next "@reviewer check the diff" --verify "Local curl passed"
 
-The Worker fills in handoffs automatically. Before a new run ends you must submit a real business conclusion with wb report; a turn that is waiting on child calls does not need to report a pass early.`,
+Ask the user for clarification or a decision (ordinary task turns):
+  wb report '{"verdict":"needs_input","summary":"Should this task use option A or option B?","next":"Continue the current task after the user chooses."}'
+Replace the example with the actual question, necessary context and options. After submitting, end the turn and wait for the user rather than guessing a decision. The user can quote this result and reply to the original role on the project page; when WeChat is enabled, the platform notifies, receives the reply and resumes. Delivery success or pending is not a user answer.
+Discussion-only turns (clarification / answer_resume), and turns already waiting on a discussion, do not accept business reports. Include questions for the user in the discussion reply or conclusion and return them to the original business task to ask. Do not use needs_input instead of a discussion reply in these turns.
+wb wait waits for peer requests, not for the user. Native permission approvals and configuration/delivery confirmations keep their own entry points; needs_input grants no permission. An @ in text and wb note only communicate text, not dispatch work.
+
+The Worker fills in handoffs automatically. Before an ordinary task ends, submit a real business conclusion with wb report; turns waiting for child calls or handling discussions need not report passed early.`,
   // src/wechat-channel.mjs
   'wechatChannel.invalidWechatClientName': 'Invalid WeChat client name',
   'wechatChannel.invalidWechatClientConfiguration': 'Invalid WeChat client configuration',

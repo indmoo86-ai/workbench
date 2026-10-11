@@ -1468,7 +1468,13 @@ wb handoff last      读最近一份交接
 交接示例：
   wb handoff --done "修了登录校验" --next "@审核 看 diff" --verify "本地 curl 通过"
 
-Worker 自动补交接。新执行结束前必须 wb report 提交真实业务结论；等待子调用的回合无需提前报告通过。`,
+向用户提问或请求决定（普通任务回合）：
+  wb report '{"verdict":"needs_input","summary":"请确认本次采用方案 A 还是方案 B？","next":"收到选择后继续当前任务。"}'
+将示例替换为实际问题、必要背景和选项；提交后结束本轮，等待用户答复，不自行猜测决定。用户可在项目页面引用这条结果并回复原角色；启用微信时由平台通知、接收答复并续接。发送成功或 pending 不等于用户已回答。
+讨论专用回合（clarification / answer_resume）及已登记讨论等待的回合不接收业务报告；把需要用户确认的问题写入讨论答复或结论，交回原业务任务，由其向用户提出。不要在这些回合使用 needs_input 代替讨论回复。
+wb wait 用于等待同伴请求，不用于等待用户。原生权限审批和配置、交付确认仍使用各自入口；needs_input 不授予操作权限。正文中的 @ 和 wb note 只传递文字，不会自动派发协作。
+
+Worker 自动补交接。普通任务结束前用 wb report 提交真实业务结论；等待子调用或处理讨论的回合无需提前报告通过。`,
   // src/wechat-channel.mjs
   'wechatChannel.invalidWechatClientName': '微信客户端名称无效',
   'wechatChannel.invalidWechatClientConfiguration': '微信客户端配置无效',
