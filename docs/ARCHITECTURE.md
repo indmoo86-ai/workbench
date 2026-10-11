@@ -209,6 +209,8 @@ A Project has `repoUrl` and `repository` (owner/repo/webUrl). `POST /api/project
 
 ## Conversation and roles
 
+Browser state refresh remains single-flight. Each state GET has a 20-second deadline covering headers and body; timeout aborts the request and releases the refresh lock. Late responses cannot replace a recovered snapshot. Read failures invalidate the delta cursor so the next poll loads a full snapshot, preserving the displayed state and unsent drafts meanwhile. Focus, visible-page activation, page restoration and network recovery also request a refresh. Connection details show the last successful application of state, not merely an open event stream. Message submission and other writes are not automatically retried by this mechanism.
+
 ### Same-device CLI handoff
 
 `RoleSwitches` persists one switch operation per role. `RoleSwitchRuntime` drains accepted work, records a source handoff, starts a separate staged native session and validates its acknowledgement. `RoleSwitchWorker` holds a durable role barrier, retires warm processes, checks native completion and compares Git/file metadata. Home atomically promotes the candidate and updates all fixed-supervisor records; queued execution waits for the Worker release receipt. Historical request snapshots remain unchanged, with a separate `executionBinding` for undispatched work (including dependency stages).

@@ -19,6 +19,7 @@ import { TOKEN_KEY, readApiToken, saveApiToken } from './browser-token.js';
 const DRAFT_KEY = 'agent-workbench.drafts';
 const COMMAND_KEY = 'agent-workbench.commands';
 const POLL_INTERVAL = 10_000;
+const STATE_REQUEST_TIMEOUT = 20_000;
 const SSE_RETRY_INTERVAL = 15_000;
 
 const dom = {
@@ -83,6 +84,7 @@ const app = {
   sseRetryTimer: null,
   requestVersion: 0,
   loadingState: false,
+  lastStateAt: null,
   stateCache: null,
   stateGeneration: 0,
   fullRun: null,
@@ -302,8 +304,9 @@ function setError(message = '') {
   dom.globalError.textContent = message;
 }
 
-function setConnection(message) {
-  if (dom.connectionNote) {dom.connectionNote.textContent = message;dom.connectionNote.title=message;dom.connectionNote.dataset.state=/failed|interrupted/i.test(message)?'error':/^Connected/.test(message)?'connected':'waiting';}
+function setConnection(message, state = /failed|interrupted/i.test(message)?'error':/^Connected/.test(message)?'connected':'waiting') {
+  if (app.lastStateAt) message = t('{status} · Last update {time}', { status: t(message), time: formatTime(app.lastStateAt) });
+  if (dom.connectionNote) {dom.connectionNote.textContent = message;dom.connectionNote.title=message;dom.connectionNote.dataset.state=state;}
   const settingsNote = document.querySelector('#settings-connection-note');
   if (settingsNote) settingsNote.textContent = message;
 }
@@ -440,6 +443,23 @@ function reconcileSelection() {
   }
 }
 
+/** Bound the whole read, including its body; a stalled request cannot hold the refresh lock or apply a late snapshot. Never retry writes here. */
+async function readState(path) {
+  const controller = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      api(path, { signal: controller.signal }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(t('State update timed out; retrying automatically. Displayed data may be outdated.')));
+          controller.abort();
+        }, STATE_REQUEST_TIMEOUT);
+      })
+    ]);
+  } finally { clearTimeout(timer); }
+}
+
 /** Refresh authoritative state while keeping the user's current selection and unsubmitted forms. */
 async function refreshState({ quiet = false } = {}) {
   if (app.loadingState) {
@@ -453,11 +473,11 @@ async function refreshState({ quiet = false } = {}) {
     const params=new URLSearchParams({view:'workspace'});
     if(requestedProject)params.set('projectId',requestedProject);
     if(app.stateCache?.projectId===requestedProject)params.set('cursor',app.stateCache.cursor);
-    let update=await api(`/api/state?${params}`);
+    let update=await readState(`/api/state?${params}`);
     if(generation!==app.stateGeneration||requestedProject!==app.selectedProjectId){app.pendingStateRefresh=true;return;}
     try {app.stateCache=update.schema===1?applyStateUpdate(app.stateCache,update):{projectId:requestedProject||update.projects?.[0]?.id||null,cursor:null,state:update};}
     catch {
-      params.delete('cursor');update=await api(`/api/state?${params}`);
+      params.delete('cursor');update=await readState(`/api/state?${params}`);
       if(generation!==app.stateGeneration||requestedProject!==app.selectedProjectId){app.pendingStateRefresh=true;return;}
       app.stateCache=applyStateUpdate(null,update);
     }
@@ -495,16 +515,25 @@ async function refreshState({ quiet = false } = {}) {
     render();
     // File queries may wait on a remote Worker and must not block authoritative state refresh or later SSE merging.
     void refreshRunDetails();
-    setConnection(app.token ? 'Connected · Token auth · 10 s polling' : 'Connected · live updates');
+    app.lastStateAt = new Date().toISOString();
+    setConnection(t('Connected · {mode}', {
+      mode: t(app.token ? 'Token auth · 10 s polling' : app.pollTimer ? '10 s polling' : 'Live updates')
+    }), 'connected');
   } catch (error) {
+    // Recover with a full snapshot after a failed read instead of extending an uncertain cursor.
+    app.stateCache = null;
     setError(error.message);
     setConnection('Home connection failed');
+    // SSE may stay open without another change event, so failed reads also need the polling fallback.
+    startPolling();
   } finally {
     app.loadingState = false;
+    // Settle this attempt's callers even during a sustained outage; polling must not accumulate unresolved waiters.
+    for (const resolve of app.refreshWaiters.splice(0)) resolve();
     if (app.pendingStateRefresh) {
       app.pendingStateRefresh = false;
       void refreshState({ quiet: true });
-    } else for (const resolve of app.refreshWaiters.splice(0)) resolve();
+    }
   }
 }
 
@@ -1972,7 +2001,7 @@ function connectUpdates() {
   disconnectUpdates();
   if (app.token) {
     startPolling();
-    setConnection('Token auth · 10 s polling');
+    setConnection('Syncing Home…');
     return;
   }
   startSse();
@@ -1992,6 +2021,12 @@ function startPolling() {
   app.pollTimer = setInterval(() => refreshState({ quiet: true }), POLL_INTERVAL);
 }
 
+/** A resumed PWA must verify its data immediately; this does not reload the page or discard drafts. */
+function refreshAfterActivation() {
+  if (document.visibilityState === 'hidden') return;
+  void refreshState();
+}
+
 function startSse() {
   if (app.token || app.eventSource) return;
   const source = new EventSource('/api/events');
@@ -1999,7 +2034,7 @@ function startSse() {
   source.addEventListener('open', () => {
     clearInterval(app.pollTimer);
     app.pollTimer = null;
-    setConnection('Connected · live updates');
+    void refreshState();
   });
   source.addEventListener('change', () => refreshState({ quiet: true }));
   source.onerror = () => {
@@ -2266,5 +2301,9 @@ function syncLanguage() {
   }).then(showLanguageChoice);
 }
 
+window.addEventListener('focus', refreshAfterActivation);
+window.addEventListener('online', refreshAfterActivation);
+window.addEventListener('pageshow', refreshAfterActivation);
+document.addEventListener('visibilitychange', refreshAfterActivation);
 connectUpdates();
 refreshState().finally(() => void syncLanguage());
