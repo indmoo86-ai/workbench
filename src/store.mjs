@@ -16,6 +16,7 @@ import {switchSettled,roleSwitchWaitReason,effectiveExecutionRole,isSwitchMainte
 import {syncError} from './source-sync-manifest.mjs';
 import {sourceInputWaitReason,sourceConflictContext} from './source-sync-input.mjs';
 import {ProactiveFollowup,followupFor,privateFollowup} from './proactive-followup.mjs';
+import {reviewView} from './collaboration-sessions.mjs';
 
 export const terminal = new Set(['succeeded', 'failed', 'interrupted']);
 const now = () => new Date().toISOString();
@@ -180,10 +181,12 @@ export class Store {
         ...(task.origin === 'chat' ? { roleId: task.roleId, roleSnapshot: task.roleSnapshot, sourceMessageId: task.sourceMessageId, sourceRunId: task.sourceRunId, hop: task.hop || 0 } : {}) };
       if(task.origin==='chat'&&!isSwitchMaintenance(task)) {
         if(run.backgroundFollowup)run.followupState=this.listProject('tasks',task.projectId).filter(t=>t.id!==task.id).slice(-10).map(t=>({taskId:t.id,status:t.status,roleId:t.roleId,runId:t.currentRunId||null,requestId:t.requestId||null,waitingReason:t.waitingReason||null}));
-        const context=this.get('conversationContexts',`${task.projectId}:${task.conversationId||task.projectId}`);
-        const source=task.sourceMessageId?this.get('roomMessages',task.sourceMessageId):null;
-        const messages=this.list('roomMessages').filter(message=>message.projectId===task.projectId && (message.conversationId||message.projectId)===(task.conversationId||task.projectId) && message.kind!=='summary');
-        const quote=task.quoteMessageId?this.get('roomMessages',task.quoteMessageId):null;
+        // Independent review: other reviewers' unreleased opinions never enter this role's new input.
+        const view=reviewView(this,{projectId:task.projectId,roleId:task.roleSnapshot?.id||task.roleId});
+        const context=view.get('conversationContexts',`${task.projectId}:${task.conversationId||task.projectId}`);
+        const source=task.sourceMessageId?view.get('roomMessages',task.sourceMessageId):null;
+        const messages=view.list('roomMessages').filter(message=>message.projectId===task.projectId && (message.conversationId||message.projectId)===(task.conversationId||task.projectId) && message.kind!=='summary');
+        const quote=task.quoteMessageId?view.get('roomMessages',task.quoteMessageId):null;
         const request=task.requestId?this.get('coordinationRequests',task.requestId):null;
         run.contextPacket=buildRunContext({run,task:{...task,coordinationKind:request?.kind},role:task.roleSnapshot,
           previousRun:roleSession?.lastRunId?this.get('runs',roleSession.lastRunId):null,

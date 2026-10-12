@@ -17,6 +17,7 @@ import { ConversationContext } from './conversation-context.mjs';
 import { renderRunPrompt } from './run-context.mjs';
 import { buildTeamContext, renderTeamContext } from './team-context.mjs';
 import { Rooms } from './rooms.mjs';
+import { CollaborationSessions, reviewView, setCollaborationSessionsEnabled } from './collaboration-sessions.mjs';
 import { defaultRoleTemplates, isSupervisorName } from './default-roles.mjs';
 import { Coordinator } from './coordinator.mjs';
 import { RoleCalls } from './role-calls.mjs';
@@ -97,6 +98,7 @@ const discussions=new RoleDiscussions(db,{online:id=>online(id)});
 const steering = new RoleSteering(db,calls);
 const history = new History(db);
 const sessionTools = new SessionTools(db);
+const collaborationSessions = new CollaborationSessions(db);
 const conversationContext = new ConversationContext(db);
 conversationContext.recover();
 for(const task of db.list('tasks').filter(task=>task.origin==='chat'&&task.status==='ready'&&task.contextState==='pending'))db.put('tasks',{...task,contextState:null});
@@ -509,17 +511,20 @@ const server = http.createServer(async (req, res) => {
           // Read/reply/resolve for an already started turn still finish under the frozen identity; a probe withdrawal only blocks new questions and does not swallow in-flight answers.
           if(b.action!=='peers'&&(run.discussionProtocol!==2||(b.action==='ask'&&!supportsDiscussion(db.get('workers',run.nodeId),run.roleSnapshot?.runtime,run.roleSnapshot?.model))))throw new Error(tr('home.discussionProtocolV2NotEnabled'));
           if(!['peers','ask','reply','read','resolve','budget_extend'].includes(b.action))throw new Error(tr('home.unknownDiscussionAction'));
-          const result=b.action==='budget_extend'?discussions.extendBudget({kind:'agent',runId:run.id},b.input):discussions[b.action](run,b.input||{});
+          const reader=['peers','read'].includes(b.action)?new RoleDiscussions(reviewView(db,{projectId:run.projectId,roleId:run.roleId}),{online:id=>online(id)}):discussions;
+          const result=b.action==='budget_extend'?discussions.extendBudget({kind:'agent',runId:run.id},b.input):reader[b.action](run,b.input||{});
           scheduleChat();change();return json(res,result);
         }
         if (pathname === '/api/agent/report') { const result=saveRunReport(db,run,b);change();return json(res,result); }
-        if (pathname === '/api/agent/history/search') return json(res,history.search(run.projectId,b));
-        if (pathname === '/api/agent/history/read') return json(res,history.read(run.projectId,b));
+        // Independent-review isolation is applied to the data the read tools see, before search, pagination or summaries.
+        const readView=reviewView(db,{projectId:run.projectId,roleId:run.roleId});
+        if (pathname === '/api/agent/history/search') return json(res,new History(readView).search(run.projectId,b));
+        if (pathname === '/api/agent/history/read') return json(res,new History(readView).read(run.projectId,b));
         if (pathname === '/api/agent/sessions/current') return json(res,sessionTools.current(run));
-        if (pathname === '/api/agent/sessions/list') return json(res,sessionTools.list(run,b));
-        if (pathname === '/api/agent/sessions/summary') return json(res,sessionTools.summary(run,b.roleSessionId));
-        if (pathname === '/api/agent/sessions/read') return json(res,sessionTools.read(run,b.roleSessionId,b));
-        if (pathname === '/api/agent/conversation/summary') return json(res,sessionTools.chatSummary(run,b));
+        if (pathname === '/api/agent/sessions/list') return json(res,new SessionTools(readView).list(run,b));
+        if (pathname === '/api/agent/sessions/summary') return json(res,new SessionTools(readView).summary(run,b.roleSessionId));
+        if (pathname === '/api/agent/sessions/read') return json(res,new SessionTools(readView).read(run,b.roleSessionId,b));
+        if (pathname === '/api/agent/conversation/summary') return json(res,new SessionTools(readView).chatSummary(run,b));
         if (pathname === '/api/agent/setup/catalog') return json(res, run.roleSnapshot?.platformAssistant ? assistant.catalog(run) : { ...setup.catalog(run), roleTemplates: defaultRoleTemplates() });
         if (pathname === '/api/agent/schedule') { const p=executionPlans.submit(run,b);change();return json(res,{planId:p.id,status:p.status,note:tr('home.waitScheduledEndCurrentTurn')},201); }
         if (pathname === '/api/agent/timers') {
@@ -575,6 +580,18 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
         res.write('event: change\ndata: {}\n\n'); viewers.add(res);
         req.on('close', () => viewers.delete(res)); return;
+      }
+      const collabFlagRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/feature$/);
+      if(collabFlagRoute&&req.method==='POST'){const p=setCollaborationSessionsEnabled(db,collabFlagRoute[1],(await body(req)).enabled);change();return json(res,{enabled:p.features.collaborationSessions});}
+      const collabListRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions$/);
+      if(collabListRoute&&req.method==='GET')return json(res,{items:collaborationSessions.list(collabListRoute[1])});
+      if(collabListRoute&&req.method==='POST'){const s=collaborationSessions.create(collabListRoute[1],await body(req));change();return json(res,s,201);}
+      const collabActionRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/([^/]+)\/(members\/add|members\/remove|link|release|close)$/);
+      if(collabActionRoute&&req.method==='POST'){
+        const [,projectId,id,action]=collabActionRoute,input=await body(req);
+        const s=action==='members/add'?collaborationSessions.addMember(projectId,id,input):action==='members/remove'?collaborationSessions.removeMember(projectId,id,input)
+          :action==='link'?collaborationSessions.link(projectId,id,input):collaborationSessions[action](projectId,id);
+        change();return json(res,s);
       }
       const discussionBudgetRoute=pathname.match(/^\/api\/projects\/([^/]+)\/discussions\/budget$/);
       if(discussionBudgetRoute&&req.method==='POST') {
