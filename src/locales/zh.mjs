@@ -1174,7 +1174,7 @@ repository.clone=true 仅在目标不存在时克隆；false 检查已有仓库�
   'runtimeGuidance.whenGrokCallsWbUse': 'Grok 调用 wb 使用一条独立命令，不与其他 shell 命令拼接。',
   'runtimeGuidance.collaborationToolsConfiguredCurrentSession': `协作工具已配置。当前会话 wb session current；同项目角色会话 wb session list；角色摘要 wb session summary 会话编号；可见全文 wb session read 会话编号 --offset 0 --limit 4000；群聊整理 wb chat summary。
 需要历史时 wb history search 关键词；原文 wb history read 消息编号；完整报告 wb result read 执行或调用编号。长文按 nextOffset 与 version 继续读取，不假装已读全文。
-记忆/文档按需 wb memory search、wb docs read；不要通读所有历史。仅传短摘要和来源编号。
+项目规则和决策见项目根目录的 AGENTS.md（各 CLI 原生加载）；历史用 wb history search 查询。不要通读所有历史。仅传短摘要和来源编号。
 咨询 wb call --role 角色 --kind consult --request-id 固定编号 --text 说明；同项目跨设备也直接投递，不需要主管转述。每次问一个明确问题，附必要背景、文件版本和期望答案；同一问题重试沿用编号。
 自己的分析按普通回复输出；定向问题放在本轮所选通信工具的 text 中，平台单独展示“发送角色 → @接收角色”的提问记录和关联回复。已开放 discuss 时，当前任务的规则澄清优先 ask；call 用于独立分析/审核/产出，或未开放 discuss 的目标。不要把整段分析重复复制成咨询，也不要重复发送同样的群聊留话。
 需要多个意见时先分别 wb call，再 wb wait 简短续接说明并结束本轮，平台收齐结果后回到原会话。不要轮询、sleep 或发送保活消息；执行名额和五分钟空闲保活由 Worker 管理。
@@ -1392,22 +1392,32 @@ wb schedule '<JSON>'  主管提交轻量执行安排，自动推进，不等待�
   'wbCli.unknownCommand': `未知命令 {cmd}
 
 {HELP}`,
+  // src/agents-md.mjs
+  'agentsMd.template': `# AGENTS.md
+
+所有 CLI（Codex、Claude Code、Grok、Agy）共用的项目规则和关键决策。保持简短（约 200 行以内）。
+规则或关键决策变化时，任何角色都可以更新本文件；保持简洁、只写结论，并提交修改。
+
+## 项目目标
+
+-
+
+## 规则和约定
+
+-
+
+## 构建和测试命令
+
+-
+
+## 关键决策
+
+只写结论，不写过程记录（历史可用 \`wb history search\` 查询）。
+
+-
+`,
   // src/wb-tools.mjs
   'wbTools.wbKnowledgeWbProjectRoot': '未设置 WB_KNOWLEDGE / WB_PROJECT_ROOT',
-  'wbTools.projectKnowledgeIndexMemoryMd': `# 项目知识索引
-
-- MEMORY.md — 已拍板决策
-- docs/ — 长文档，按需读取，禁止通读
-- handoffs/LATEST.md — 最近一份书面交接（完成项 / 文件 / commit / 下一步）
-
-开场先 \`wb boot\`，结束必须 \`wb handoff\`。
-`,
-  'wbTools.projectMemoryRecordConfirmedFacts': `# 项目记忆
-
-只记录已确认事实。追加时带时间和角色名，不要删别人的条目。
-
-`,
-  'wbTools.memoryWriteNeedsContent': 'memory write 需要内容',
   'wbTools.searchTermRequired': '需要搜索词',
   'wbTools.onlyFilesInsideWorkbenchCan': '只能读取 .workbench 内文件',
   'wbTools.notFile': '不是文件',
@@ -1458,7 +1468,7 @@ wb schedule '<JSON>'  主管提交轻量执行安排，自动推进，不等待�
 wb capabilities      当前协作工具与协议版本
 wb setup catalog     只读查询当前项目完整角色名单、同伴职能、CLI、模型和配置，不返回自己的职能
 wb discuss peers     所有有效角色会话查询同行当前任务、工作目录和近期留言
-wb boot              按需读取 INDEX + 最近交接，不必每轮执行
+wb boot              按需读取最近交接，不必每轮执行
 wb history search 词 搜索当前项目消息及报告，返回来源编号
 wb session current     查看本轮角色会话编号与状态
 wb session list --limit 20 [--cursor 编号]  列出项目角色会话
@@ -1468,9 +1478,6 @@ wb chat summary       查看当前项目对话整理结果
 wb history read 编号 [offset] [version]  分段读消息原文
 wb result read 编号 [offset] [version]   分段读执行/调用完整报告
 wb report JSON       提交 verdict/summary/evidence/next 业务结论
-wb memory            阅读 MEMORY.md
-wb memory write 文本  追加一条记忆（带角色和时间）
-wb memory search 词   搜索记忆和 docs
 wb docs              列出文档
 wb docs read 路径     读取 .workbench 内文件
 wb git               查看仓库状态和 origin（只读）
@@ -1672,7 +1679,8 @@ wb 表示这个完整前缀；每次调用都使用本轮前缀，不复用历�
   'worker.protocolError': '协议错误',
   'worker.connectionError': '连接错误',
   'minimal.teamHelp': 'wb discuss peers：查询当前项目完整团队、职能和跨设备可用状态。可选 JSON {"view":"detail","includeArchived":true} 返回详情。通过 wb call 联系角色，发送不意味着必须等待；只有依赖回复时才用 wb wait 登记等待。',
-  'minimal.platformDefault': '通过 Workbench 自主执行。按任务需要使用协作工具，仍须落实用户的明确要求。',
+  'minimal.platformDefault': '通过 Workbench 自主执行。按任务需要使用协作工具，仍须落实用户的明确要求。项目规则和决策见 AGENTS.md（各 CLI 原生加载）；历史用 wb history search 查询。规则或关键决策变化时，任何角色都可以更新 AGENTS.md；保持简洁、只写结论，并提交修改。',
+  'minimal.platformDefaultLegacy1': '通过 Workbench 自主执行。按任务需要使用协作工具，仍须落实用户的明确要求。',
   'minimal.supervisorDefault': '理解目标，自主选择有效的执行方式。按任务需要直接完成工作或与同伴协作。',
   'minimal.identity': '当前通过 Workbench 执行，角色为 {name}（角色 ID：{roleId}）。可按需使用协作工具，通过 wb help 发现入口。',
   'minimal.workerProtocolMismatch': '该排队回合使用新版指令契约，请升级 Worker 后续接；已保存的输入没有被降级或重写。',

@@ -1,6 +1,7 @@
 import { mkdir, realpath, readFile, writeFile, readdir, access, constants } from 'node:fs/promises';
 import { join, relative, isAbsolute } from 'node:path';
 import { tr } from './i18n.mjs';
+import { ensureAgentsFiles } from './agents-md.mjs';
 
 /** The stable project folder name does not change with the display name; path traversal and internal management directories are forbidden. */
 export function folderName(value) {
@@ -29,6 +30,7 @@ export async function prepareProjectSpace(roots, { projectId, folder, workspaceR
   if (!owner) {
     if ((await readdir(target)).length) throw new Error(tr('projectSpace.directoryWithSameNameAlready'));
     await writeFile(marker, JSON.stringify({ projectId, folder }), { flag: 'wx', mode: 0o600 });
+    await ensureAgentsFiles(target);
   }
   await access(target, constants.R_OK | constants.W_OK | constants.X_OK);
   return { localRoot: target, git: null, managed: true, folderName: folder };

@@ -5,6 +5,7 @@ import { promisify } from 'node:util';
 import { giteeRepository } from './repository.mjs';
 import { gitCredentialEnv } from './hosting.mjs';
 import { tr } from './i18n.mjs';
+import { ensureAgentsFiles } from './agents-md.mjs';
 
 const exec = promisify(execFile);
 const inside = (root, path) => { const rel = relative(root, path); return !rel || (!rel.startsWith('..') && !isAbsolute(rel)); };
@@ -43,6 +44,7 @@ export async function setupRepository(roots, input) {
   // Read the logical repository URL, preserving the device's existing insteadOf transport configuration (SSH aliases or mirrors).
   const origin = giteeRepository(await git(root, ['config', '--get', 'remote.origin.url']));
   if (origin?.webUrl !== repo.webUrl) throw new Error(tr('setupWorkspace.originExistingDirectoryDoesNot'));
+  const agentsMd = await ensureAgentsFiles(root);
   return { localRoot: root, git: { head: await git(root, ['rev-parse', 'HEAD']).catch(() => null),
-    branch: await git(root, ['symbolic-ref', '--short', 'HEAD']).catch(() => 'detached'), dirty: Boolean(await git(root, ['status', '--porcelain'])) } };
+    branch: await git(root, ['symbolic-ref', '--short', 'HEAD']).catch(() => 'detached'), dirty: Boolean(await git(root, ['status', '--porcelain'])) }, agentsMd };
 }
