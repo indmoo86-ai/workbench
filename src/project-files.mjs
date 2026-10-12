@@ -1,14 +1,31 @@
 import {resolve,relative,isAbsolute,basename,extname} from 'node:path';
 import {entryEqual,syncError,validateSourcePath} from './source-sync-manifest.mjs';
-import {sourceScopeBinding} from './source-sync-scopes.mjs';
+import {sourceScopeBinding,projectFileScopeId,isProjectFileScope} from './source-sync-scopes.mjs';
+
+const beneath=(root,path)=>{const rel=relative(root,path);return !isAbsolute(rel)&&rel!=='..'&&!rel.startsWith('../')?rel:null;};
 
 /** Display reads only the bound Mac's actual files; Home transfer blobs are not display copies. */
 export class ProjectFiles {
   constructor({db,query,online}){Object.assign(this,{db,query,online});}
   config(projectId){
-    if(!this.db.get('projects',projectId))throw syncError('project_missing');
-    const config=this.db.get('sourceSyncConfigs',projectId);
-    if(config?.scopeKind!=='directory'||!config.displayNodeId)throw syncError('display_node_required');return config;
+    const project=this.db.get('projects',projectId);if(!project)throw syncError('project_missing');
+    const config=this.db.get('sourceSyncConfigs',projectId)||{};
+    // Discovery is independent of transfer activation. Ambiguous Macs require an explicit selection, never Home's hostname.
+    const nodes=this.db.list('workspaces').filter(b=>b.projectId===projectId&&b.localRoot&&this.db.get('workers',b.nodeId)?.platform==='darwin');
+    const displayNodeId=config.displayNodeId||project.displayNodeId||(nodes.length===1?nodes[0].nodeId:null);
+    if(!displayNodeId)throw syncError('display_node_required');
+    return {...config,displayNodeId,bindings:this.readBindings(projectId,displayNodeId)};
+  }
+  /** Read permission follows current registered roots, not the set of writable synchronization scopes. */
+  readBindings(projectId,nodeId){
+    const repositories=this.db.list('repositoryWorkspaces').filter(b=>b.projectId===projectId&&b.nodeId===nodeId&&b.localRoot&&this.db.get('repositories',b.repositoryId)?.projectId===projectId);
+    const project=this.db.get('workspaces',`${projectId}:${nodeId}`),scopes=[...(project?.localRoot?[{...project,repositoryId:projectFileScopeId(projectId)}]:[]),...repositories];
+    return scopes.filter(b=>!this.db.listProject('runs',projectId).some(r=>r.nodeId===nodeId&&r.execution?.isolated&&r.workspace&&r.workspace!==r.projectRoot&&beneath(resolve(r.workspace),resolve(b.localRoot))!==null)).map(b=>{
+      const root=resolve(b.localRoot),sharedDocs=isProjectFileScope(projectId,b.repositoryId);
+      const excludeRoots=scopes.filter(other=>other.repositoryId!==b.repositoryId).map(other=>beneath(root,resolve(other.localRoot))).filter(p=>p!==null);
+      if(!sharedDocs&&excludeRoots.includes(''))throw syncError('overlapping_scope');
+      return {repositoryId:b.repositoryId,nodeId,root,scopeKind:'directory',scopePolicy:{sharedDocs,excludeRoots:[...new Set(excludeRoots)].sort()}};
+    });
   }
   binding(projectId,scopeId){
     const config=this.config(projectId),nodeId=config.displayNodeId,binding=config.bindings.find(b=>b.repositoryId===scopeId&&b.nodeId===nodeId);
@@ -16,14 +33,17 @@ export class ProjectFiles {
     const worker=this.db.get('workers',nodeId);if(worker?.platform!=='darwin'||worker?.capabilities?.projectFiles!==1)throw syncError('worker_unsupported');
     return {...binding,projectId,generation:config.generation,revision:config.revision};
   }
+  /** An old Worker may preview its own ordinary Run files, never substitute server content for the selected Mac. */
+  legacyReadable(run){
+    try{const nodeId=this.config(run.projectId).displayNodeId;return run.nodeId===nodeId&&this.db.get('workers',nodeId)?.capabilities?.projectFiles!==1;}catch{return false;}
+  }
   /** Map registered scopes only; a same-named isolated output is not a delivered project file. */
   reference(run,path){
     if(!this.db.get('projects',run.projectId))throw syncError('project_missing');
-    const config=this.db.get('sourceSyncConfigs',run.projectId);if(config?.scopeKind!=='directory')return null;
     if(typeof path!=='string'||path.length>4096)return null;
     if(!isAbsolute(path)&&!run.workspace)return null;
     const absolute=isAbsolute(path)?resolve(path):resolve(run.workspace,path);
-    for(const binding of config.bindings.filter(b=>b.nodeId===run.nodeId).sort((a,b)=>b.root.length-a.root.length)){
+    for(const binding of this.readBindings(run.projectId,run.nodeId).sort((a,b)=>b.root.length-a.root.length)){
       if(sourceScopeBinding(this.db,run.projectId,binding.repositoryId,run.nodeId)?.localRoot!==binding.root)continue;
       const rel=relative(binding.root,absolute);if(!rel||isAbsolute(rel)||rel==='..'||rel.startsWith('../'))continue;
       try{validateSourcePath(rel,binding.scopePolicy);return {scopeId:binding.repositoryId,path:rel};}catch{}
@@ -32,12 +52,14 @@ export class ProjectFiles {
   }
   state(projectId,binding,path,entry){
     if(this.db.listProject('sourceSyncConflicts',projectId).some(c=>c.repositoryId===binding.repositoryId&&c.path===path&&!['resolved','cancelled'].includes(c.status)))return 'conflict';
+    const config=this.db.get('sourceSyncConfigs',projectId);
+    if(!config?.enabled||!config.repositoryIds?.includes(binding.repositoryId)||!config.nodeIds?.includes(binding.nodeId))return 'disabled';
     const canonical=this.db.get('sourceSyncManifests',`${projectId}:${binding.repositoryId}`),expected=canonical?.entries?.[path]||null;
-    if(!entry)return expected?'pending':'missing';return entryEqual(entry,expected)?'synchronized':'local_changes';
+    if(!entry)return expected?'pending':'missing';return entryEqual(entry,expected)?'synchronized':'pending';
   }
   async queryBinding(binding,action,extra={}){
     if(!this.online(binding.nodeId))throw syncError('display_device_offline');
-    const result=await this.query({nodeId:binding.nodeId},action,{...binding,...extra},30000);
+    const result=await this.query({nodeId:binding.nodeId},action,{...binding,...extra},extra.metadata?5000:30000);
     if(JSON.stringify(this.binding(binding.projectId,binding.repositoryId))!==JSON.stringify(binding))throw syncError('binding_changed');
     return result;
   }

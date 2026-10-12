@@ -882,8 +882,7 @@ const server = http.createServer(async (req, res) => {
         }
       }
       if ((m = pathname.match(/^\/api\/projects\/([^/]+)\/artifacts$/)) && req.method === 'GET') {
-        if(db.get('sourceSyncConfigs',m[1])?.scopeKind==='directory')return json(res,await projectFiles.list(m[1]));
-        return json(res,await recentProjectArtifacts(db,m[1],workerQuery,online));
+        return json(res,await recentProjectArtifacts(db,m[1],workerQuery,online,projectFiles));
       }
       if((m=pathname.match(/^\/api\/projects\/([^/]+)\/(local-files|local-file)$/))&&req.method==='GET'){
         return json(res,m[2]==='local-files'?await projectFiles.list(m[1]):await projectFiles.read(m[1],url.searchParams.get('scopeId'),url.searchParams.get('path'),{metadata:url.searchParams.get('metadata')==='1'}));
@@ -899,7 +898,7 @@ const server = http.createServer(async (req, res) => {
           const events=db.events(r.id,after,limit===null?-1:limit+1);
           return json(res, { events:limit===null?events:events.slice(0,limit),...(limit===null?{}:{hasMore:events.length>limit,runState:{status:r.status,lastSeq:r.lastSeq,finishedAt:r.finishedAt}}) });
         }
-        if(['file','document'].includes(m[2])){const ref=projectFiles.reference(r,url.searchParams.get('path'));if(ref)return json(res,await projectFiles.read(r.projectId,ref.scopeId,ref.path,{metadata:url.searchParams.get('metadata')==='1'}));}
+        if(['file','document'].includes(m[2])){const ref=projectFiles.reference(r,url.searchParams.get('path'));if(ref&&!projectFiles.legacyReadable(r))return json(res,await projectFiles.read(r.projectId,ref.scopeId,ref.path,{metadata:url.searchParams.get('metadata')==='1'}));}
         const result = await workerQuery(r, m[2], url.searchParams.get('path'),m[2]==='document'?30000:10000);
         return json(res, result);
       }

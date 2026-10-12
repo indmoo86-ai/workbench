@@ -20,13 +20,15 @@ export async function inspectArtifactFiles(workspace,paths) {
 }
 
 /** Merge tool lifecycles; initiating a Write does not mean the write succeeded, and reads or report references are not used to infer who modified a file. */
-export function artifactCandidates(run,events=[],messages=[]) {
+export function artifactCandidates(run,events=[],messages=[],registered=null) {
   const found=new Map(),tools=new Map();
   const add=(path,writtenAt=null)=>{
     if(typeof path!=='string'||!path||path.length>4096)return;
     const absolute=resolve(run.workspace,path),rel=relative(run.workspace,absolute);
-    if(!rel||rel==='..'||rel.startsWith(`..${sep}`)||isAbsolute(rel))return;
-    const old=found.get(rel);if(!old||writtenAt)found.set(rel,{path:rel,writtenAt});
+    if(!rel)return;
+    const outside=rel==='..'||rel.startsWith(`..${sep}`)||isAbsolute(rel);
+    if(outside&&!registered?.(absolute))return;
+    const key=outside?absolute:rel,old=found.get(key);if(!old||writtenAt)found.set(key,{path:key,writtenAt});
   };
   for(const e of events){if(e.type!=='tool'||!e.payload?.item)continue;const item=e.payload.item,id=item.id||item.tool_use_id;
     if(id)tools.set(id,{...tools.get(id),...item,at:e.createdAt});}
@@ -53,13 +55,38 @@ export function artifactCandidates(run,events=[],messages=[]) {
 }
 
 /** Query a bounded set of recent runs without walking the whole workspace; for the same device and path only the latest record is shown. */
-export async function recentProjectArtifacts(db,projectId,query,online) {
+export async function recentProjectArtifacts(db,projectId,query,online,projectFiles=null) {
   if(!db.get('projects',projectId))throw new Error(tr('runArtifacts.projectNotFound'));
   const runs=db.list('runs').filter(r=>r.projectId===projectId&&r.workspace).sort((a,b)=>String(b.updatedAt||b.createdAt).localeCompare(String(a.updatedAt||a.createdAt)));
   const messages=db.list('roomMessages').filter(m=>m.projectId===projectId),candidates=new Map();
-  for(const run of runs.slice(0,40))for(const file of artifactCandidates(run,db.events(run.id),messages.filter(m=>m.runId===run.id))) {
-    const key=`${run.nodeId}:${resolve(run.workspace,file.path)}`,prior=candidates.get(key);
-    if(!prior||file.writtenAt&&(!prior.writtenAt||file.writtenAt>prior.writtenAt))candidates.set(key,{...file,run});
+  for(const run of runs.slice(0,40))for(const file of artifactCandidates(run,db.events(run.id),messages.filter(m=>m.runId===run.id),projectFiles?path=>projectFiles.reference(run,path):null)) {
+    const ref=projectFiles?.reference(run,file.path),key=ref?`${ref.scopeId}:${ref.path}`:`${run.nodeId}:${resolve(run.workspace,file.path)}`,prior=candidates.get(key);
+    if(!prior||file.writtenAt&&(!prior.writtenAt||file.writtenAt>prior.writtenAt))candidates.set(key,{...file,run,ref});
+  }
+  if(projectFiles){
+    const selected=[...candidates.values()].slice(0,100),items=[];let deviceError=null;
+    for(let i=0;i<selected.length;i+=4)await Promise.all(selected.slice(i,i+4).map(async c=>{
+      let local,error=null;
+      try{
+        if(!c.ref)throw new Error(tr('runArtifacts.filePathNotAccessible'));
+        if(deviceError)throw deviceError;
+        if(projectFiles.legacyReadable(c.run)){
+          if(!online(c.run.nodeId))throw new Error(tr('runArtifacts.deviceOffline'));
+          const result=await query(c.run,'artifact_files',[c.path],5000),info=result?.files?.find(f=>f.path===c.path);
+          if(!info||info.error)throw new Error(info?.error||tr('runArtifacts.deviceReturnedNoFileInformation'));
+          local={...info,path:resolve(c.run.workspace,c.path),nodeId:c.run.nodeId,shared:false,syncState:'disabled',relativePath:null};
+        }else local=await projectFiles.read(projectId,c.ref.scopeId,c.ref.path,{metadata:true});
+      }catch(e){error=e.message;if(/timed? out|timeout|offline|closed|disconnected|\u8d85\u65f6|\u79bb\u7ebf/i.test(error))deviceError=e;}
+      items.push({...local,projectId,runId:c.run.id,originNodeId:c.run.nodeId,originPath:resolve(c.run.workspace,c.path),
+        scopeId:c.ref?.scopeId||null,relativePath:local?.shared===false?null:c.ref?.path||null,path:local?.path||null,shared:local?.shared??Boolean(c.ref),
+        name:basename(c.path),type:extname(c.path).slice(1).toUpperCase()||'FILE',recordedAt:c.writtenAt||c.run.updatedAt||c.run.createdAt,
+        runtime:c.writtenAt?c.run.roleSnapshot?.runtime||null:null,roleName:c.writtenAt?c.run.roleSnapshot?.name||null:null,
+        sourceKind:c.writtenAt?'write':'reference',source:c.writtenAt?tr('runArtifacts.writeRecord'):tr('runArtifacts.replyReference'),
+        error,syncState:error?'read_error':local.syncState});
+    }));
+    // Ordering follows recorded write/reference evidence, not a later synchronization changing local mtime.
+    items.sort((a,b)=>String(b.recordedAt).localeCompare(String(a.recordedAt)));
+    return {items,partial:runs.length>40||candidates.size>100,scannedRuns:Math.min(40,runs.length)};
   }
   const selected=[...candidates.values()].slice(0,100),groups=new Map(),items=[];
   for(const c of selected){const list=groups.get(c.run.id)||[];list.push(c);groups.set(c.run.id,list);}

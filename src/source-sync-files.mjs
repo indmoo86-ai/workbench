@@ -37,7 +37,7 @@ export async function readSourceFile(root,path,policy={}) {
       const after=await file.stat();const final=await sourceFilePath(root,path,{policy});const named=final.missing?null:await lstat(final.path);
       if(offset===before.size&&before.size===after.size&&before.mtimeMs===after.mtimeMs&&before.ctimeMs===after.ctimeMs
         &&named?.ino===after.ino&&named?.dev===after.dev&&named.size===after.size&&named.mtimeMs===after.mtimeMs&&named.ctimeMs===after.ctimeMs)
-        return {entry:{hash:contentHash(bytes),size:bytes.length,executable:Boolean(after.mode&0o111)},bytes};
+        return {entry:{hash:contentHash(bytes),size:bytes.length,executable:Boolean(after.mode&0o111)},bytes,modifiedAt:after.mtime.toISOString()};
     } catch(e){if(!['ENOENT','ELOOP'].includes(e.code))throw e;}finally{await file?.close();}
   }
   throw syncError('source_busy',path);

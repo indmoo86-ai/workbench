@@ -15,7 +15,11 @@ The unshipped read-only cache prototype was removed. Shared documents use the ex
 
 Home validates the project/scope and requests inventory/content from the selected Mac Worker. That Worker resolves and reads the actual local file under the bound project. Home's transfer/recovery storage remains internal to synchronization and does not supply a long-lived browser display copy.
 
+Reading does not depend on synchronization being enabled or having been configured. Prefer the saved display Mac; without it, exactly one registered Mac project binding is discoverable, whereas multiple candidates require explicit selection. Read scopes come from current project/repository bindings, including registered project-baseline directories and read-only repositories; they do not inherit write permission. Revalidate bindings after asynchronous reads and preserve exclusion, symlink and traversal protections. Disabled synchronization never makes an existing local file unreadable.
+
 Resources discovers eligible actual Mac files, including `.workbench/docs/`, independently of recent Runs. Recent Outputs links verified output evidence to the same inventory without fabricating a modifier or Run. File type selects rendering, supported preview or download; it does not select another synchronization policy.
+
+Recent Outputs queries a bounded set of Run evidence rather than replacing it with the alphabetic inventory. Successful completed file-write tools are labeled Write record; reply links are labeled Mentioned in reply and never identify a modifying CLI. Resolve both through scope/path mappings, show only confirmed actual Mac paths, and retain reference/record time separately from current file modification time. Cards distinguish local availability from disabled/pending synchronization, conflicts and read failures.
 
 Keep preview limits distinct from transfer eligibility: a resource can synchronize successfully while being too large or unsupported for inline preview. Show that distinction.
 
