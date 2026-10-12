@@ -1509,3 +1509,4 @@ button.action-icon-button { display: inline-flex; align-items: center; justify-c
 }
 .session-queue-strip{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0;padding:6px 10px;border:1px dashed var(--border,#ccc);border-radius:8px;font-size:12px}
 .session-queue-strip .pill{padding:1px 8px;border-radius:999px;background:var(--surface-2,#f2f2f2)}
+.session-queue-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;width:100%}

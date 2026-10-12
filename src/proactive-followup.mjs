@@ -68,7 +68,9 @@ export class ProactiveFollowup {
     return ['human','agent'].includes(message.sender)&&message.visibility!=='internal'&&!['summary','handoff'].includes(message.kind)
       &&Boolean(message.text?.trim()||message.attachments?.length)
       &&!(message.taskIds||[]).some(id=>this.db.get('tasks',id)?.scheduledJobId)
-      &&(message.sender==='human'||!followupFor(this.db,message));
+      &&(message.sender==='human'||!followupFor(this.db,message))
+      // Queue alert turns are platform reminders, not new conversation: they never restart the silence timer.
+      &&!(message.runId&&this.db.get('tasks',this.db.get('runs',message.runId)?.taskId||'')?.sessionQueueAlert);
   }
   /** Only first turns not yet started can be withdrawn; active turns and their dependency continuations remain intact. */
   cancelPending(projectId,keepAnchor=null){

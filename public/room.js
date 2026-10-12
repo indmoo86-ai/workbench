@@ -788,7 +788,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     for(const run of (data.runs||[]).filter(r=>r.projectId===projectId&&r.discussionDeliveryId&&['queued','starting','running','waiting_user','stopping','reconciling'].includes(r.status))) {
       const live=renderLiveBubble({id:run.taskId,currentRunId:run.id,roleSnapshot:run.roleSnapshot},messages);if(live)feed.append(live);
     }
-    const queueStrip=renderSessionQueue(data.sessionQueues?.[projectId],{create,roleName:id=>(data.roles||[]).find(r=>r.id===id)?.name||id});
+    const queueStrip=renderSessionQueue(data.sessionQueues?.[projectId],{create,api,refreshState,projectId,roleName:id=>(data.roles||[]).find(r=>r.id===id)?.name||id});
     if(queueStrip)feed.append(queueStrip);
     scroller.scrollTop = atBottom ? scroller.scrollHeight : scrollTop;
     updateLiveFullscreen();

@@ -156,6 +156,9 @@ export class CollaborationSessions {
     return this.db.transaction(() => {
       const s = this.get(projectId, id);
       if (s.state === 'closed') return s;
+      // Closing a root session ends its propagation cycle; the cycle record is kept for audit.
+      const cycle = !s.parentSessionId ? this.db.get('sessionCycles', s.cycleId || `cycle:${s.id}`) : null;
+      if (cycle && !cycle.ended) this.db.put('sessionCycles', { ...cycle, ended: true, endedAt: now(), paused: true, pauseReason: 'session_closed' });
       return this.db.put(KIND, { ...s, state: 'closed', closedAt: now(), closedBy: actor, updatedAt: now() });
     });
   }
