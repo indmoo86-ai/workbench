@@ -18,7 +18,7 @@ import { renderRunPrompt } from './run-context.mjs';
 import { buildTeamContext, renderTeamContext } from './team-context.mjs';
 import { Rooms } from './rooms.mjs';
 import { CollaborationSessions, reviewView, setCollaborationSessionsEnabled } from './collaboration-sessions.mjs';
-import { SessionQueue, QueuePump, queueConfig, setQueueConfig, setSessionBroadcast, setTestProject, grantBudget } from './session-queue.mjs';
+import { SessionQueue, QueuePump, queueConfig, setQueueConfig, setSessionBroadcast, setTestProject, grantBudget, reassignRequest } from './session-queue.mjs';
 import { renderBatch } from './session-queue-worker.mjs';
 import { defaultRoleTemplates, isSupervisorName } from './default-roles.mjs';
 import { Coordinator } from './coordinator.mjs';
@@ -594,6 +594,8 @@ const server = http.createServer(async (req, res) => {
       const collabListRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions$/);
       if(collabListRoute&&req.method==='GET')return json(res,{items:collaborationSessions.list(collabListRoute[1])});
       if(collabListRoute&&req.method==='POST'){const s=collaborationSessions.create(collabListRoute[1],await body(req));change();return json(res,s,201);}
+      const reassignRoute=pathname.match(/^\/api\/projects\/([^/]+)\/requests\/([^/]+)\/reassign$/);
+      if(reassignRoute&&req.method==='POST'){const r=reassignRequest(db,calls,reassignRoute[1],decodeURIComponent(reassignRoute[2]),(await body(req)).roleId);scheduleChat();change();return json(res,r);}
       const testProjectRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/test-project$/);
       if(testProjectRoute&&req.method==='POST'){const p=setTestProject(db,testProjectRoute[1],(await body(req)).enabled);change();return json(res,{testProject:p.testProject});}
       const grantRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/([^/]+)\/budget$/);

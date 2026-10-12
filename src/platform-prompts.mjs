@@ -19,10 +19,12 @@ export function executionRules(run,{minimal=false}={}) {
   const discussion=discussionInstructions(run);
   if(discussion&&run.turnPurpose&&run.turnPurpose!=='task')return discussion;
   const purpose=run.execution?.purpose;
-  if(minimal)return [purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):'',
+  // wb pass guidance only for collaboration batch runs, which exist only when the project flag is on.
+  const passRule=run.collaborationBatchId?tr('sessionQueue.passRule'):'';
+  if(minimal)return [passRule,purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):'',
     ['deploy','migration','production'].includes(purpose)?tr('platformPrompts.exclusiveStageOnlyTargetsOperations'):'',
     run.planId&&run.reportRequired?tr('platformPrompts.beforeBusinessDeliveryRunWb',{p1:''}):''].filter(Boolean).join('\n');
-  return tr('platformPrompts.handleOnlyAssignmentDoNot', { discussion, p2: run.discussionProtocol===2?tr('platformPrompts.useWbDiscussForShort'):tr('platformPrompts.useWbCallForRole'), p3: run.roleSnapshot?.systemSupervisor?tr('platformPrompts.workingRolesMayConsultDiscuss'):'', p4: purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):tr('platformPrompts.unlessMergeStageScheduledDo'), p5: ['deploy','migration','production'].includes(purpose)?tr('platformPrompts.exclusiveStageOnlyTargetsOperations'):tr('platformPrompts.doNotReleaseOperateProduction'), p6: run.reportRequired?tr('platformPrompts.beforeBusinessDeliveryRunWb', { p1: run.discussionProtocol===2?tr('platformPrompts.wbDiscussAsk'):'' }):'' });
+  return tr('platformPrompts.handleOnlyAssignmentDoNot', { discussion, p2: run.discussionProtocol===2?tr('platformPrompts.useWbDiscussForShort'):tr('platformPrompts.useWbCallForRole'), p3: run.roleSnapshot?.systemSupervisor?tr('platformPrompts.workingRolesMayConsultDiscuss'):'', p4: purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):tr('platformPrompts.unlessMergeStageScheduledDo'), p5: ['deploy','migration','production'].includes(purpose)?tr('platformPrompts.exclusiveStageOnlyTargetsOperations'):tr('platformPrompts.doNotReleaseOperateProduction'), p6: run.reportRequired?tr('platformPrompts.beforeBusinessDeliveryRunWb', { p1: run.discussionProtocol===2?tr('platformPrompts.wbDiscussAsk'):'' }):''  })+(passRule?`\n${passRule}`:'');
 }
 const DEFAULT_FIELD_LIMIT = 128;
 // Match only exact previous EN/ZH defaults; custom edits must survive prompt upgrades.

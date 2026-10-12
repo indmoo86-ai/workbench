@@ -1725,4 +1725,9 @@ wb stands for this full prefix; every call uses this turn's prefix, and historic
   'sessionQueue.alert.budget_exhausted': "- Session {sessionId}: automatic discussion paused after {used} of {limit} batches. Summarise or ask the user to grant more.",
   'sessionQueue.alert.unresolved': "- Session {sessionId}: batch {batchId} for role {roleId} ended without a reply, pass or blocker (run {runId}). It was not retried.",
   'sessionQueue.alert.pending_verification': "- Session {sessionId}: batch {batchId} for role {roleId} has waited {minutes} minutes for verification (run {runId}); start confirmation was lost, so it will not be rerun.",
+  'sessionQueue.backlogRange': "Backlog thresholds: messages 1-10000, wait 60-86400 seconds.",
+  'sessionQueue.requestNotFound': "Request not found in this project.",
+  'sessionQueue.reassignStarted': "This request has already started; it cannot be reassigned. Stop it explicitly first.",
+  'sessionQueue.alert.backlog': "- Session {sessionId}: role {roleId} has {count} queued messages, oldest waiting {minutes} minutes. Consider adjusting participants or reassigning explicit work.",
+  'sessionQueue.passRule': "This turn is a collaboration discussion batch. Reply publicly only with wb chat post. If you have nothing substantive to add, run wb pass. For requests addressed to you, reply with a result, a blocker or a wait instead.",
 });

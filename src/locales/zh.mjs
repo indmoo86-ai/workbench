@@ -1725,4 +1725,9 @@ wb 表示这个完整前缀；每次调用都使用本轮前缀，不复用历�
   'sessionQueue.alert.budget_exhausted': "- 会话 {sessionId}：自动讨论已用 {used}/{limit} 批，已暂停。请整理结论或请用户追加预算。",
   'sessionQueue.alert.unresolved': "- 会话 {sessionId}：角色 {roleId} 的批次 {batchId} 结束时没有回复、不发言或阻塞说明（执行 {runId}），未自动重试。",
   'sessionQueue.alert.pending_verification': "- 会话 {sessionId}：角色 {roleId} 的批次 {batchId} 已等待核对 {minutes} 分钟（执行 {runId}）；启动确认丢失，不会重跑。",
+  'sessionQueue.backlogRange': "积压阈值：消息数 1 到 10000，等待时间 60 到 86400 秒。",
+  'sessionQueue.requestNotFound': "本项目中不存在该请求。",
+  'sessionQueue.reassignStarted': "该请求已开始执行，不能改派。请先明确停止。",
+  'sessionQueue.alert.backlog': "- 会话 {sessionId}：角色 {roleId} 积压 {count} 条消息，最早已等待 {minutes} 分钟。可考虑调整参与范围或改派明确任务。",
+  'sessionQueue.passRule': "本轮是协作讨论批次。公开发言只用 wb chat post；没有实质补充时运行 wb pass。对明确交给你的请求，回复结果、说明阻塞或登记等待。",
 });
