@@ -31,7 +31,8 @@ function roleRules(roleName, roleInstructions) {
 
 /** print/stream CLI adapter: tools are auto-approved, with no native per-item approval. */
 export class CliPrintSession {
-  constructor({ cwd, model, mode, emit, roleInstructions = '', roleName = '', effort = null, runtime, env = process.env, resumeSessionId = null, keepAlive = false, inheritInstructions = false, maintenance = false, minimalInstructions=false, instructionMessage='',configurationUpdate='' }) {
+  constructor({ cwd, model, mode, emit, roleInstructions = '', roleName = '', effort = null, runtime, env = process.env, resumeSessionId = null, keepAlive = false, inheritInstructions = false, maintenance = false, minimalInstructions=false, instructionMessage='',configurationUpdate='',beforeInput,onProcess }) {
+    this.beforeInput=beforeInput;this.onProcess=onProcess;this.inputAttempted=false;
     this.minimalInstructions=minimalInstructions;this.instructionMessage=instructionMessage;
     this.configurationUpdate=configurationUpdate;
     this.maintenance=maintenance;
@@ -94,16 +95,22 @@ export class CliPrintSession {
     this.lastThinkingAt=0;
   }
   async start(prompt) {
+    this.inputAttempted=false;
+    await this.beforeInput?.();
     if(this.proc && this.keepAlive) {
+      this.onProcess?.(this.proc);
       this.emit('status',{status:'running',workspace:this.cwd,nativeSessionId:this.nativeSessionId});
       this.sendTurn(prompt);return;
     }
+    this.inputAttempted=true;
     this.proc = spawn(this.bin(), this.args(prompt), { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], env: this.env,detached:process.platform!=='win32' });
+    this.onProcess?.(this.proc);
+    this.proc.once('spawn',()=>{if(this.keepAlive)this.sendTurn(prompt);else this.emit('status',{inputDeliveryState:'accepted'});});
     this.proc.stdin.on('error',e=>{if(!this.done){this.finish('failed',tr('cliPrintSession.cliInputStreamClosed', { message: e.message }));this.shutdown();}});
     // Grok uses stdin EOF as a user-cancel signal while headless tools are running.
     if (this.runtime !== 'grok' && !this.keepAlive) try { this.proc.stdin.end(); } catch {}
     this.emit('status', { status: 'running', workspace: this.cwd });
-    this.proc.on('error', e => this.finish('failed', e.message));
+    this.proc.on('error', e => {this.inputAttempted=false;this.emit('status',{inputDeliveryState:'not_delivered',queueRejected:true,queueRetryable:false,processSettled:true});this.finish('failed', e.message);});
     this.proc.on('exit', (code, signal) => {
       if (this.done) return;
       if (this.stopping) this.finish('interrupted');
@@ -120,7 +127,6 @@ export class CliPrintSession {
     });
     const lines = createInterface({ input: this.proc.stdout });
     lines.on('line', line => { try { this.receiveLine(line); } catch (e) { this.emit('log', { text: tr('cliPrintSession.eventHandlingError', { message: e.message }) }); } });
-    if(this.keepAlive)this.sendTurn(prompt);
   }
   /** Agy uses event:user and Claude uses type:user; the rules are attached to Agy only on the first turn or when the rules change. */
   sendTurn(prompt) {
@@ -128,7 +134,8 @@ export class CliPrintSession {
     const content=this.runtime==='agy'?this.minimalInstructions?[this.instructionMessage,prompt].filter(Boolean).join('\n\n'):!this.inheritInstructions?`${roleRules(this.roleName,this.roleInstructions)}\n\n${prompt}`:prompt:prompt;
     const message=this.runtime==='agy' ? {event:'user',message:{role:'user',content}}
       : {type:'user',session_id:this.nativeSessionId||this.resumeSessionId||'',message:{role:'user',content},parent_tool_use_id:null};
-    this.proc.stdin.write(`${JSON.stringify(message)}\n`);
+    this.inputAttempted=true;
+    this.proc.stdin.write(`${JSON.stringify(message)}\n`,error=>{if(!error)this.emit('status',{inputDeliveryState:'accepted'});});
   }
   receiveLine(line) {
     if (!line.trim()) return;

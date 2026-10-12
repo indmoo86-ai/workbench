@@ -5,6 +5,9 @@ import {sourceSyncPanel} from './source-sync.js';
 
 const el=(tag,className,text)=>Object.assign(document.createElement(tag),{className:className||'',...(text!==undefined?{textContent:text}:{})});
 const date=value=>value?new Date(value).toLocaleString(dateLocale(),{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'Modified time unknown';
+const fileState=file=>file.error?t('Read failed'):file.syncState==='conflict'?t('Sync conflict'):file.path
+  ?[t('Available on Mac'),file.syncState==='disabled'?t('Sync disabled'):file.syncState==='pending'?t('Sync pending'):null].filter(Boolean).join(' · ')
+  :t(file.syncState==='disabled'?'Sync disabled':file.syncState==='pending'?'Waiting for local synchronization':'Local file not found.');
 
 /** Reuses existing file reading; late responses must not overwrite new content after switching projects or closing the dialog. */
 export function createWorkspaceInspector({api,getProject,getData,openDevices,openProjectFolder}) {
@@ -26,17 +29,18 @@ export function createWorkspaceInspector({api,getProject,getData,openDevices,ope
     const version=++detailVersion;
     document.querySelector('#artifact-detail-title').textContent=file.name;
     const worker=getData().workers.find(w=>w.id===file.nodeId);
-    document.querySelector('#artifact-detail-meta').textContent=`${file.type} · ${file.runtime||t('Modifying CLI unknown')} · ${date(file.modifiedAt)} · ${worker?.name||file.nodeId}\n${file.path||t('Waiting for local synchronization')}`;
+    document.querySelector('#artifact-detail-meta').textContent=`${file.type} · ${fileState(file)}${worker?` · ${worker.name}`:''}\n${file.path||''}`;
     content.textContent='Reading file…';dialog.showModal();
+    if(!file.shared&&!file.path){content.textContent=file.error||t('Local file not found.');return;}
     // An older Worker may only lack the metadata query; the existing content API still works, so details are not blocked.
     const path=file.relativePath||file.path,markdown=/\.(md|markdown)$/i.test(path),text=/\.(md|markdown|txt)$/i.test(path);
     try{
       const result=await api(file.shared?`/api/projects/${encodeURIComponent(file.projectId)}/local-file?${new URLSearchParams({scopeId:file.scopeId,path})}`:`/api/runs/${encodeURIComponent(file.runId)}/${text?'document':'file'}?path=${encodeURIComponent(path)}`);
       if(version!==detailVersion||!dialog.open)return;
-      if(result.shared){document.querySelector('#artifact-detail-meta').textContent=result.path||t('Waiting for local synchronization');
-        if(result.content===null){content.textContent=t(result.preview==='binary'?'Binary file; preview unavailable.':result.preview==='too_large'?'File synchronized; text preview exceeds 600 KB.':'Waiting for local synchronization');return;}}
+      if(result.shared){document.querySelector('#artifact-detail-meta').textContent=`${fileState(result)}\n${result.path||''}`;
+        if(result.content===null){content.textContent=t(result.preview==='binary'?'Binary file; preview unavailable.':result.preview==='too_large'?'Local file exceeds the 600 KB text preview limit.':result.syncState==='pending'?'Waiting for local synchronization':'Local file not found.');return;}}
       content.replaceChildren(markdown?renderMarkdown(result.content):el('pre','artifact-code',result.content));
-      if(result.syncState==='conflict'||result.syncState==='local_changes')content.prepend(el('p','workspace-note',t(result.syncState==='conflict'?'Conflict detected; showing actual local file.':'Showing local changes; synchronization pending.')));
+      if(result.syncState==='conflict'||result.syncState==='pending')content.prepend(el('p','workspace-note',t(result.syncState==='conflict'?'Conflict detected; showing actual local file.':'Showing local changes; synchronization pending.')));
     }catch(error){if(version===detailVersion&&dialog.open)content.textContent=t('Unable to preview online: {message}. File info is kept; view it in the workspace of the corresponding device.', { message: error.message });}
   }
   async function loadResources(force=false){
@@ -45,7 +49,7 @@ export function createWorkspaceInspector({api,getProject,getData,openDevices,ope
     localNote.textContent=t('Reading actual files on the selected Mac.');
     try{const result=await api(`/api/projects/${encodeURIComponent(id)}/local-files`);if(version!==generation)return;
       localList.replaceChildren();localNote.textContent=result.errors?.length?result.errors.map(e=>e.error).join(' · '):t(result.partial?'Showing a bounded selection of local files.':'Reading actual files on the selected Mac.');
-      for(const file of result.items){const row=el('button','artifact-row'),body=el('span','artifact-row-body');row.type='button';body.append(el('strong','',file.name),el('small','',file.path||t('Waiting for local synchronization')));body.lastChild.setAttribute('translate','no');row.append(body);row.addEventListener('click',()=>void detail(file));localList.append(row);}
+      for(const file of result.items){const row=el('button','artifact-row'),body=el('span','artifact-row-body');row.type='button';body.append(el('strong','',file.name),el('small','artifact-local-path',file.path||''));body.lastChild.setAttribute('translate','no');body.append(el('small','',fileState(file)));row.append(body);row.addEventListener('click',()=>void detail(file));localList.append(row);}
       if(!result.items.length)localList.append(el('p','workspace-note',t('No local project files available.')));
     }catch(error){if(version===generation)localNote.textContent=t('Local files unavailable: {message}',{message:error.message});}finally{if(version===generation){resourcesBusy=false;resourcesLoadedAt=Date.now();}}
   }
@@ -56,13 +60,16 @@ export function createWorkspaceInspector({api,getProject,getData,openDevices,ope
       const result=await api(`/api/projects/${encodeURIComponent(id)}/artifacts`);
       if(version!==generation)return;
       list.replaceChildren();loadedAt=Date.now();
-      note.textContent=result.partial?'Showing partial outputs from recent runs · see the conversation log for earlier records':'Sorted by file modified time · unknown sources are not attributed to a modifier';
+      note.textContent=t(result.partial?'Showing partial outputs from recent runs · see the conversation log for earlier records':'Write records and reply references are shown separately; contents come from the bound Mac.');
       for(const file of result.items){
         const button=el('button','artifact-row');button.type='button';
         const type=el('span','artifact-filetype',file.type.slice(0,6));type.dataset.kind=/MD|TXT|DOCX|PDF/.test(file.type)?'document':'code';
-        const body=el('span','artifact-row-body');body.append(el('strong','',file.name),el('small','',`${file.runtime||t('CLI unknown')} · ${date(file.modifiedAt)}`));
+        const body=el('span','artifact-row-body');body.append(el('strong','',file.name),el('small','',`${t(file.sourceKind==='write'?'File write record':'Mentioned in reply')}${file.runtime?` · ${file.runtime}`:''}${file.recordedAt?` · ${date(file.recordedAt)}`:''}`));
+        if(file.modifiedAt)body.append(el('small','',t('Local modified: {time}',{time:date(file.modifiedAt)})));
+        if(file.path){const path=el('small','artifact-local-path',file.path);path.setAttribute('translate','no');body.append(path);}
+        body.append(el('small',file.error||file.syncState==='conflict'?'artifact-warning':'',fileState(file)));
         if(file.error)body.append(el('small','artifact-warning',file.error));
-        button.title=`${file.path}\n${file.source}${file.roleName?` · ${file.roleName}`:''}`;
+        button.title=`${file.path||''}\n${file.source}${file.roleName?` · ${file.roleName}`:''}`;
         button.append(type,body);button.addEventListener('click',()=>void detail(file));list.append(button);
       }
       if(!result.items.length)list.append(el('div','inspector-empty','No recognizable outputs yet. File write records and file links in replies will appear here.'));

@@ -46,9 +46,9 @@ test('unknown runtime is never idle', () => {
 function env() {
   const db = new Store(':memory:'); let clock = Date.parse('2026-10-12T08:00:00Z');
   const now = () => clock, advance = s => { clock += s * 1000; };
-  db.put('projects', { id: P, name: 'demo' });
+  db.put('projects', { id: P, name: 'demo',testProject:true });
   for (const id of ['codex', 'claude']) db.put('roles', { id, projectId: P, name: id, nodeId: 'w1', runtime: id, model: 'm', mode: 'workspace-write' });
-  db.put('workers', { id: 'w1', capabilities: { sessionQueue: 1 } });
+  db.put('workers', { id: 'w1', capabilities: { sessionQueue: 2 } });
   setCollaborationSessionsEnabled(db, P, true);
   db.put('roomMessages', { id: 'root', projectId: P, sender: 'human', text: 'goal' });
   const s = new CollaborationSessions(db).create(P, { id: 's0', goal: 'g', participants: ['codex', 'claude'], sourceMessageId: 'root' });
@@ -72,7 +72,7 @@ function env() {
   return { db, queue, pump, say, advance, ts, slots, workerAnswer, launch, now };
 }
 let seq = 0;
-const ev = (db, runId, type, payload) => db.event({ id: `e${++seq}`, runId, seq: (db.get('runs', runId).lastSeq || 0) + 1, type, payload });
+const ev = (db, runId, type, payload) => db.event({ id: `e${++seq}`, runId, seq: (db.get('runs', runId).lastSeq || 0) + 1, type, payload: type==='status'&&payload.status==='running'?{...payload,inputDeliveryState:'accepted'}:payload });
 
 test('end to end over the fake WebSocket: busy CLI gets nothing, then one batch; explicit publish and wb pass', async () => {
   const e = env();

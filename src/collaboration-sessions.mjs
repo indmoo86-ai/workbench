@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { tr } from './i18n.mjs';
+import {posix} from 'node:path';
 
 const now = () => new Date().toISOString();
 const TYPES = new Set(['open', 'independent-review']);
 const KIND = 'collaborationSessions';
-const MAX_DEPTH = 32;
 
 /** Per-project switch, default OFF. Isolation filtering does not depend on it: an unreleased review stays protected even if the switch is turned off later. */
 export function collaborationSessionsEnabled(db, projectId) {
@@ -28,11 +28,12 @@ function text(value, label, max) {
  * so late replies inherit the original session without any time or keyword heuristics. An explicit
  * collaborationSessionId stamped on a record always wins.
  */
-export function sessionOf(db, kind, record, depth = 0, roots = null) {
-  if (!record || depth > MAX_DEPTH) return null;
+export function sessionOf(db, kind, record, depth = 0, roots = null, seen = new Set()) {
+  if (!record || seen.has(`${kind}:${record.id}`)) return null;
+  seen.add(`${kind}:${record.id}`);
   if (record.collaborationSessionId) return record.collaborationSessionId;
   roots ||= sessionRoots(db, record.projectId);
-  const hop = (k, id) => id ? sessionOf(db, k, db.get(k, id), depth + 1, roots) : null;
+  const hop = (k, id) => id ? sessionOf(db, k, db.get(k, id), depth + 1, roots, seen) : null;
   if (kind === 'roomMessages') return roots.messages.get(record.id) || hop('roomMessages', record.replyToId)
     || hop('coordinationRequests', record.requestId) || hop('runs', record.runId);
   if (kind === 'coordinationRequests') return roots.requests.get(record.id) || hop('coordinationRequests', record.parentRequestId)
@@ -68,13 +69,28 @@ export class CollaborationSessions {
 
   list(projectId) { return this.db.listProject(KIND, projectId); }
 
+  /** The tool obtains project and actor from the current Run, never from model-supplied sender fields. */
+  agent(run, action, input = {}, documentBaselines = []) {
+    const project = this.db.get('projects', run?.projectId || '');
+    if (!run?.roleId || project?.supervisorRoleId !== run.roleId || run.roleSnapshot?.platformAssistant) throw new Error(tr('collabSessions.supervisorOnly'));
+    const actor = { kind: 'agent', roleId: run.roleId, runId: run.id };
+    if (action === 'list') return this.list(run.projectId);
+    if (action === 'create') return this.create(run.projectId, { ...input, sourceMessageId: input.sourceMessageId || run.sourceMessageId }, actor, documentBaselines);
+    if (action === 'link') return this.link(run.projectId, input.sessionId, input);
+    if (action === 'add-member') return this.addMember(run.projectId, input.sessionId, input, actor);
+    if (action === 'remove-member') return this.removeMember(run.projectId, input.sessionId, input, actor);
+    if (action === 'release') return this.release(run.projectId, input.sessionId, actor);
+    if (action === 'close') return this.close(run.projectId, input.sessionId, actor);
+    throw new Error(tr('collabSessions.invalidAction'));
+  }
+
   #role(projectId, roleId) {
     const role = this.db.get('roles', roleId);
     if (!role || role.projectId !== projectId) throw new Error(tr('collabSessions.participantNotInProject'));
     return role;
   }
 
-  create(projectId, input = {}, actor = { kind: 'human' }) {
+  create(projectId, input = {}, actor = { kind: 'human' }, documentBaselines = []) {
     return this.db.transaction(() => {
       if (!collaborationSessionsEnabled(this.db, projectId)) throw new Error(tr('collabSessions.featureDisabled'));
       if (input.id) { const prior = this.db.get(KIND, input.id); if (prior) { if (prior.projectId !== projectId) throw new Error(tr('collabSessions.sessionNotFound')); return prior; } }
@@ -93,6 +109,8 @@ export class CollaborationSessions {
       const source = input.sourceMessageId ? this.db.get('roomMessages', input.sourceMessageId) : null;
       if (input.sourceMessageId && source?.projectId !== projectId) throw new Error(tr('collabSessions.linkNotInProject'));
       const s = { id: input.id || randomUUID(), projectId, goal: text(input.goal, 'goal', 4000),
+        background: input.background ? text(input.background, 'background', 16000) : '',
+        documentBaselines: type === 'independent-review' ? documentBaselines : [],
         delivery: input.delivery ? text(input.delivery, 'delivery', 4000) : '', type, participants,
         linkedTaskIds: [], linkedRequestIds: [], sourceMessageId: source?.id || null, parentSessionId: parent?.id || null, state: 'open', reviewReleasedAt: null,
         membershipLog: participants.map(p => ({ action: 'add', roleId: p.roleId, reviewer: p.reviewer, actor, at })),
@@ -168,12 +186,16 @@ export class CollaborationSessions {
 function guardedSessions(db, projectId, viewerRoleId) {
   const map = new Map();
   if (!projectId || !viewerRoleId) return map;
-  for (const s of db.listProject(KIND, projectId)) {
+  const sessions=db.listProject(KIND,projectId),byId=new Map(sessions.map(s=>[s.id,s]));
+  const descendant=(session,parentId)=>{const seen=new Set();for(let current=session;current&&!seen.has(current.id);current=byId.get(current.parentSessionId)){if(current.id===parentId)return true;seen.add(current.id);}return false;};
+  for (const s of sessions) {
     if (s.type !== 'independent-review' || s.reviewReleasedAt) continue;
-    if (!s.participants.some(p => p.roleId === viewerRoleId && p.reviewer)) continue;
-    const others = new Set([...s.participants.filter(p => p.reviewer).map(p => p.roleId), ...(s.formerReviewerIds || [])]);
+    // Splitting a protected review into an open child topic is not a release of its opinions.
+    const family=sessions.filter(child=>descendant(child,s.id));
+    const others = new Set(family.flatMap(child=>[...child.participants.filter(p => p.reviewer).map(p => p.roleId), ...(child.formerReviewerIds || [])]));
+    if(!others.has(viewerRoleId))continue;
     others.delete(viewerRoleId);
-    if (others.size) map.set(s.id, others);
+    if(others.size)for(const child of family)map.set(child.id,new Set([...(map.get(child.id)||[]),...others]));
   }
   return map;
 }
@@ -206,7 +228,18 @@ export function reviewView(db, { projectId, roleId }) {
     const author = authorOf[kind]?.(db, record);
     if (owner && guarded.get(owner)?.has(author)) result = true;
     // Derived content: an agent message replying to a protected opinion carries it forward.
-    else if (kind === 'roomMessages' && record.sender === 'agent' && record.replyToId && depth < MAX_DEPTH)
+    else if(kind==='coordinationRequests')
+      result = (record.sourceRunId && isProtected('runs', db.get('runs', record.sourceRunId), depth + 1))
+        || (record.continuationOf && isProtected('coordinationRequests', db.get('coordinationRequests', record.continuationOf), depth + 1))
+        || (record.parentRequestId && isProtected('coordinationRequests', db.get('coordinationRequests', record.parentRequestId), depth + 1)) || false;
+    else if(kind==='runs'||kind==='tasks')
+      result = (record.requestId && isProtected('coordinationRequests',db.get('coordinationRequests',record.requestId),depth+1))
+        || (record.sourceRunId && isProtected('runs',db.get('runs',record.sourceRunId),depth+1))
+        || (kind==='runs'&&record.taskId&&isProtected('tasks',db.get('tasks',record.taskId),depth+1)) || false;
+    else if(kind==='runReports')result=isProtected('runs',db.get('runs',record.id),depth+1);
+    else if(kind==='discussionMessages')result=isProtected('runs',db.get('runs',record.sourceRunId||''),depth+1);
+    else if(kind==='roomMessages' && record.sender==='agent' && record.runId && isProtected('runs',db.get('runs',record.runId),depth+1))result=true;
+    else if (kind === 'roomMessages' && record.sender === 'agent' && record.replyToId)
       result = isProtected('roomMessages', db.get('roomMessages', record.replyToId), depth + 1);
     memo.set(key, result);
     return result;
@@ -218,7 +251,8 @@ export function reviewView(db, { projectId, roleId }) {
       case 'roomMessages': case 'discussionMessages': case 'runReports': return isProtected(kind, record) ? null : record;
       case 'runs': return isProtected(kind, record) ? { ...record, result: null, error: record.error ? '' : record.error, report: null,
         contextPacket: null, inputTask: null, discussionContext: null, reviewRedacted: true } : record;
-      case 'coordinationRequests': return isProtected(kind, record) ? { ...record, result: null, reviewRedacted: true } : record;
+      case 'tasks': return isProtected(kind,record)?{...record,prompt:null,error:null,title:null,attachments:[],teamContext:null,contextPacket:null,reviewRedacted:true}:record;
+      case 'coordinationRequests': return isProtected(kind, record) ? { ...record, summary: null, result: null, reportSummary: null, error: null, resumeSummary: null, attachments: [], reviewRedacted: true } : record;
       case 'conversationContexts': {
         // Organizer summaries may be derived from protected opinions; withhold them while any exist.
         const hidden = protectedMessageIds();
@@ -238,4 +272,14 @@ export function reviewView(db, { projectId, roleId }) {
       return typeof value === 'function' ? value.bind(target) : value;
     }
   });
+}
+
+/** Shared documents must still match the pre-review content on this device; own private handoffs stay readable. */
+export function reviewDocumentAllowed(db, run, file) {
+  if(typeof file?.path!=='string'||file.path.includes('\\')||file.path!==posix.normalize(file.path)||posix.isAbsolute(file.path))return false;
+  const guarded=guardedSessions(db,run.projectId,run.roleId);
+  if(!guarded.size)return true;
+  if(file.path.startsWith('handoffs/private/'))return file.path.startsWith(`handoffs/private/${run.roleId}/`);
+  return [...guarded.keys()].map(id=>db.get(KIND,id)).filter(s=>s?.type==='independent-review'&&!s.reviewReleasedAt)
+    .every(s=>s.documentBaselines?.some(b=>b.nodeId===run.nodeId&&b.path===file.path&&b.hash===file.hash));
 }

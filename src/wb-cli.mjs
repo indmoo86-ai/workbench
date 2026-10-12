@@ -46,8 +46,14 @@ export async function main(argv = process.argv.slice(2)) {
   const tail = [sub, ...rest].filter(v => v !== undefined);
   const supervisor = process.env.WB_SYSTEM_SUPERVISOR === '1';
   try {
+    // Discovery flags never perform a write (including nested commands such as chat post --help).
+    if(tail.some(value=>['--help','-h'].includes(value))&&!tail.includes('--'))return out(helpText());
     const roleSession=Boolean(process.env.WB_ROLE_SESSION_ID),discussion=roleSession&&process.env.WB_DISCUSSION_PROTOCOL==='2';
     const sourceSync=process.env.WB_SOURCE_SYNC==='1';
+    if(cmd==='collaboration') {
+      if(!['list','create','link','add-member','remove-member','release','close'].includes(sub)||rest.length>1)throw new Error(tr('collabSessions.toolHelp'));
+      return out(await agentRequest('/api/agent/collaboration-sessions',{runId:process.env.WB_RUN_ID,action:sub,input:rest.length?JSON.parse(rest[0]):{}}));
+    }
     if(cmd==='sync'){
       if(!sourceSync)throw new Error(tr('sourceSync.failure',{code:'worker_unsupported',detail:''}));
       if(!['status','read','request','assign','propose'].includes(sub)||rest.length>1)throw new Error(tr('sourceSync.toolGuide'));
@@ -59,7 +65,7 @@ export async function main(argv = process.argv.slice(2)) {
       return out(await agentRequest('/api/agent/discussions',{runId:process.env.WB_RUN_ID,action:sub,input:rest.length?JSON.parse(rest[0]):sub==='peers'?{view:'summary'}:{}}));
     }
     if(discussion&&(!cmd||['help','-h','--help'].includes(cmd)))return out(`${helpText()}\n\n${discussionHelp()}`);
-    if (cmd === 'capabilities') return out({protocol:2,sourceSyncTools:sourceSync?1:0,discussionProtocol:discussion?2:0,sessionTools:1,timerTools:1,tools:['setup catalog',...(sourceSync?['sync status','sync read','sync request','sync propose',...(supervisor?['sync assign']:[])]:[]),...(roleSession?['discuss peers']:[]),...(discussion?['discuss ask','discuss reply','discuss read','discuss resolve',...(supervisor?['discuss budget_extend']:[])]:[]),'call','wait',...(supervisor?['schedule','timer','role prompt']:[]),'note','git status','report','history search','history read','result read','deliver','session current','session list','session summary','session read','chat summary']});
+    if (cmd === 'capabilities') return out({protocol:2,sourceSyncTools:sourceSync?1:0,discussionProtocol:discussion?2:0,sessionTools:1,timerTools:1,queueTools:process.env.WB_QUEUE_BATCH==='1'?2:0,tools:['setup catalog',...(sourceSync?['sync status','sync read','sync request','sync propose',...(supervisor?['sync assign']:[])]:[]),...(roleSession?['discuss peers']:[]),...(discussion?['discuss ask','discuss reply','discuss read','discuss resolve',...(supervisor?['discuss budget_extend']:[])]:[]),'call','wait',...(supervisor?['schedule','timer','role prompt','collaboration list','collaboration create','collaboration link','collaboration add-member','collaboration remove-member','collaboration release','collaboration close']:[]),...(process.env.WB_QUEUE_BATCH==='1'?['pass']:[]),'note','git status','report','history search','history read','result read','deliver','session current','session list','session summary','session read','chat summary']});
     if (cmd === 'session' && sub === 'current') return out(await agentRequest('/api/agent/sessions/current',{runId:process.env.WB_RUN_ID}));
     if (cmd === 'session' && sub === 'list') return out(await agentRequest('/api/agent/sessions/list',{runId:process.env.WB_RUN_ID,...sessionOptions(rest)}));
     if (cmd === 'session' && sub === 'summary') return out(await agentRequest('/api/agent/sessions/summary',{runId:process.env.WB_RUN_ID,roleSessionId:rest[0]}));
@@ -86,7 +92,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (cmd === 'docs' && (!sub || sub === 'list')) return out(await docsList());
     if (cmd === 'docs' && sub === 'read') return out(await docsRead(rest.join(' ')));
     if (cmd === 'git' && (!sub || sub === 'status')) return out(await gitStatus());
-    if (cmd === 'chat' || cmd === 'note') return out(await chatPost(tail.join(' ')));
+    if (cmd === 'chat' || cmd === 'note') return out(await chatPost(cmd==='chat'&&sub==='post'?rest.join(' '):tail.join(' ')));
     if (cmd === 'ask') return out(await askRole(sub, rest.join(' ')));
     if (cmd === 'wait') {
       if(tail.length===1&&tail[0].trim().startsWith('{')){const input=JSON.parse(tail[0]);if(Object.keys(input).some(k=>!['summary','requestIds','timeoutSeconds'].includes(k)))throw new Error(tr('minimal.invalidWait'));return out(await waitForRole(input.summary,input));}

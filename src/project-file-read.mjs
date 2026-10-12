@@ -6,7 +6,7 @@ import {syncError} from './source-sync-manifest.mjs';
 export async function readProjectFile({root,path,scopePolicy,metadata=false}){
   const captured=await readSourceFile(root,path,scopePolicy);
   if(!captured.entry)return {relativePath:path,path:null,entry:null,content:null};
-  const common={relativePath:path,path:join(root,path),entry:captured.entry,size:captured.entry.size};if(metadata)return common;
+  const common={relativePath:path,path:join(root,path),entry:captured.entry,size:captured.entry.size,modifiedAt:captured.modifiedAt};if(metadata)return common;
   if(captured.bytes.length>600000)return {...common,preview:'too_large',content:null};
   const content=captured.bytes.toString('utf8');if(captured.bytes.includes(0)||!Buffer.from(content).equals(captured.bytes))return {...common,preview:'binary',content:null};
   return {...common,preview:'text',content};

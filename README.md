@@ -2,6 +2,10 @@ English | [简体中文](README.zh-CN.md)
 
 # Agent Collaboration Workbench
 
+Opt-in collaboration sessions collect discussion outside busy native CLIs and deliver a role-bound batch after the current turn ends. Queue protocol 2 separates native acceptance from process start, inherits a bounded propagation cycle and preserves original waits. Only explicit `wb note` / `wb chat post` publishes batch output; native streams and final answers stay in execution details. Independent-review reads and managed document access remain protected until release. This repair is isolated-tested, not deployed or enabled on business projects; see [V3 contract](docs/design/session-queue-v3.md) and [measured acceptance](docs/design/session-queue-v3-acceptance.md).
+
+Basic Settings aligns its heading, tabs and content edges; the tab bar stays at the top while scrolling, including on narrow screens. This layout change is not deployed yet.
+
 CLI occupancy recovery reuses owned idle drivers, retires verified idle leftovers and asks before stopping busy or uncertain old work. The human-only dialog resumes the existing task and exact native session; unknown identities cannot be forcibly stopped. The five-minute warm cache remains unchanged. This development change is not deployed; see [recovery contract and acceptance](docs/design-cli-session-recovery.md).
 
 Project settings now offer opt-in **Supervisor proactive follow-up**, off by default with a ten-minute silence duration. Each new complete chat starts one silence period; logs, duplicates and follow-up descendants do not re-arm it. The existing scheduler queues a background supervisor turn, rechecks fresh messages before starting, and preserves normal capacity/session/approval rules. The supervisor can publish with `wb note` or finish without a group reply; user-confirmation reports remain visible. Existing scheduled jobs and patrol schedules are unchanged. Installing this feature does not enable it for any project.
@@ -32,6 +36,8 @@ A self-hosted workbench that turns the AI coding CLIs and accounts you already h
 
 The opt-in **Project file sync** card under Resources now supports automatic two-way synchronization of saved code, shared documents and necessary resources. Preview the project/repository scopes, select participating devices and a display Mac, then enable the reviewed scope. Workers continue observing and transferring while the page is closed; Resources and document links read the selected Mac's actual project files, not a Home-private copy. Conflicts retain both versions and use evidence-based owner notification, independent candidate acceptance and fresh receiving-file checks. Git commits, branches, review, merge and rollback remain separate; isolated outputs must be delivered to the project folder first. Existing policy-2 repository scopes retain their explicit-trigger semantics until migrated, and installing this version does not activate business projects. See the [contract and measured acceptance limits](docs/design-source-sync.md#13-unified-continuous-project-file-synchronization).
 
+Local file viewing does not require synchronization to be enabled. A configured display Mac is retained; before configuration, exactly one bound Mac can be discovered without assuming Home is that device. Registered repository baselines, including read-only reference repositories, can be read by scope ID and relative path; arbitrary isolated worktrees cannot. Recent Outputs marks completed write evidence separately from reply references, shows confirmed Mac paths and file availability/sync errors, and does not attribute citations to a modifying CLI.
+
 The project started from a practical situation: one person, several AI subscriptions (different vendors and models), and several machines.
 
 - **Different models review and complement each other.** One model writes the code, another reviews it from a different angle, a third plans or tests. Each is a *role* with its own CLI, model and prompt. Independent review of a pinned Git commit is a first-class workflow.
@@ -60,7 +66,7 @@ All items below exist in the current code. Items that are only designed are list
 
 **Collaboration**
 
-- Project group chat with `@role` dispatch. Messages without an `@` are stored but do not start a model; messages from agents never trigger other agents implicitly.
+- Project group chat with `@role` dispatch. Ordinary agent messages do not implicitly dispatch work. Explicitly enabled collaboration-session broadcast can queue a discussion batch; it never appends to a busy CLI or changes task ownership.
 - Per-project roles with their own device, CLI, model, reasoning effort and Markdown prompt. Optional responsibility templates cover planning, execution, review, testing, architecture, debugging, deployment and documentation. All new template execution prompts start empty; existing roles are unchanged.
 - Same-device Codex/Grok changes use **Handoff and switch** in either role editor: retain identity/history, drain accepted work, verify a new native session and commit only after process settlement. Cancel before commit keeps the original binding. Requires a compatible Worker; other adapters are explicitly unverified. See [CLI switch design](docs/design-role-cli-switch.md) for current acceptance status.
 - Role names are mention identifiers (letters, digits, underscores or hyphens, without spaces); `all` and `everyone` are reserved for broadcasts. Existing role names are kept verbatim. Default intake follows the configured supervisor ID, not an English display name, and mentions support both ASCII and full-width punctuation.

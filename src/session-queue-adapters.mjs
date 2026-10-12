@@ -31,7 +31,7 @@ export class TurnStates {
 
   /** Register a run before its first event so a starting turn is already busy. */
   begin(run) {
-    this.runs.set(run.id, { key: run.roleSessionId || `${run.projectId}:${run.roleId}`, runtime: runtimeKey(run.runtime), active: true, tools: new Set(), approvals: new Set() });
+    this.runs.set(run.id, { key: run.roleSessionId || `${run.projectId}:${run.roleId}`, roleKey: `${run.projectId}:${run.roleId}`, runtime: runtimeKey(run.runtime), active: true, tools: new Set(), approvals: new Set() });
   }
 
   observe(runId, type, payload = {}) {
@@ -42,6 +42,7 @@ export class TurnStates {
         r.active = false;
         // A turn is over only when the driver also says its tools are closed or the process settled.
         if (payload.discussionCleanup?.toolsClosed === true || payload.processSettled === true) r.tools.clear();
+        if (payload.processSettled === true) r.approvals.clear();
       } else if (payload.status) r.active = true;
     }
     if (type === 'tool') {
@@ -56,8 +57,9 @@ export class TurnStates {
   setManualTakeover(key, value) { value ? this.manual.add(key) : this.manual.delete(key); }
 
   /** Facts for trulyIdle(); a runtime without a tool rule is never reported idle. */
-  state(key, { ownerNodeId, runtime } = {}) {
-    const runs = [...this.runs.values()].filter(r => r.key === key);
+  state(key, { ownerNodeId, runtime, excludeRunId } = {}) {
+    // Reservations use the project-role mutex; native UUIDs remain available for driver identity.
+    const runs = [...this.runs.entries()].filter(([id, r]) => id !== excludeRunId && (r.key === key || r.roleKey === key)).map(([, r]) => r);
     if (!runtimeKey(runtime) || runs.some(r => !r.runtime)) return null;
     return { turnActive: runs.some(r => r.active), pendingTools: runs.reduce((n, r) => n + r.tools.size, 0),
       pendingApproval: runs.some(r => r.approvals.size > 0), ownedByThisWorker: ownerNodeId === this.nodeId, manualTakeover: this.manual.has(key) };

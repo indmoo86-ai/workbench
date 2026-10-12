@@ -12,7 +12,7 @@ function env({ budget = 2 } = {}) {
   db.put('projects', { id: P, name: 'demo', supervisorRoleId: 'sup' });
   db.put('roles', { id: 'sup', projectId: P, name: 'sup', model: 'm', enabled: true });
   for (const id of ['a', 'b', 'c']) db.put('roles', { id, projectId: P, name: id });
-  db.put('workers', { id: 'w1', capabilities: { sessionQueue: 1 } });
+  db.put('workers', { id: 'w1', capabilities: { sessionQueue: 2 } });
   setCollaborationSessionsEnabled(db, P, true);
   setQueueConfig(db, P, { budgetBatches: budget });
   db.put('roomMessages', { id: 'root', projectId: P, sender: 'human', text: 'goal' });

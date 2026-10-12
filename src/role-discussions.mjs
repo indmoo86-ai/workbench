@@ -10,6 +10,8 @@ import { tr, isMessage } from './i18n.mjs';
 import {roleSwitchWaitReason} from './role-switch-policy.mjs';
 import {waitDependencies} from './coordination-wait.mjs';
 import {followupFor} from './proactive-followup.mjs';
+import {reservePropagation} from './session-queue.mjs';
+import {reviewView} from './collaboration-sessions.mjs';
 
 const now=()=>new Date().toISOString();
 const closed=new Set(['succeeded','failed','interrupted','stopping','reconciling']);
@@ -59,8 +61,20 @@ export class RoleDiscussions {
       const binding=roleWorkspace(this.db,thread.projectId,nodeId,null);
       if(!binding||binding.localRoot!==session.workspaceRoot)throw new Error(tr('roleDiscussions.recipientWorkspaceHasChanged'));
       const purpose=message.kind==='question'?'clarification':'answer_resume';
+      const view=reviewView(this.db,{projectId:thread.projectId,roleId:role.id});
+      if(view.reviewGuarded&&this.db.get('workers',nodeId)?.capabilities?.sessionQueue!==2)throw new Error(tr('store.reviewWorkerUpgradeRequired'));
+      if(view.get('discussionMessages',message.id)===null){this.db.put('discussionDeliveries',{...delivery,waitingReason:'review_isolation'});return null;}
+      const sourceBatch=source?.collaborationBatchId?this.db.get('sessionBatches',source.collaborationBatchId):null;
+      const cycleId=source?.collaborationCycleId||sourceBatch?.cycleId||task.collaborationCycleId||null;
+      const automatic=purpose==='clarification'&&Boolean(cycleId);
+      if(automatic&&!reservePropagation(this.db,{...task,collaborationBatchId:null,collaborationCycleId:cycleId,automaticPropagation:true,roleSnapshot:role},{recordFailure:false})){
+        this.db.put('discussionDeliveries',{...delivery,waitingReason:'broadcast_paused'});return null;
+      }
       const followup=followupFor(this.db,task);
       const run={id:randomUUID(),taskId:task.id,businessTaskId:task.id,projectId:thread.projectId,nodeId,roleId:role.id,roleSnapshot:{...role},
+        reviewGuarded:view.reviewGuarded===true,
+        collaborationSessionId:source?.collaborationSessionId||sourceBatch?.sessionId||task.collaborationSessionId||null,
+        collaborationCycleId:cycleId,...(automatic?{propagationBudget:'reserved'}:{}),documentViews:this.db.get('workers',nodeId)?.capabilities?.sessionQueue===2?1:0,
         ...(followup?{proactiveFollowup:followup,backgroundFollowup:followup.roleId===role.id}:{}),
         roleSessionId:session.id,resumeNativeSessionId:session.nativeSessionId||null,resumeNativeSession:session.nativeSession||null,resumeWorkspace:session.workspace||null,
         discussionDeliveryId:delivery.id,discussionThreadId:thread.id,discussionMessageId:message.id,directionRevision:thread.directionRevision,turnPurpose:purpose,
@@ -108,7 +122,11 @@ export class RoleDiscussions {
       const session=this.db.get('roleSessions',thread.ownerSessionId);
       if(!session||session.status==='archived'||session.roleId!==task.roleId||session.nodeId!==nodeId)throw new Error(tr('roleDiscussions.originalBusinessSessionNoLonger'));
       if(this.db.list('runs').some(r=>r.businessTaskId===task.id&&!terminal.has(r.status)))throw new Error(tr('roleDiscussions.waitingForDiscussionTurnEnd'));
-      this.db.put('tasks',{...task,status:'ready',waitingReason:null,discussionResumeBlocked:null,discussionResolution:{threadId:thread.id,questionId:thread.currentQuestionId,conclusion:thread.conclusion,basis:thread.resolutionBasis}});
+      // This validated intent continues accepted work, not a new propagation. Retain its private publication boundary even after clearing the charging flag.
+      this.db.put('tasks',{...task,status:'ready',waitingReason:null,discussionResumeBlocked:null,
+        automaticPropagation:false,explicitPublish:Boolean(task.explicitPublish||task.automaticPropagation||task.collaborationBatchId),
+        ...(task.collaborationBatchId?{continuationBatchId:task.collaborationBatchId,collaborationBatchId:null,collaborationBatch:null}:{}),
+        discussionResolution:{threadId:thread.id,questionId:thread.currentQuestionId,conclusion:thread.conclusion,basis:thread.resolutionBasis}});
       if(task.requestId){
         const request=this.db.get('coordinationRequests',task.requestId);
         if(!request||['cancelled','failed','succeeded'].includes(request.status))throw new Error(tr('roleDiscussions.originalBusinessCallHasEnded'));

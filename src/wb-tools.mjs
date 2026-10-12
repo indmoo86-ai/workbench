@@ -24,7 +24,7 @@ export function context() {
     hop: Number(env('WB_HOP') || 0),
     home: env('WB_HOME'),
     token: env('WB_TOKEN'),
-    mode: env('WB_MODE')
+    mode: env('WB_MODE'),reviewPrivate:env('WB_REVIEW_PRIVATE'),documentViews:env('WB_DOCUMENT_VIEWS')==='1'
   };
 }
 
@@ -43,7 +43,7 @@ async function ensureKnowledge(dir) {
 export async function boot() {
   const ctx = context();
   const knowledge = await ensureKnowledge(ctx.knowledge);
-  const last = await readFile(join(knowledge, 'handoffs', 'LATEST.md'), 'utf8').catch(() => '');
+  const last = ctx.documentViews&&ctx.home&&ctx.runId?(await homeFetch('/api/agent/documents',{runId:ctx.runId,action:'last'}).catch(()=>null))?.text||'':await readFile(join(knowledge, 'handoffs', 'LATEST.md'), 'utf8').catch(() => '');
   return {
     ok: true,
     role: ctx.role || null,
@@ -55,6 +55,7 @@ export async function boot() {
 }
 
 export async function docsList() {
+  const ctx=context();if(ctx.documentViews&&ctx.home&&ctx.runId)return homeFetch('/api/agent/documents',{runId:ctx.runId,action:'list'});
   const dir = await ensureKnowledge(context().knowledge);
   const docs = join(dir, 'docs');
   let names = [];
@@ -63,6 +64,7 @@ export async function docsList() {
 }
 
 export async function docsRead(rel) {
+  const ctx=context();if(ctx.documentViews&&ctx.home&&ctx.runId)return homeFetch('/api/agent/documents',{runId:ctx.runId,action:'read',path:String(rel||'')});
   const dir = await ensureKnowledge(context().knowledge);
   const target = resolve(dir, String(rel || ''));
   if (!inside(dir, target)) throw new Error(tr('wbTools.onlyFilesInsideWorkbenchCan'));
@@ -162,6 +164,7 @@ function renderHandoff({ ctx, git, done, files, verify, next, blocked, auto }) {
 }
 
 export async function handoffLast() {
+  const ctx=context();if(ctx.documentViews&&ctx.home&&ctx.runId){const result=await homeFetch('/api/agent/documents',{runId:ctx.runId,action:'last'});return {ok:true,...result};}
   const dir = await ensureKnowledge(context().knowledge);
   const text = await readFile(join(dir, 'handoffs', 'LATEST.md'), 'utf8').catch(() => '');
   if (!text) return { ok: false, error: tr('wbTools.noWrittenHandoffYet') };
@@ -179,7 +182,8 @@ export async function handoffHasRun(runId, knowledge) {
 export async function writeHandoff(fields = {}, override = {}) {
   const ctx = { ...context(), ...override };
   const dir = await ensureKnowledge(ctx.knowledge);
-  if (fields.auto && ctx.runId && await handoffHasRun(ctx.runId, dir)) {
+  const handoffs=ctx.reviewPrivate?join(dir,'handoffs','private',ctx.reviewPrivate):join(dir,'handoffs');
+  if (fields.auto && ctx.runId && (await readdir(handoffs).catch(()=>[])).some(name=>name.includes(ctx.runId))) {
     return { ok: true, skipped: true, reason: tr('wbTools.turnAlreadyHasWrittenHandoff') };
   }
   const git = await gitSnapshot(ctx.workspace || ctx.projectRoot);
@@ -193,11 +197,11 @@ export async function writeHandoff(fields = {}, override = {}) {
     auto: !!fields.auto
   });
   const stamp = now().replace(/[:.]/g, '-');
-  const file = join(dir, 'handoffs', `${stamp}-${ctx.role || 'role'}-${ctx.runId || 'norun'}.md`);
+  const file = join(handoffs, `${stamp}-${ctx.role || 'role'}-${ctx.runId || 'norun'}.md`);
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, body, 'utf8');
-  await writeFile(join(dir, 'handoffs', 'LATEST.md'), body, 'utf8');
-  return { ok: true, path: file, latest: join(dir, 'handoffs', 'LATEST.md') };
+  await writeFile(join(handoffs, 'LATEST.md'), body, 'utf8');
+  return { ok: true, path: file, latest: join(handoffs, 'LATEST.md') };
 }
 
-export const helpText = () => [tr('minimal.teamHelp'),tr('minimal.waitHelp'),tr('wbTools.builtInCollaborationToolsWorkbench'),process.env.WB_SOURCE_SYNC==='1'?tr('sourceSync.toolGuide'):''].filter(Boolean).join('\n\n');
+export const helpText = () => [tr('minimal.teamHelp'),tr('minimal.waitHelp'),tr('wbTools.builtInCollaborationToolsWorkbench'),process.env.WB_QUEUE_BATCH==='1'?tr('sessionQueue.passRule'):'',process.env.WB_SYSTEM_SUPERVISOR==='1'?tr('collabSessions.toolHelp'):'',process.env.WB_SOURCE_SYNC==='1'?tr('sourceSync.toolGuide'):''].filter(Boolean).join('\n\n');

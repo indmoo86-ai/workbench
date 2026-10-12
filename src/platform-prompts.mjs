@@ -20,7 +20,7 @@ export function executionRules(run,{minimal=false}={}) {
   if(discussion&&run.turnPurpose&&run.turnPurpose!=='task')return discussion;
   const purpose=run.execution?.purpose;
   // wb pass guidance only for collaboration batch runs, which exist only when the project flag is on.
-  const passRule=run.collaborationBatchId?tr('sessionQueue.passRule'):'';
+  const passRule=run.collaborationBatchId||run.continuationBatchId?tr('sessionQueue.passRule'):'';
   if(minimal)return [passRule,purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):'',
     ['deploy','migration','production'].includes(purpose)?tr('platformPrompts.exclusiveStageOnlyTargetsOperations'):'',
     run.planId&&run.reportRequired?tr('platformPrompts.beforeBusinessDeliveryRunWb',{p1:''}):''].filter(Boolean).join('\n');

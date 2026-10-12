@@ -1035,9 +1035,11 @@ body[data-workspace-view="settings"] .workspace { display: flex; width: 100%; he
 body[data-workspace-view="settings"] .settings-page { padding: 0 24px 40px; }
 body[data-workspace-view="settings"] .settings-page-heading { position: sticky; top: 0; z-index: 2; align-items: center; max-width: none; margin: 0; padding: 18px 0; border-bottom: 1px solid var(--line); background: var(--surface, #fff); }
 body[data-workspace-view="settings"] .settings-page-heading h2 { margin: 0; }
+body[data-workspace-view="settings"] .settings-page[data-settings-scope="global"] { scrollbar-gutter: stable both-edges; }
+body[data-workspace-view="settings"] .settings-page[data-settings-scope="global"] .settings-page-heading { position: static; max-width: 1200px; width: 100%; margin-inline: auto; }
 body[data-workspace-view="settings"] .settings-tabs,
 body[data-workspace-view="settings"] .settings-page-body { max-width: 1200px; width: 100%; margin-inline: auto; }
-body[data-workspace-view="settings"] .settings-tabs { margin-top: 16px; }
+body[data-workspace-view="settings"] .settings-tabs { position: sticky; top: 0; z-index: 2; margin-top: 16px; }
 body[data-workspace-view="settings"] .settings-panel { border: 0; padding: 12px 0 0; background: transparent; }
 body[data-workspace-view="settings"] #settings-usage-panel .settings-panel-heading h3 { display: none; }
 .project-timer-link { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 18px; }
@@ -1385,6 +1387,7 @@ button.action-icon-button { display: inline-flex; align-items: center; justify-c
 .artifact-row-body { display:grid; gap:5px; min-width:0; }
 .artifact-row-body strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:12px; color:#263d5a; }
 .artifact-row-body small { font-size:10px; color:#7d90a9; }
+.artifact-row-body .artifact-local-path { overflow-wrap:anywhere; line-height:1.5; }
 .artifact-row-body .artifact-warning { color:#ac6b27; }
 .inspector-resource-heading { display:flex; align-items:center; gap:10px; margin:24px 0 12px; color:#8a9bb1; font-size:10px; letter-spacing:.1em; }
 .inspector-resource-heading::after { content:''; height:1px; background:var(--line); flex:1; }

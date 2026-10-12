@@ -6,10 +6,10 @@ import { SessionQueue, setQueueConfig, queueConfig } from '../src/session-queue.
 import { QueueSlots, trulyIdle, renderBatch } from '../src/session-queue-worker.mjs';
 
 const P = 'p1';
-function setup({ capability = 1, broadcast = true, sessions = 1 } = {}) {
+function setup({ capability = 2, broadcast = true, sessions = 1 } = {}) {
   const db = new Store(':memory:'); let clock = Date.parse('2026-10-12T08:00:00Z');
   const now = () => clock, advance = s => { clock += s * 1000; };
-  db.put('projects', { id: P, name: 'demo' });
+  db.put('projects', { id: P, name: 'demo',testProject:true });
   for (const id of ['codex', 'claude', 'grok']) db.put('roles', { id, projectId: P, name: id, nodeId: 'w1' });
   db.put('workers', { id: 'w1', capabilities: capability ? { sessionQueue: capability } : {} });
   setCollaborationSessionsEnabled(db, P, true);

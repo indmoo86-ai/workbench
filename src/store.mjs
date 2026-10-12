@@ -17,7 +17,7 @@ import {syncError} from './source-sync-manifest.mjs';
 import {sourceInputWaitReason,sourceConflictContext} from './source-sync-input.mjs';
 import {ProactiveFollowup,followupFor,privateFollowup} from './proactive-followup.mjs';
 import {reviewView} from './collaboration-sessions.mjs';
-import {tagMessage,SessionQueue} from './session-queue.mjs';
+import {tagMessage,SessionQueue,reservePropagation,settlePropagation} from './session-queue.mjs';
 
 export const terminal = new Set(['succeeded', 'failed', 'interrupted']);
 const now = () => new Date().toISOString();
@@ -166,10 +166,14 @@ export class Store {
       const repositories = projectRepositories(this, task.projectId, nodeId).filter(r=>!task.execution?.repositoryKeys||task.execution.repositoryKeys.includes(r.key));
       if (!task.roleSnapshot?.systemSupervisor && repositories.some(repo => !repo.localRoot)) throw new Error(tr('store.projectRepositoriesOnDeviceNot'));
       const sourceWait=sourceInputWaitReason(this,task,nodeId);if(sourceWait)throw syncError(sourceWait);
+      if (!reservePropagation(this, task)) return null;
       const roleSession = isSwitchMaintenance(task) ? this.get('roleSessions',task.switchSessionId) : task.origin === 'chat' && (task.roleSnapshot?.id || task.roleId)
         ? new RoleSessions(this).getOrCreate({projectId:task.projectId,conversationId:taskConversationId(task),
           roleId:task.roleSnapshot?.id||task.roleId,nodeId,runtime:task.roleSnapshot?.runtime||'codex',model:task.model,workspaceRoot:binding.localRoot}) : null;
       const run = { id: randomUUID(), taskId, projectId: task.projectId, nodeId, repositoryId,turnPurpose:'task',directionRevision:task.directionRevision||1,
+        collaborationSessionId:task.collaborationSessionId||null,collaborationCycleId:task.collaborationCycleId||null,
+        continuationBatchId:task.continuationBatchId||null,...(task.explicitPublish?{explicitPublish:true}:{}),
+        ...(task.automaticPropagation&&!task.collaborationBatchId?{propagationBudget:'reserved',explicitPublish:true}:{}),
         ...(followupFor(this,task)?{proactiveFollowup:followupFor(this,task),backgroundFollowup:privateFollowup(this,task)}:{}),
         ...(isSwitchMaintenance(task)?{switchOperationId:task.switchOperationId,switchPhase:task.switchPhase,switchHandoffHash:task.switchHandoffHash}:{}),
         ...(storedTask.executionBinding?{originalRoleSnapshot:storedTask.roleSnapshot,executionBinding:storedTask.executionBinding,inputTask:task}:{}),
@@ -179,6 +183,7 @@ export class Store {
         discussionProtocol:supportsDiscussion(this.get('workers',nodeId),task.roleSnapshot?.runtime,task.roleSnapshot?.model)?2:0,peerStatus:this.get('workers',nodeId)?.capabilities?.peerStatus===1?1:0,permissionProfile:'business',
         roleSessionId:roleSession?.id||null,resumeNativeSessionId:roleSession?.nativeSessionId||null,resumeNativeSession:roleSession?.nativeSession||null,resumeWorkspace:roleSession?.workspace||null,
         projectScope: true, repositories, attachments: task.attachments || [], execution:task.execution||null,reportRequired:Boolean(task.reportRequired),scheduledJobId:task.scheduledJobId||null,
+        documentViews:this.get('workers',nodeId)?.capabilities?.sessionQueue===2?1:0,
         repositoryUrl: repositoryId ? this.get('repositories', repositoryId)?.repoUrl : null,
         projectRoot: binding.localRoot, model: task.model, mode: task.mode, status: 'queued', lastSeq: 0, createdAt: now(), updatedAt: now(),
         ...(task.collaborationBatchId?{collaborationBatchId:task.collaborationBatchId,collaborationBatch:task.collaborationBatch,explicitPublish:true}:{}),
@@ -188,6 +193,8 @@ export class Store {
         if(run.backgroundFollowup)run.followupState=this.listProject('tasks',task.projectId).filter(t=>t.id!==task.id).slice(-10).map(t=>({taskId:t.id,status:t.status,roleId:t.roleId,runId:t.currentRunId||null,requestId:t.requestId||null,waitingReason:t.waitingReason||null}));
         // Independent review: other reviewers' unreleased opinions never enter this role's new input.
         const view=reviewView(this,{projectId:task.projectId,roleId:task.roleSnapshot?.id||task.roleId});
+        run.reviewGuarded=view.reviewGuarded===true;
+        if(run.reviewGuarded&&this.get('workers',nodeId)?.capabilities?.sessionQueue!==2)throw new Error(tr('store.reviewWorkerUpgradeRequired'));
         const context=view.get('conversationContexts',`${task.projectId}:${task.conversationId||task.projectId}`);
         const source=task.sourceMessageId?view.get('roomMessages',task.sourceMessageId):null;
         const messages=view.list('roomMessages').filter(message=>message.projectId===task.projectId && (message.conversationId||message.projectId)===(task.conversationId||task.projectId) && message.kind!=='summary');
@@ -209,10 +216,14 @@ export class Store {
         const request = this.get('coordinationRequests', task.requestId);
         if (!request || request.status !== 'queued') throw new Error(tr('store.callWasCancelledItsStatus'));
         this.put('coordinationRequests', { ...request, status: 'running', currentRunId: run.id, updatedAt: now() });
+        new SessionQueue(this).attachRequest(this.get('coordinationRequests',request.id));
       }
       if(task.collaborationBatchId){const batch=this.get('sessionBatches',task.collaborationBatchId);
         if(!batch||batch.status!=='reserved')throw new Error(tr('sessionQueue.reservationInvalid'));
         this.put('sessionBatches',{...batch,deliveryAttempted:true,runId:run.id});}
+      if(task.continuationBatchId){const batch=this.get('sessionBatches',task.continuationBatchId);
+        if(!batch||batch.projectId!==run.projectId||batch.roleId!==run.roleId||!(batch.taskId===task.id||batch.waitingRunId===task.continuationRunId)||!(batch.waitingForDiscussion||batch.waitingForCall))throw new Error(tr('sessionQueue.reservationMismatch'));
+        this.put('sessionBatches',{...batch,activeRunId:run.id,waitingForDiscussion:false,waitingForCall:false,continuationRunIds:[...(batch.continuationRunIds||[]),run.id]});}
       this.put('commands', { id: commandId, type: 'launch', runId: run.id, nodeId, fingerprint, acked: false, createdAt: now() });
       return run;
     });
@@ -239,7 +250,7 @@ export class Store {
       const inserted = this.db.prepare('INSERT OR IGNORE INTO events VALUES(?,?,?,?)').run(e.id, e.runId, e.seq, JSON.stringify(e));
       if (!inserted.changes) return r;
       if (e.seq <= r.lastSeq) return r;
-      const next = { ...r, lastSeq: e.seq, updatedAt: now() };
+      const next = { ...settlePropagation(this,r,e.type==='status'?e.payload:{}), lastSeq: e.seq, updatedAt: now() };
       if (e.type === 'status' && !terminal.has(r.status)) {
         Object.assign(next, e.payload);
         if(next.status==='running'&&!r.startedAt)next.startedAt=now();
@@ -258,15 +269,16 @@ export class Store {
       if (e.type === 'message' && e.payload.phase === 'final_answer') next.result = e.payload.text;
       if(r.collaborationBatchId&&e.type==='status'){
         const queue=new SessionQueue(this);
-        if(e.payload.status==='running'&&!terminal.has(r.status))queue.verify(r.collaborationBatchId,{started:true,runId:r.id})||null;
-        if(this.get('sessionBatches',r.collaborationBatchId)?.status==='reserved'&&e.payload.status==='running')queue.confirmStarted(r.collaborationBatchId,{runId:r.id,reservationId:r.collaborationBatch.reservation.id});
+        const accepted=e.payload.inputDeliveryState==='accepted'||!r.collaborationBatch.deliveryProtocol&&e.payload.status==='running';
+        if(accepted&&!terminal.has(r.status))queue.verify(r.collaborationBatchId,{started:true,runId:r.id})||null;
+        if(this.get('sessionBatches',r.collaborationBatchId)?.status==='reserved'&&accepted)queue.confirmStarted(r.collaborationBatchId,{runId:r.id,reservationId:r.collaborationBatch.reservation.id});
       }
       this.put('runs', next);
       if (next.roleSessionId && e.type === 'status' && e.payload.nativeSession?.id) {
         new RoleSessions(this).recordNative(next.roleSessionId,next.id,e.payload.nativeSession,next.workspace);
       }
       if (terminal.has(next.status)) {
-        if(next.collaborationBatchId&&!terminal.has(r.status)){this.put('runs',next);new SessionQueue(this).finish(next,{queueRejected:Boolean(e.payload.queueRejected)});}
+        if((next.collaborationBatchId||next.continuationBatchId)&&!terminal.has(r.status)){this.put('runs',next);new SessionQueue(this).finish(next,{queueRejected:Boolean(e.payload.queueRejected||next.inputDeliveryState==='not_delivered'),queueRetryable:e.payload.queueRetryable!==false});}
         if(next.roleSessionId && !terminal.has(r.status))new RoleSessions(this).release(next.roleSessionId,next.id);
         const task = this.get('tasks', r.taskId);
         if (!r.discussionDeliveryId && task && (!task.currentRunId || task.currentRunId === r.id) && !['done','cancelled'].includes(task.status)) this.put('tasks', { ...task, waitingReason:next.discussionWaiting?task.waitingReason:null,error:next.status==='failed'?next.error||null:null,status:next.discussionWaiting?'waiting_discussion': next.status === 'succeeded' ? (task.origin === 'chat' ? 'completed' : 'awaiting_acceptance') : 'blocked' });

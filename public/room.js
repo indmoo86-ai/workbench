@@ -650,7 +650,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     const progress=taskProgress(task,run),label=t(progress.label);
     col.append(create('div', 'chat-name', `@${role.name || t('Role')} · ${label}`));
     const bubble = create('div', 'chat-bubble');
-    const preview = run ? liveText(run.id) : '';
+    const preview = run && !run.explicitPublish ? liveText(run.id) : '';
     if (preview) bubble.append(replyPreview(preview,true,run?.id));
     else {
       const typing = create('div', 'chat-typing');

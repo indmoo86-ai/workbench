@@ -1,8 +1,8 @@
 import {t} from './i18n.js';
 
-const labels={queued:'Queued on platform',pending_verification:'Pending verification',processing:'CLI processing',processed:'Batch processed',unresolved:'Needs attention'};
+const labels={queued:'Queued on platform',pending_verification:'Pending verification',processing:'CLI processing',processed:'Batch processed',unresolved:'Needs attention',waiting_reply:'Waiting for reply'};
 const reasons={collecting:'collecting',not_idle:'CLI busy',role_busy:'CLI busy',turn_active:'CLI busy',tools_running:'CLI busy',approval_pending:'Waiting for approval',
-  worker_upgrade_required:'Worker upgrade required',session_closed:'Session closed',broadcast_paused:'Broadcast paused',manual_takeover:'Manual takeover',lease_expired:'Reservation expired',worker_rejected:'Reservation expired',not_owner:'CLI busy',unknown:'CLI state unknown'};
+  worker_upgrade_required:'Worker upgrade required',session_closed:'Session closed',broadcast_paused:'Broadcast paused',manual_takeover:'Manual takeover',lease_expired:'Reservation expired',worker_rejected:'Reservation expired',not_owner:'CLI busy',unknown:'CLI state unknown',review_isolation:'Review opinions are not released',startup_failed:'CLI startup failed'};
 
 /** Read-only strip: shows platform queue vs. CLI execution truthfully; never offers a control that writes to a CLI. */
 export function renderSessionQueue(status,{create,roleName,api,refreshState,projectId}) {

@@ -16,6 +16,16 @@ export function trulyIdle(state) {
   return { idle: true, reason: null };
 }
 
+/** Every terminal path preserves delivery evidence; an unknown write or surviving driver is never refunded. */
+export function terminalDeliveryFacts(run, payload) {
+  if(!['succeeded','failed','interrupted'].includes(payload.status))return payload;
+  if(payload.inputDeliveryState==='not_delivered'&&payload.queueRejected===true)return payload;
+  if(run.inputDeliveryState==='not_delivered')return {...payload,inputDeliveryState:'not_delivered',queueRejected:true,queueRetryable:run.queueRetryable===true,processSettled:run.processSettled===true||payload.processSettled===true};
+  if((run.collaborationBatch?.deliveryProtocol===2||run.propagationBudget==='reserved')&&!run.inputDeliveryState&&!payload.controlLost
+    && (!run.pid||payload.processSettled===true))return {...payload,inputDeliveryState:'not_delivered',queueRejected:true,queueRetryable:false,processSettled:true};
+  return payload;
+}
+
 export class QueueSlots {
   constructor({ now = () => Date.now(), leaseMs = 30000 } = {}) { this.now = now; this.leaseMs = leaseMs; this.slots = new Map(); }
 

@@ -1,5 +1,7 @@
 # Session Queue V3 — Phase 1 audit
 
+**已归档·不作实施依据。** This records the original phase-one baseline, not current behavior. The phased PRs are already integrated; supervisor tools, managed document protection and queue/continuation repairs have since changed these findings. Use [V3 acceptance](session-queue-v3-acceptance.md) for current evidence and limits, and [V3 design](session-queue-v3.md) for the authoritative contract.
+
 Baseline: `main` @ `b7c4bd7`. Design: [session-queue-v3.md](session-queue-v3.md) (Chinese original).
 Status legend: **exists** / **partial** / **missing** / **added (P1)** = implemented in this phase.
 

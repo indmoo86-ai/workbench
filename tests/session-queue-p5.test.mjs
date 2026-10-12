@@ -15,7 +15,7 @@ function env({ budget = 20 } = {}) {
   db.put('projects', { id: P, name: 'demo', supervisorRoleId: 'sup' });
   db.put('roles', { id: 'sup', projectId: P, name: 'sup', model: 'm', enabled: true, systemSupervisor: true });
   for (const id of ['a', 'b']) db.put('roles', { id, projectId: P, name: id, nodeId: 'w1', runtime: 'codex', model: 'm', enabled: true });
-  db.put('workers', { id: 'w1', capabilities: { sessionQueue: 1 } });
+  db.put('workers', { id: 'w1', capabilities: { sessionQueue: 2 } });
   setCollaborationSessionsEnabled(db, P, true);
   setQueueConfig(db, P, { budgetBatches: budget, backlogMessages: 3, backlogWaitSeconds: 600 });
   db.put('roomMessages', { id: 'root', projectId: P, sender: 'human', text: 'goal' });

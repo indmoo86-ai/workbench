@@ -7,6 +7,8 @@ import { tr } from './i18n.mjs';
 import {freezeSourceInputs,sourceConflictContext} from './source-sync-input.mjs';
 import {createHash} from 'node:crypto';
 import {currentContinuation,waitDependencies} from './coordination-wait.mjs';
+import {SessionQueue} from './session-queue.mjs';
+import {reviewView} from './collaboration-sessions.mjs';
 
 export const callTerminal = new Set(['succeeded', 'failed', 'cancelled']);
 
@@ -43,10 +45,12 @@ export class RoleCalls {
   create(input) {
     if (typeof input.id !== 'string' || !/^[a-zA-Z0-9:_-]{1,200}$/.test(input.id)) throw new Error(tr('roleCalls.invalidCallId'));
     if (!['direct', 'consult', 'handoff', 'continuation'].includes(input.kind)) throw new Error(tr('roleCalls.invalidCallType'));
+    if(input.kind==='continuation'&&!input.continuationOf)throw new Error(tr('roleCalls.invalidCallType'));
     if (typeof input.summary !== 'string' || !input.summary.trim() || input.summary.length > 12000) throw new Error(tr('roleCalls.callSummaryMustBe1'));
     const normalized = { id: input.id, projectId: input.projectId, targetRoleId: input.targetRoleId,
       kind: input.kind, summary: input.summary.trim(), sourceMessageId: input.sourceMessageId || null,
       originNodeId: input.originNodeId || null, parentRequestId: input.parentRequestId || null,
+      ...(input.sourceRunId?{sourceRunId:input.sourceRunId}:{}),
       continuationOf: input.continuationOf || null, deliveryId: input.deliveryId || null,
       ...(input.waitRequestIds?{waitRequestIds:[...input.waitRequestIds]}:{}),...(input.wakeReason?{wakeReason:input.wakeReason}:{}),
       ...(input.sourceSyncBatchId?{sourceSyncBatchId:input.sourceSyncBatchId}:{}),
@@ -56,7 +60,10 @@ export class RoleCalls {
       if (!this.db.get('projects', input.projectId)) throw new Error(tr('roleCalls.projectNotFound'));
       const prior = this.db.get('coordinationRequests', input.id);
       if (prior) {
-        if (prior.fingerprint !== fingerprint) throw new Error(tr('roleCalls.callIdConflictsWithDifferent'));
+        const {sourceRunId,...legacyNormalized}=normalized;
+        const compatible=sourceRunId&&prior.fingerprint===JSON.stringify(legacyNormalized)&&(!prior.sourceRunId||prior.sourceRunId===sourceRunId);
+        if (prior.fingerprint !== fingerprint && !compatible) throw new Error(tr('roleCalls.callIdConflictsWithDifferent'));
+        if(compatible&&!prior.sourceRunId){if(this.db.get('runs',sourceRunId)?.projectId!==input.projectId)throw new Error(tr('roleCalls.sourceMessageDoesNotBelong'));return this.db.put('coordinationRequests',{...prior,sourceRunId});}
         return prior;
       }
       const role = this.db.get('roles', input.targetRoleId);
@@ -77,14 +84,23 @@ export class RoleCalls {
         ancestor = ancestor.parentRequestId ? this.db.get('coordinationRequests', ancestor.parentRequestId) : null;
       }
       const continued = normalized.continuationOf ? this.db.get('coordinationRequests', normalized.continuationOf) : null;
+      const sourceRequest = continued || this.db.get('coordinationRequests', normalized.parentRequestId || '');
+      const sourceTask=this.db.get('tasks',sourceRequest?.taskId||'');
       if (continued) rootRequestId = continued.rootRequestId || continued.id;
       if (input.kind!=='continuation'&&this.db.list('coordinationRequests').filter(r => r.rootRequestId === rootRequestId&&r.kind!=='continuation').length >= 20) throw new Error(tr('roleCalls.collaborationChainHasReached20'));
       if (normalized.sourceMessageId && this.db.get('roomMessages', normalized.sourceMessageId)?.projectId !== input.projectId) throw new Error(tr('roleCalls.sourceMessageDoesNotBelong'));
+      if(normalized.sourceRunId && this.db.get('runs',normalized.sourceRunId)?.projectId!==input.projectId)throw new Error(tr('roleCalls.sourceMessageDoesNotBelong'));
       if (normalized.deliveryId && this.db.get('deliveries', normalized.deliveryId)?.projectId !== input.projectId) throw new Error(tr('roleCalls.deliveryDoesNotBelongProject'));
       if(normalized.sourceSyncBatchId&&this.db.get('sourceSyncBatches',normalized.sourceSyncBatchId)?.projectId!==input.projectId)throw new Error(tr('roleCalls.deliveryDoesNotBelongProject'));
       if (this.db.get('settings', 'main')?.paused) throw new Error(tr('roleCalls.remoteExecutionPaused'));
       const now = new Date().toISOString();
       return this.db.put('coordinationRequests', { ...normalized, fingerprint,
+        collaborationSessionId: sourceRequest?.collaborationSessionId || null,
+        collaborationCycleId: sourceRequest?.collaborationCycleId || null,
+        continuationBatchId: continued?.continuationBatchId || null,
+        // Publication is independent of charging: necessary continuations retain the original private boundary, including legacy requests.
+        explicitPublish:Boolean(sourceRequest?.explicitPublish||sourceRequest?.automaticPropagation||sourceRequest?.continuationBatchId||sourceTask?.explicitPublish||sourceTask?.automaticPropagation||sourceTask?.collaborationBatchId),
+        automaticPropagation: input.kind !== 'continuation' && Boolean(sourceRequest?.collaborationCycleId),
         sourceInputs:continued?.sourceInputs||[],
         ...sourceConflictContext(continued),
         consultRound:continued ? (continued.consultRound||0)+(input.wakeReason==='timeout'?0:1) : 0,
@@ -104,7 +120,13 @@ export class RoleCalls {
     const id = `task:${task.id}`, now = new Date().toISOString();
     return this.db.transaction(() => {
       const existing = this.db.get('coordinationRequests', id);
+      const batch = task.collaborationBatchId ? this.db.get('sessionBatches', task.collaborationBatchId) : null;
       const record = existing || this.db.put('coordinationRequests', { id, projectId: task.projectId,
+        collaborationSessionId: batch?.sessionId || task.collaborationSessionId || null,
+        collaborationCycleId: batch?.cycleId || task.collaborationCycleId || null,
+        continuationBatchId: task.collaborationBatchId || task.continuationBatchId || null,
+        automaticPropagation: Boolean(task.automaticPropagation),
+        explicitPublish:Boolean(task.explicitPublish||task.automaticPropagation||task.collaborationBatchId||task.continuationBatchId),
         rootRequestId: id, targetRoleId: task.roleId, targetSnapshot: task.roleSnapshot,executionBinding:task.executionBinding||null,
         kind: task.deliveryId ? 'handoff' : 'direct', deliveryId: task.deliveryId || null, sourceMessageId: task.sourceMessageId, summary: task.prompt,
         attachments:task.attachments||[],scheduledJobId:task.scheduledJobId||null,
@@ -113,16 +135,19 @@ export class RoleCalls {
         taskId, currentRunId: task.currentRunId || null,
         status: task.currentRunId ? 'running' : task.status === 'cancelled' ? 'cancelled' : 'queued', createdAt: now, updatedAt: now });
       this.db.put('tasks', { ...task, requestId: id });
+      new SessionQueue(this.db).attachRequest(record);
       return record;
     });
   }
 
-  /** Materialize a Task the legacy scheduler can consume only once the conditions are met. A consultation carries no sourceRunId. */
+  /** Materialize a Task once; trusted request provenance and publication policy survive native-session continuations. */
   reconcile(requestId) {
     return this.db.transaction(() => {
       const r = this.db.get('coordinationRequests', requestId);
       if (!r || callTerminal.has(r.status) || this.db.get('settings', 'main')?.paused) return r;
       if (r.taskId || !['queued', 'waiting_delivery'].includes(r.status)) return r;
+      if(reviewView(this.db,{projectId:r.projectId,roleId:r.targetRoleId}).get('coordinationRequests',r.id)?.reviewRedacted)
+        return this.db.put('coordinationRequests',{...r,waitingReason:'review_isolation'});
       const delivery = r.deliveryId ? this.db.get('deliveries', r.deliveryId) : null;
       if(r.sourceSyncBatchId&&this.db.get('sourceSyncBatches',r.sourceSyncBatchId)?.status!=='completed')return r;
       if (r.kind === 'handoff' && !r.sourceSyncBatchId && delivery?.status !== 'ready') return r;
@@ -134,13 +159,18 @@ export class RoleCalls {
       // Continuations retain the isolated source conversation; older requests can recover its key from their materialized task.
       const sourceSessionKey=r.sourceSessionKey||previous?.sourceSessionKey||this.db.get('tasks',previous?.taskId||'')?.sourceSessionKey||task.id;
       this.db.put('tasks', { ...task, origin: 'chat', sourceMessageId: r.sourceMessageId,
+        collaborationSessionId:r.collaborationSessionId,collaborationCycleId:r.collaborationCycleId,automaticPropagation:r.automaticPropagation,
+        continuationBatchId:r.kind==='continuation'?r.continuationBatchId||null:null,
+        explicitPublish:Boolean(r.explicitPublish||r.automaticPropagation||r.continuationBatchId||previous?.explicitPublish||previous?.automaticPropagation||this.db.get('tasks',previous?.taskId||'')?.explicitPublish),
         requestId: r.id, roleId: role.id, roleSnapshot: role, executionBinding:r.executionBinding||null, deliveryId: r.deliveryId,
         sourceSyncBatchId:r.sourceSyncBatchId,sourceInputs,
         ...sourceConflictContext(r),sourceSessionKey,
         continuationRunId: previous?.currentRunId || null,
         requiresCoordination: r.kind !== 'direct', contextPrepared:['consult','continuation'].includes(r.kind), planId: r.planId, planVersion: r.planVersion, stepId: r.stepId,
         execution:r.execution || null,attachments:r.attachments || [],reportRequired:true,scheduledJobId:r.scheduledJobId||null });
-      return this.db.put('coordinationRequests', { ...r,sourceInputs,sourceSessionKey, status: 'queued', taskId: task.id, updatedAt: new Date().toISOString() });
+      const next = this.db.put('coordinationRequests', { ...r,sourceInputs,sourceSessionKey, status: 'queued', taskId: task.id, updatedAt: new Date().toISOString() });
+      new SessionQueue(this.db).attachRequest(next);
+      return next;
     });
   }
 
@@ -164,8 +194,9 @@ export class RoleCalls {
       if(JSON.stringify([...new Set(requestIds)].sort())!==JSON.stringify([...(r.waitRequestIds||requestIds)].sort()))throw new Error(tr('minimal.invalidWait'));
       return r;
     }
-    return this.db.put('coordinationRequests', { ...r, currentRunId: run.id, status: 'waiting_call', resumeSummary: summary.trim(),
+    const next=this.db.put('coordinationRequests', { ...r, currentRunId: run.id, status: 'waiting_call', resumeSummary: summary.trim(),
       waitRequestIds:[...new Set(requestIds)],waitDeadlineAt:new Date(Date.now()+timeoutSeconds*1000).toISOString(),updatedAt:new Date().toISOString() });
+    new SessionQueue(this.db).settleRequest(next);return next;
     });
   }
 
@@ -198,6 +229,7 @@ export class RoleCalls {
         result: run.result || run.error || '', updatedAt: new Date().toISOString() });
     }
     this.resume(r.id);
+    new SessionQueue(this.db).settleRequest(r);
     if (r.parentRequestId) this.resume(r.parentRequestId);
     if (r.continuationOf && callTerminal.has(r.status)) {
       let previousId = r.continuationOf;
@@ -297,6 +329,7 @@ export class RoleCalls {
           runs.push(...stopRunIds);
           // Fix the original stop targets in the same transaction as the cancelled state; a crash before Home sends the command can still be retransmitted without scanning later runs.
           this.db.put('coordinationRequests', { ...r, status: 'cancelled', cancelRunIds:[...new Set([...(r.cancelRunIds||[]),...stopRunIds])], updatedAt: new Date().toISOString() });
+          new SessionQueue(this.db).settleRequest(this.db.get('coordinationRequests',r.id));
           // While waiting for a reply the finished business run ID is retained; no further terminal event will clean up the Task for it.
           // Read the record after invalidation handling to avoid writing back the old discussionWait; active/unknown runs still wait for stop verification.
           const current=task?.currentRunId?this.db.get('runs',task.currentRunId):null;
