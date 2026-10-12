@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { Store } from '../src/store.mjs';
 import { Rooms } from '../src/rooms.mjs';
 import { CollaborationSessions, setCollaborationSessionsEnabled } from '../src/collaboration-sessions.mjs';
-import { SessionQueue, QueuePump } from '../src/session-queue.mjs';
+import { SessionQueue, QueuePump, setQueueConfig } from '../src/session-queue.mjs';
 import { QueueSlots, renderBatch } from '../src/session-queue-worker.mjs';
 import { TurnStates, RUNTIME_TOOL_RULES } from '../src/session-queue-adapters.mjs';
 
@@ -144,4 +144,23 @@ test('Home lease timeout cancels a not-yet-launched task; reservation answers fr
   e.pump.tick();
   e.db.put('workers', { id: 'w2', capabilities: { sessionQueue: 1 } });
   assert.equal(e.pump.onReservation('w2', { id: [...e.pump.pending.keys()][0], ok: true, reservation: { id: 'forged', generation: 1 } }), null);
+});
+
+test('supervisor alert after pending verification exceeds the project threshold, once per batch', () => {
+  const e = env();
+  e.db.put('roles', { id: 'sup', projectId: P, name: 'sup', nodeId: 'w1', runtime: 'codex', model: 'm', enabled: true, systemSupervisor: true });
+  e.db.put('projects', { ...e.db.get('projects', P), supervisorRoleId: 'sup' });
+  assert.throws(() => setQueueConfig(e.db, P, { verifyAlertSeconds: 30 }));
+  assert.throws(() => setQueueConfig(e.db, P, { verifyAlertSeconds: 90.5 }));
+  setQueueConfig(e.db, P, { verifyAlertSeconds: 120 });
+  e.say('claude', 'x'); e.advance(60); e.pump.tick();
+  const [task] = e.workerAnswer(); const b = e.db.get('sessionBatches', task.collaborationBatchId);
+  e.db.put('sessionBatches', { ...b, deliveryAttempted: true, runId: 'r-lost' });
+  e.advance(31); e.pump.tick();
+  assert.equal(e.db.get('sessionBatches', b.id).status, 'pending_verification');
+  e.advance(60); assert.equal(e.pump.alertStaleVerifications().length, 0);
+  e.advance(70); const alerts = e.pump.alertStaleVerifications();
+  assert.equal(alerts.length, 1); assert.equal(alerts[0].roleId, 'sup');
+  e.advance(600); assert.equal(e.pump.alertStaleVerifications().length, 0);
+  assert.equal(e.db.get('sessionBatches', b.id).status, 'pending_verification');   // never rerun
 });

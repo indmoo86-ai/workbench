@@ -7,7 +7,7 @@ import { collaborationSessionsEnabled, sessionOf } from './collaboration-session
  * after its Worker reported a true idle state and a still-valid reservation. Nothing here writes to a CLI.
  */
 export const QUEUE_CAPABILITY = 'sessionQueue';
-export const DEFAULT_QUEUE_CONFIG = Object.freeze({ quietSeconds: 10, maxSeconds: 30, leaseSeconds: 30, maxBatchMessages: 50 });
+export const DEFAULT_QUEUE_CONFIG = Object.freeze({ quietSeconds: 10, maxSeconds: 30, leaseSeconds: 30, maxBatchMessages: 50, verifyAlertSeconds: 600 });
 const RECEIPT = 'sessionReceipts', COLLECTOR = 'sessionCollectors', BATCH = 'sessionBatches', ROTATION = 'sessionRotations';
 const iso = ms => new Date(ms).toISOString();
 const ms = value => Date.parse(value);
@@ -22,7 +22,10 @@ export function setQueueConfig(db, projectId, input = {}) {
     if (!project) throw new Error(tr('collabSessions.projectNotFound'));
     const current = queueConfig(db, projectId);
     const next = { quietSeconds: input.quietSeconds ?? current.quietSeconds, maxSeconds: input.maxSeconds ?? current.maxSeconds };
-    for (const value of Object.values(next)) if (!Number.isSafeInteger(value) || value < 0 || value > 3600) throw new Error(tr('sessionQueue.secondsMustBeInteger'));
+    const verifyAlertSeconds = input.verifyAlertSeconds ?? current.verifyAlertSeconds;
+    if (!Number.isSafeInteger(verifyAlertSeconds) || verifyAlertSeconds < 60 || verifyAlertSeconds > 86400) throw new Error(tr('sessionQueue.verifyAlertRange'));
+    next.verifyAlertSeconds = verifyAlertSeconds;
+    for (const value of [next.quietSeconds, next.maxSeconds]) if (!Number.isSafeInteger(value) || value < 0 || value > 3600) throw new Error(tr('sessionQueue.secondsMustBeInteger'));
     if (next.maxSeconds < next.quietSeconds) throw new Error(tr('sessionQueue.maxBelowQuiet'));
     const sessionQueue = { ...(project.sessionQueue || {}), ...next, version: current.version + 1 };
     db.put('projects', { ...project, sessionQueue });
@@ -263,8 +266,27 @@ export class QueuePump {
     this.queue = new SessionQueue(db, { now }); this.pending = new Map();
   }
 
+  /** One supervisor alert per batch that stays in pending verification past the project threshold. Never reruns anything. */
+  alertStaleVerifications() {
+    const alerts = [];
+    for (const b of this.db.list(BATCH).filter(b => b.status === 'pending_verification' && !b.verifyAlertTaskId)) {
+      const config = queueConfig(this.db, b.projectId);
+      if (ms(b.verifySince) + config.verifyAlertSeconds * 1000 > this.now()) continue;
+      const project = this.db.get('projects', b.projectId), supervisor = this.db.get('roles', project?.supervisorRoleId || '');
+      if (!supervisor || supervisor.enabled === false || supervisor.archivedAt) { this.db.put(BATCH, { ...b, verifyAlertTaskId: 'no_supervisor' }); continue; }
+      const minutes = Math.round((this.now() - ms(b.verifySince)) / 60000);
+      const prompt = tr('sessionQueue.verifyAlertPrompt', { batchId: b.id, roleId: b.roleId, minutes, runId: b.runId || '-' });
+      const task = this.db.createTask({ projectId: b.projectId, title: tr('sessionQueue.verifyAlertTitle'), prompt, model: supervisor.model, mode: supervisor.mode });
+      this.db.put('tasks', { ...task, origin: 'chat', roleId: supervisor.id, roleSnapshot: supervisor, reportRequired: false, sessionQueueAlert: { batchId: b.id, kind: 'pending_verification' } });
+      this.db.put(BATCH, { ...b, verifyAlertTaskId: task.id, verifyAlertAt: iso(this.now()) });
+      alerts.push(this.db.get('tasks', task.id));
+    }
+    return alerts;
+  }
+
   tick() {
     this.queue.expireLeases();
+    this.alertStaleVerifications();
     for (const [id, p] of this.pending) if (p.at + 15000 < this.now()) this.pending.delete(id);
     const projects = this.db.list('projects').filter(p => p.features?.collaborationSessions === true);
     for (const project of projects) {

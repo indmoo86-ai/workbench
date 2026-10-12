@@ -1716,4 +1716,7 @@ wb 表示这个完整前缀；每次调用都使用本轮前缀，不复用历�
   'sessionQueue.passExplicitRequest': "本批包含交给你的明确请求，请回复结果、说明阻塞或登记等待，不能选择不发言。",
   'sessionQueue.passAfterReply': "你已在本批公开回复，不能再登记不发言。",
   'sessionQueue.broadcastNeedsAcknowledgement': "会话广播仅用于验收：需提供 enabled、1 到 50 的批次上限，并设置 acknowledgeNoBudget:true。",
+  'sessionQueue.verifyAlertRange': "待核对提醒时间必须是 60 到 86400 秒之间的整数。",
+  'sessionQueue.verifyAlertTitle': "批次待核对执行状态",
+  'sessionQueue.verifyAlertPrompt': "队列提醒：角色 {roleId} 的批次 {batchId} 已等待核对 {minutes} 分钟（执行 {runId}）。启动确认丢失，平台不会重跑。请核对原执行和 CLI 状态，判断是否需要用户处理。",
 });
