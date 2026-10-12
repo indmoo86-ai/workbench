@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, readdir, stat, appendFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { agentRequest } from './agent-bridge.mjs';
 import { join, resolve, relative, isAbsolute, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -37,21 +37,12 @@ async function ensureKnowledge(dir) {
   if (!dir) throw new Error(tr('wbTools.wbKnowledgeWbProjectRoot'));
   await mkdir(join(dir, 'docs'), { recursive: true });
   await mkdir(join(dir, 'handoffs'), { recursive: true });
-  const index = join(dir, 'INDEX.md');
-  const memory = join(dir, 'MEMORY.md');
-  try { await stat(index); } catch {
-    await writeFile(index, tr('wbTools.projectKnowledgeIndexMemoryMd'), 'utf8');
-  }
-  try { await stat(memory); } catch {
-    await writeFile(memory, tr('wbTools.projectMemoryRecordConfirmedFacts'), 'utf8');
-  }
   return dir;
 }
 
 export async function boot() {
   const ctx = context();
   const knowledge = await ensureKnowledge(ctx.knowledge);
-  const index = await readFile(join(knowledge, 'INDEX.md'), 'utf8').catch(() => '');
   const last = await readFile(join(knowledge, 'handoffs', 'LATEST.md'), 'utf8').catch(() => '');
   return {
     ok: true,
@@ -59,43 +50,8 @@ export async function boot() {
     hop: ctx.hop,
     knowledge,
     projectRoot: ctx.projectRoot,
-    indexPreview: index.slice(0, 800),
     lastHandoff: last.slice(0, 2000) || null
   };
-}
-
-export async function memoryRead() {
-  const dir = await ensureKnowledge(context().knowledge);
-  return { path: join(dir, 'MEMORY.md'), text: await readFile(join(dir, 'MEMORY.md'), 'utf8') };
-}
-
-export async function memoryWrite(text) {
-  if (!text || !String(text).trim()) throw new Error(tr('wbTools.memoryWriteNeedsContent'));
-  const ctx = context();
-  const dir = await ensureKnowledge(ctx.knowledge);
-  const line = `\n## ${now()} · ${ctx.role || 'unknown'}\n${String(text).trim()}\n`;
-  await appendFile(join(dir, 'MEMORY.md'), line, 'utf8');
-  return { ok: true, path: join(dir, 'MEMORY.md') };
-}
-
-export async function memorySearch(query) {
-  if (!query) throw new Error(tr('wbTools.searchTermRequired'));
-  const dir = await ensureKnowledge(context().knowledge);
-  const q = String(query).toLowerCase();
-  const files = ['MEMORY.md', 'INDEX.md'];
-  const docs = join(dir, 'docs');
-  try {
-    for (const name of await readdir(docs)) {
-      if (name.endsWith('.md')) files.push(join('docs', name));
-    }
-  } catch { /* With no docs directory, search memory only */ }
-  const hits = [];
-  for (const rel of files) {
-    const text = await readFile(join(dir, rel), 'utf8').catch(() => '');
-    const lines = text.split('\n').map((line, i) => ({ n: i + 1, line })).filter(x => x.line.toLowerCase().includes(q));
-    if (lines.length) hits.push({ file: rel, matches: lines.slice(0, 20) });
-  }
-  return { query, hits };
 }
 
 export async function docsList() {
@@ -103,7 +59,7 @@ export async function docsList() {
   const docs = join(dir, 'docs');
   let names = [];
   try { names = (await readdir(docs)).filter(n => !n.startsWith('.')); } catch { names = []; }
-  return { index: 'INDEX.md', memory: 'MEMORY.md', docs: names };
+  return { docs: names };
 }
 
 export async function docsRead(rel) {

@@ -58,8 +58,12 @@ export async function prepareExecutionWorkspace(root,run,repositories) {
   // Copy only existing local knowledge material; another run's live handoff is never written into the shared directory.
   const knowledge=join(root,'.workbench');
   await mkdir(join(folder,'.workbench'),{recursive:true});
-  for(const name of ['INDEX.md','MEMORY.md','docs']) {
+  for(const name of ['docs']) {
     try {await cp(join(knowledge,name),join(folder,'.workbench',name),{recursive:true,dereference:false});}catch(e){if(e.code!=='ENOENT')throw e;}
+  }
+  // Read-only snapshot of the project's AGENTS.md / CLAUDE.md so every CLI loads it natively; edits belong in the project root.
+  for(const name of ['AGENTS.md','CLAUDE.md']) {
+    try {await cp(join(root,name),join(folder,name),{dereference:false,force:false,errorOnExist:false});}catch(e){if(e.code!=='ENOENT')throw e;}
   }
   return {folder,baseCommit:null,repositories:result};
 }

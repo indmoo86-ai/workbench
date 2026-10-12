@@ -40,13 +40,14 @@ function promptOrDefault(value, key, fallback) {
   const legacyDefault = key === 'platformPrompts.youFixedProjectSupervisorYou'
     && LEGACY_SUPERVISOR_DEFAULTS.has(createHash('sha256').update(text).digest('hex'));
   const currentKey = key === 'platformPrompts.youFixedProjectSupervisorYou' ? 'collaboration.supervisor' : 'collaboration.platform';
-  return isMessage(text, key) || isMessage(text, currentKey) || isMessage(text,key==='platformPrompts.youFixedProjectSupervisorYou'?'minimal.supervisorDefault':'minimal.platformDefault') || legacyDefault ? fallback() : value;
+  return isMessage(text, key) || isMessage(text, currentKey) || isMessage(text,key==='platformPrompts.youFixedProjectSupervisorYou'?'minimal.supervisorDefault':'minimal.platformDefault') || (key!=='platformPrompts.youFixedProjectSupervisorYou'&&isMessage(text,'minimal.platformDefaultLegacy1')) || legacyDefault ? fallback() : value;
 }
 
 /** Only maintained exact defaults are replaced; saved custom text remains original execution input. */
 export function customExecutionPrompt(value,kind='platform') {
   const text=typeof value==='string'?value:'';
   return isMessage(text.trim(),kind==='supervisor'?'minimal.supervisorDefault':'minimal.platformDefault')
+    ||kind!=='supervisor'&&isMessage(text.trim(),'minimal.platformDefaultLegacy1')
     ||isMessage(text.trim(),kind==='supervisor'?'collaboration.supervisor':'collaboration.platform')?'':text;
 }
 
