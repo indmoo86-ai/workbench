@@ -1,4 +1,4 @@
-const CACHE = 'agent-workbench-static-session-queue-local-files-v58';
+const CACHE = 'agent-workbench-static-compact-attachments-v59';
 const STATIC = [
   '/', '/styles.css', '/app.js', '/manifest.webmanifest', '/app-icon.png', '/app-icon-192.png',
   '/platform-admin.js', '/project-space.js', '/token-usage.js', '/run-log-data.js', '/room.js',

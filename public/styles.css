@@ -537,6 +537,18 @@ input:focus, textarea:focus, select:focus { border-color: #66b996; box-shadow: 0
 .attachment-text-card .attachment-name, .attachment-text-card small { grid-column: 2; min-width: 0; }
 .attachment-text-card .attachment-restore { margin-left: 50px; }
 .attachment-text-card > .chat-icon-btn { position: absolute; right: 3px; bottom: 4px; margin: 0; }
+/* Composer previews are compact; reserve an action column so generic input buttons cannot cover filenames. Sent attachments retain their existing layout. */
+#chat-attachments { align-items: flex-start; max-height: 164px; overflow-y: auto; }
+#chat-attachments .attachment-card { flex: 0 1 232px; width: 232px; max-width: 100%; min-width: 0; padding-right: 0; }
+#chat-attachments .attachment-open { display: grid; grid-template-columns: 48px minmax(0, 1fr); grid-template-rows: auto auto; align-content: center; gap: 3px 8px; min-height: 66px; max-width: none; padding: 8px 36px 8px 8px; }
+#chat-attachments .attachment-open img, #chat-attachments .attachment-file-icon { grid-row: 1 / span 2; width: 48px; height: 48px; align-self: center; }
+#chat-attachments .attachment-file-icon { display: grid; place-items: center; font-size: 25px; }
+#chat-attachments .attachment-name, #chat-attachments .attachment-open small { grid-column: 2; min-width: 0; max-width: 100%; }
+#chat-attachments .attachment-remove, #chat-attachments .attachment-card > .chat-icon-btn { position: absolute; right: 3px; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 0; margin: 0; color: var(--accent); background: transparent; }
+#chat-attachments .attachment-remove { top: 3px; font-size: 20px; line-height: 1; }
+#chat-attachments .attachment-card > .chat-icon-btn { bottom: 3px; }
+#chat-attachments .attachment-remove:hover, #chat-attachments .attachment-card > .chat-icon-btn:hover { background: var(--accent-soft); }
+#chat-attachments .attachment-restore { min-height: 24px; margin-left: 64px; padding: 2px 0; font-size: 11px; }
 .attachment-dialog { max-width: min(90vw, 1000px); }
 .attachment-dialog img { display: block; max-width: 100%; max-height: 75vh; object-fit: contain; }
 #chat-file-input[hidden] { display: none; }

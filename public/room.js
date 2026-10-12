@@ -243,6 +243,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
   }
   function attachmentCard(item, removable = false, ownerId = projectId) {
     const card = create('div', `attachment-card${removable && item.pastedText ? ' attachment-text-card' : ''}`);
+    card.title = item.name;
     const open = button('', async () => {
       try {
         const url = await attachmentUrl(item);
@@ -366,6 +367,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
   }
   function textDraftCard(entry, ownerId) {
     const card = create('div', 'attachment-card attachment-text-card attachment-text-draft');
+    card.title = entry.name;
     const busy = textUploads.has(entry.id);
     const open = button('', () => previewText(entry.text, entry.name), 'attachment-open');
     open.append(create('span', 'attachment-file-icon', '▤'), create('span', 'attachment-name', entry.name), create('small', '', busy ? 'Uploading…' : entry.error ? 'Upload failed; original text kept' : 'Pending upload'));
