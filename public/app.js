@@ -1,4 +1,7 @@
 import { t, getLanguage, setLanguage, onLanguageChange, syncLanguageWithBackend, dateLocale } from './i18n.js';
+import {simplifiedCliOutput} from './output-language.js';
+import {executionProgressLabels} from './execution-progress.js';
+import {createLiveScene} from './live-scene.js';
 import { createRoomUI, createRoleRefresh } from './room.js';
 import { projectSettings } from './project-settings.js';
 import { agentIconEl, machineIconEl, quotaForRole, roleActivity, roleNameQuota, UI_ICON, deviceIconEl, workerDisplayName, workerKind, setActionIcon, projectIconAssignments, projectIconEl } from './role-icons.js';
@@ -11,7 +14,7 @@ import { tokenUsageUI } from './token-usage.js';
 import { createScheduledJobsUI } from './scheduled-jobs.js';
 import { formatGitVersionStatus, formatProjectGitSummary } from './git-version.js';
 import { partitionRunLog, displayRunInput, contextUsageLabel, mergeRunEvents, shouldShowFinalResult, toolStatusLabel, stripAnsi, taskRunDisplayStatus } from './run-log-data.js';
-import { planDismissKey, planDockState, planMemberLabel } from './plan-dock.js';
+import { planDismissKey, planDockState, planMemberLabel, planStageActivity } from './plan-dock.js';
 import {createWorkspaceInspector,initWorkspaceColumns} from './workspace-inspector.js';
 import {applyStateUpdate} from './state-data.js';
 import { TOKEN_KEY, readApiToken, saveApiToken } from './browser-token.js';
@@ -19,6 +22,7 @@ import { TOKEN_KEY, readApiToken, saveApiToken } from './browser-token.js';
 const DRAFT_KEY = 'agent-workbench.drafts';
 const COMMAND_KEY = 'agent-workbench.commands';
 const POLL_INTERVAL = 10_000;
+const STATE_REQUEST_TIMEOUT = 20_000;
 const SSE_RETRY_INTERVAL = 15_000;
 
 const dom = {
@@ -83,6 +87,7 @@ const app = {
   sseRetryTimer: null,
   requestVersion: 0,
   loadingState: false,
+  lastStateAt: null,
   stateCache: null,
   stateGeneration: 0,
   fullRun: null,
@@ -118,22 +123,22 @@ for (const [id, name, label] of [
 }
 const roleRefresh=createRoleRefresh({api,refreshState,getData:()=>({...app.data,roles:[...(app.data.supervisorRoles||[]),...app.data.roles]}),getProject:getCurrentProject,
   button:document.querySelector('#refresh-role-status'),feedback:document.querySelector('#role-refresh-feedback'),onUpdate:()=>renderRoles()});
-const room = createRoomUI({ api, refreshState, openTask, stopRun, decideApproval, create, formatTime, setError, configureDevice(projectId, nodeId) {
+const liveScene=createLiveScene({api,getProjectId:()=>app.selectedProjectId});
+const room = createRoomUI({ api, refreshState, openTask, openLiveScene:run=>liveScene.open(run.id,{projectId:run.projectId,name:run.roleSnapshot?.name}), stopRun, decideApproval, create, formatTime, setError, configureDevice(projectId, nodeId) {
   if (app.data.projects.some(p => p.id === projectId)) { app.selectedProjectId=projectId;openSettings('project'); }
 } });
 // Action icons apply only to explicit entry points; tabs, project names and the text confirm buttons at the bottom of dialogs are unchanged.
 for(const [selector,icon,label] of [
-  ['#close-settings-page','back'],['#show-device-enroll','plus'],['#edit-assistant-runtime','edit'],
+  ['#close-settings-page','close'],['#show-device-enroll','plus'],['#edit-assistant-runtime','edit'],
   ['[data-prompt-edit]','edit'],['#edit-conversation-organizer','edit','Edit conversation organizer model'],['#edit-api-token','edit'],
   ['#manage-wechat','settings'],['#assistant-stop','stop'],['#configuration-assistant-form > .form-actions [type=submit]','send'],
   ['#token-usage-form [type=submit]','search'],['#token-usage-refresh','refresh'],['#open-project-timers','history'],
   ['#pick-settings-folder','folder'],['#project-prepare-form [type=submit]','refresh'],
   ['#project-repository-form [type=submit]','git'],['#save-settings-folder','save'],
-  ['#supervisor-form [type=submit]','save'],
   ['#delete-project','trash'],['#save-project-settings','save']
 ])document.querySelectorAll(selector).forEach(button=>setActionIcon(button,icon,label));
-const projectsUI = projectSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create, setError, openSettings, closeSettings });
-const supervisorsUI = supervisorSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create });
+const projectsUI = projectSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create, setError, openSettings, closeSettings,openTask });
+const supervisorsUI = supervisorSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create,openTask });
 const setupUI = projectSetupUI({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create, setError });
 const platformUI = platformAdminUI({api,getData:()=>app.data,refreshState,create});
 const spacesUI = projectSpaceUI({api,getData:()=>app.data,getProject:getCurrentProject,refreshState,create});
@@ -250,7 +255,6 @@ document.querySelector('#pick-binding-folder').addEventListener('click', () => p
 function openSettings(value = 'devices') {
   let tab = normalizeSettingsTab(value);
   if (tab === 'project' && !projectsUI.prepareSettings()) tab = 'devices';
-  if (tab === 'project') supervisorsUI.prepare();
   dom.projectFormPanel.hidden = true;
   app.view = 'settings';
   app.settingsTab = activateSettingsTab(dom.settingsPage, tab);
@@ -302,8 +306,9 @@ function setError(message = '') {
   dom.globalError.textContent = message;
 }
 
-function setConnection(message) {
-  if (dom.connectionNote) {dom.connectionNote.textContent = message;dom.connectionNote.title=message;dom.connectionNote.dataset.state=/failed|interrupted/i.test(message)?'error':/^Connected/.test(message)?'connected':'waiting';}
+function setConnection(message, state = /failed|interrupted/i.test(message)?'error':/^Connected/.test(message)?'connected':'waiting') {
+  if (app.lastStateAt) message = t('{status} · Last update {time}', { status: t(message), time: formatTime(app.lastStateAt) });
+  if (dom.connectionNote) {dom.connectionNote.textContent = message;dom.connectionNote.title=message;dom.connectionNote.dataset.state=state;}
   const settingsNote = document.querySelector('#settings-connection-note');
   if (settingsNote) settingsNote.textContent = message;
 }
@@ -390,7 +395,7 @@ function formatTime(value) {
 }
 
 function statusChip(status) {
-  return create('span', `status-chip ${status || ''}`, statusLabels[status] || status || 'Unknown');
+  return create('span', `status-chip ${{error:'failed',stopped:'cancelled',waiting:'waiting_user'}[status]||status||''}`, executionProgressLabels[status] || status || 'Unknown');
 }
 
 function getCurrentProject() {
@@ -419,15 +424,16 @@ function getDetailRun(taskId) {
 
 /** Switching projects immediately isolates old data and in-flight details so late responses are not shown in another project. */
 function selectProject(projectId) {
+  liveScene.close();
   app.selectedProjectId=projectId;app.selectedTaskId=null;app.stateGeneration++;
   app.stateCache=null;app.fullRun=null;app.fullTask=null;app.requestVersion++;
   for(const key of ['tasks','runs','requests','executionPlans','runReports','runAlerts','discussionThreads','discussionDeliveries','roleSessions','roleSwitches'])app.data[key]=[];
   if(dom.runDialog.open)dom.runDialog.close();
 }
 
-/** Manual acceptance status belongs to the Task and must override a Run status that only reflects the process outcome. */
+/** Execution progress is independent of acceptance; report details and the acceptance action retain their own records. */
 function taskDisplayStatus(task, latestRun) {
-  return taskRunDisplayStatus(task,latestRun);
+  return taskRunDisplayStatus(task,latestRun,app.data.requests?.find(r=>r.id===(latestRun?.requestId||task?.requestId)));
 }
 
 function reconcileSelection() {
@@ -438,6 +444,23 @@ function reconcileSelection() {
   if (!projectTasks.some((task) => task.id === app.selectedTaskId)) {
     app.selectedTaskId = projectTasks[0]?.id || null;
   }
+}
+
+/** Bound the whole read, including its body; a stalled request cannot hold the refresh lock or apply a late snapshot. Never retry writes here. */
+async function readState(path) {
+  const controller = new AbortController();
+  let timer;
+  try {
+    return await Promise.race([
+      api(path, { signal: controller.signal }),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(t('State update timed out; retrying automatically. Displayed data may be outdated.')));
+          controller.abort();
+        }, STATE_REQUEST_TIMEOUT);
+      })
+    ]);
+  } finally { clearTimeout(timer); }
 }
 
 /** Refresh authoritative state while keeping the user's current selection and unsubmitted forms. */
@@ -453,11 +476,11 @@ async function refreshState({ quiet = false } = {}) {
     const params=new URLSearchParams({view:'workspace'});
     if(requestedProject)params.set('projectId',requestedProject);
     if(app.stateCache?.projectId===requestedProject)params.set('cursor',app.stateCache.cursor);
-    let update=await api(`/api/state?${params}`);
+    let update=await readState(`/api/state?${params}`);
     if(generation!==app.stateGeneration||requestedProject!==app.selectedProjectId){app.pendingStateRefresh=true;return;}
     try {app.stateCache=update.schema===1?applyStateUpdate(app.stateCache,update):{projectId:requestedProject||update.projects?.[0]?.id||null,cursor:null,state:update};}
     catch {
-      params.delete('cursor');update=await api(`/api/state?${params}`);
+      params.delete('cursor');update=await readState(`/api/state?${params}`);
       if(generation!==app.stateGeneration||requestedProject!==app.selectedProjectId){app.pendingStateRefresh=true;return;}
       app.stateCache=applyStateUpdate(null,update);
     }
@@ -470,6 +493,7 @@ async function refreshState({ quiet = false } = {}) {
       supervisorRoles: Array.isArray(data.supervisorRoles) ? data.supervisorRoles : [],
       roleSessions:Array.isArray(data.roleSessions)?data.roleSessions:[],
       roleSwitches:Array.isArray(data.roleSwitches)?data.roleSwitches:[],
+      cliRecoveries:Array.isArray(data.cliRecoveries)?data.cliRecoveries:[],
       roleTemplates: Array.isArray(data.roleTemplates) ? data.roleTemplates : [],
       rooms: Array.isArray(data.rooms) ? data.rooms : [],
       gitChecks: Array.isArray(data.gitChecks) ? data.gitChecks : [],
@@ -495,16 +519,25 @@ async function refreshState({ quiet = false } = {}) {
     render();
     // File queries may wait on a remote Worker and must not block authoritative state refresh or later SSE merging.
     void refreshRunDetails();
-    setConnection(app.token ? 'Connected · Token auth · 10 s polling' : 'Connected · live updates');
+    app.lastStateAt = new Date().toISOString();
+    setConnection(t('Connected · {mode}', {
+      mode: t(app.token ? 'Token auth · 10 s polling' : app.pollTimer ? '10 s polling' : 'Live updates')
+    }), 'connected');
   } catch (error) {
+    // Recover with a full snapshot after a failed read instead of extending an uncertain cursor.
+    app.stateCache = null;
     setError(error.message);
     setConnection('Home connection failed');
+    // SSE may stay open without another change event, so failed reads also need the polling fallback.
+    startPolling();
   } finally {
     app.loadingState = false;
+    // Settle this attempt's callers even during a sustained outage; polling must not accumulate unresolved waiters.
+    for (const resolve of app.refreshWaiters.splice(0)) resolve();
     if (app.pendingStateRefresh) {
       app.pendingStateRefresh = false;
       void refreshState({ quiet: true });
-    } else for (const resolve of app.refreshWaiters.splice(0)) resolve();
+    }
   }
 }
 
@@ -560,10 +593,15 @@ function renderExecutionPlans() {
   panel.dataset.projectId=app.selectedProjectId;
   const details=document.createElement('details');details.open=open;
   const summary=document.createElement('summary');
-  const status={running:'Running',succeeded:'Completed',blocked:'Blocked',cancelled:'Cancelled',pending:'Not started',failed:'Failed',completed_with_issues:'Ended · with issues'};
+  const activity=plan=>{
+    if(plan.status==='blocked')return {label:'Waiting',reason:plan.error||plan.waitingReason||'Waiting to advance'};
+    if(plan.status==='cancelled')return {label:'Stopped',reason:plan.error||''};
+    const stage=plan.status==='running'?plan.stages?.find(s=>s.status==='running'):{members:(plan.stages||[]).flatMap(s=>s.members||[]),status:plan.status};
+    return planStageActivity(stage,app.data.requests||[],app.data.runs||[],app.data.tasks||[]);
+  };
   const title=document.createElement('strong');title.textContent=t('Supervisor plan · {currentStage}', { currentStage: t(state.currentStage) });
   const progress=document.createElement('span');progress.className='execution-progress';progress.textContent=`${state.completed}/${state.total}`;
-  const badge=document.createElement('span');badge.className='execution-status';badge.textContent=status[state.current.status]||state.current.status;
+  const badge=document.createElement('span');badge.className='execution-status';badge.textContent=t(activity(state.current).label);
   summary.append(title,progress,badge);details.append(summary);panel.append(details);
   if(state.dismissible.some(plan=>plan.id===state.current.id)) {
     const close=create('button','execution-plan-close');close.type='button';close.title='Close finished plan';close.setAttribute('aria-label','Close finished plan');
@@ -580,9 +618,10 @@ function renderExecutionPlans() {
   list.append(count);
   for(const plan of state.plans) {
     const item=document.createElement('section');item.className='execution-plan-item';
-    const heading=document.createElement('h3');heading.textContent=`${plan.reason} · ${t(status[plan.status]||plan.status)}`;
+    const progress=activity(plan);
+    const heading=document.createElement('h3');heading.textContent=`${plan.reason} · ${t(progress.label)}`;
     item.append(heading);
-    const note=plan.error||plan.waitingReason||plan.fallbackReason;
+    const note=plan.error||plan.waitingReason||progress?.reason||plan.fallbackReason;
     if(note){const p=document.createElement('p');p.textContent=note;item.append(p);}
     if((plan.deliveryIds||[]).some(id=>{
       const delivery=(app.data.deliveries||[]).find(d=>d.id===id);
@@ -594,7 +633,7 @@ function renderExecutionPlans() {
       const row=document.createElement('div');row.className='execution-stage';
       const label=document.createElement('span');
       const mode=stage.exclusive?'Exclusive serial':stage.mode==='parallel' && plan.isolated!==false?'Parallel':'Sequential';
-      label.textContent=`${stage.index+1}. ${stage.title} · ${t(mode)} · ${plan.failurePolicy==='collect_reviews'&&stage.status==='failed'?t('Some failed or missing'):t(status[stage.status]||stage.status)}`;
+      label.textContent=`${stage.index+1}. ${stage.title} · ${t(mode)} · ${t(planStageActivity(stage,app.data.requests||[],app.data.runs||[],app.data.tasks||[]).label)}`;
       const members=document.createElement('small');
       members.textContent=(stage.members||[]).map(m=>{
         let request=(app.data.requests||[]).find(r=>r.id===m.requestId);
@@ -832,6 +871,10 @@ function renderRoles() {
     terminalButton.title='Continue the original session in iTerm';terminalButton.setAttribute('aria-label',t('Terminal session {name}', { name: displayName }));
     terminalButton.addEventListener('click',e=>{e.stopPropagation();openRoleTerminal(role);});
     head.append(terminalButton);
+    const sceneButton=create('button','chat-icon-btn role-live-scene');sceneButton.type='button';sceneButton.innerHTML=UI_ICON.live;
+    sceneButton.title=t('Live execution (read-only)');sceneButton.setAttribute('aria-label',t('Live execution for {name}',{name:displayName}));
+    const candidates=(app.data.runs||[]).filter(r=>r.roleId===role.id&&!r.switchOperationId).sort((a,b)=>Number(!['succeeded','failed','interrupted'].includes(b.status))-Number(!['succeeded','failed','interrupted'].includes(a.status))||Date.parse(b.createdAt)-Date.parse(a.createdAt));
+    sceneButton.disabled=!candidates.length;sceneButton.addEventListener('click',event=>{event.stopPropagation();void liveScene.open(candidates[0].id,{projectId:role.projectId,name:displayName});});head.append(sceneButton);
     if (activity.label !== 'Idle') head.append(create('span', `role-badge is-${activity.tone}`, activity.label));
     const ids = create('div', 'role-id-row');
     if (configured) {
@@ -844,7 +887,8 @@ function renderRoles() {
     }
     const activityRow = create('div', 'role-activity-row');
     activityRow.append(create('p', 'role-activity', activity.detail));
-    if((app.data.terminalSessions||[]).some(s=>s.projectId===role.projectId&&s.nodeId===role.nodeId))activityRow.firstChild.textContent='Terminal takeover · to be returned to the platform';
+    const takeover=(app.data.terminalSessions||[]).find(s=>s.projectId===role.projectId&&s.nodeId===role.nodeId);
+    if(takeover)activityRow.firstChild.textContent=takeover.processState==='unknown'?'Terminal takeover · process state unverified':takeover.processState==='active'?'Terminal CLI running · return after stopping':'Terminal takeover · refresh to check the process';
     if (configured) {
       const quota = roleNameQuota(quotaForRole(runtime, worker, role.model));
       if (quota.childElementCount) activityRow.append(quota);
@@ -852,14 +896,14 @@ function renderRoles() {
     card.append(head, ids, activityRow);
     const open = () => {
       if(!isSupervisor){room.openRoleEditor(role.id);return;}
-      openSettings('project');
-      document.querySelector('#supervisor-settings').scrollIntoView({block:'start'});
-      document.querySelector('#supervisor-form [name=nodeId]').focus({preventScroll:true});
+      supervisorsUI.open();
     };
     card.addEventListener('click', open);
     card.addEventListener('keydown', (e) => { if (e.target===card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } });
     dom.roleList.append(card);
   }
+  terminalDialog?.refreshState?.();
+  supervisorsUI.refresh();
 }
 
 const gitVersionRequests=new Set();
@@ -971,11 +1015,15 @@ function openRoleTerminal(role) {
   if(!terminalDialog){terminalDialog=create('dialog','terminal-dialog');terminalDialog.setAttribute('aria-label','Terminal session');document.body.append(terminalDialog);}
   let operationId=crypto.randomUUID();const useLocalSshKey=['localhost','127.0.0.1','[::1]'].includes(location.hostname);
   const activeStatuses=new Set(['queued','starting','running','waiting_user','stopping','reconciling']);
+  let returning=false,lastSignature='';
+  const claimFor=mode=>{const r=app.data.runs.find(r=>r.id===mode),nodeId=r?.nodeId||role.nodeId;return (app.data.terminalSessions||[]).find(s=>s.projectId===role.projectId&&s.nodeId===nodeId);};
+  const signature=mode=>{const c=claimFor(mode),r=app.data.runs.find(r=>r.id===mode),nodeId=c?.nodeId||r?.nodeId||role.nodeId,w=app.data.workers.find(w=>w.id===nodeId);return JSON.stringify([c?.id,c?.status,c?.processState,c?.lastCheckedAt,c?.processError,w?.online,w?.capabilities?.terminalControl,w?.capacity,w?.organizerBusy,app.data.settings?.paused,app.data.runs.filter(r=>r.nodeId===nodeId&&activeStatuses.has(r.status)).map(r=>[r.id,r.status]),(app.data.roleSwitches||[]).filter(s=>s.roleId===role.id).map(s=>[s.id,s.status])]);};
   const render=(selectedMode='')=>{
     terminalDialog.replaceChildren();
-    const claim=(app.data.terminalSessions||[]).find(s=>s.projectId===role.projectId&&s.nodeId===role.nodeId);
+    const claim=claimFor(selectedMode);
     const runs=app.data.runs.filter(r=>r.projectId===role.projectId&&r.roleId===role.id&&!r.historyClearedAt).slice().reverse();
     const mode=claim?(claim.kind==='new'?'':claim.runId||''):selectedMode;
+    lastSignature=signature(mode);
     const heading=create('div','dialog-heading');
     const close=create('button','secondary compact','Close');close.type='button';close.onclick=()=>terminalDialog.close();
     heading.append(create('h2','',t('{name} · Terminal Session', { name: role.name })),close);terminalDialog.append(heading);
@@ -988,9 +1036,11 @@ function openRoleTerminal(role) {
     const run=claim&&claim.kind!=='new'?app.data.runs.find(r=>r.id===claim.runId):runs.find(r=>r.id===select.value);
     select.onchange=()=>render(select.value);
     const info=create('p','workspace-note');
-    const ownerRole=claim?.kind==='new'?[...(app.data.roles||[]),...(app.data.supervisorRoles||[])].find(item=>item.id===claim.roleId):role;
+    const ownerRole=claim?[...(app.data.roles||[]),...(app.data.supervisorRoles||[])].find(item=>item.id===(claim.roleId||run?.roleId)):role;
     const nodeId=claim?.nodeId||run?.nodeId||role.nodeId,worker=app.data.workers.find(item=>item.id===nodeId);
     const remote=workerKind(worker)==='cloud',sshDevice=(app.data.devices||[]).find(item=>item.nodeId===nodeId);
+    if(claim){const checked=create('p','workspace-note',!worker?.online?'Device offline; terminal process state unknown':claim.processState==='active'?'Terminal CLI is running':claim.processState==='prepared'?'Waiting to open terminal':claim.processState==='unknown'?'Terminal process state unverified':'Terminal reserved; refresh to check the process');if(claim.lastCheckedAt)checked.append(document.createTextNode(' · '+t('Checked at: {time}',{time:formatTime(claim.lastCheckedAt)})));terminalDialog.append(checked);if(claim.processError)terminalDialog.append(create('p','workspace-note',claim.processError));}
+    if(worker?.capabilities?.terminalAutoReturn===1)terminalDialog.append(create('p','workspace-note','Exited terminals return automatically within about 15 seconds. Unopened links expire after 5 minutes.'));
     const workspace=(app.data.workspaces||[]).find(item=>item.id===`${role.projectId}:${nodeId}`||item.projectId===role.projectId&&item.nodeId===nodeId);
     if(run)info.textContent=t('Device: {v}\nFolder: {v2}\nRun user: {v3}\nSession ID: {v4}', { v: worker?.name||nodeId, v2: claim?.workspace||run.workspace||t('not recorded'), v3: claim?.user||run.nativeSession?.user||t('verified by Worker'), v4: claim?.sessionId||run.nativeSession?.id||run.threadId||t('not recorded; resume cannot be guaranteed') });
     else {
@@ -1000,11 +1050,11 @@ function openRoleTerminal(role) {
     }
     if(remote&&sshDevice)info.textContent+=`\n${t('SSH: {user}@{host}:{port}',{user:sshDevice.user,host:sshDevice.host,port:sshDevice.port})}`;
     info.style.whiteSpace='pre-wrap';terminalDialog.append(info);
-    if(claim?.kind==='new'&&claim.roleId!==role.id)terminalDialog.append(create('p','workspace-note',t('This project device is under terminal control for {name}.',{name:ownerRole?.name||claim.roleId})));
+    if(claim&&ownerRole&&ownerRole.id!==role.id)terminalDialog.append(create('p','workspace-note',t('This project device is under terminal control for {name}.',{name:ownerRole.name})));
     const currentSwitches=app.stateCache?.state?.roleSwitches||[],switching=currentSwitches.some(item=>item.projectId===role.projectId&&item.roleId===role.id&&!['committed','cancelled'].includes(item.status));
     const missingFreshConfig=!run&&(!role.nodeId||!role.runtime||!role.model||!workspace?.localRoot);
     const busy=app.data.runs.some(item=>item.projectId===role.projectId&&item.nodeId===nodeId&&activeStatuses.has(item.status));
-    const occupied=app.data.runs.filter(item=>item.nodeId===nodeId&&activeStatuses.has(item.status)).length+(app.data.terminalSessions||[]).filter(item=>item.nodeId===nodeId&&['preparing','prepared','active'].includes(item.status)).length+(worker?.organizerBusy||0);
+    const occupied=app.data.runs.filter(item=>item.nodeId===nodeId&&activeStatuses.has(item.status)).length+(app.data.terminalSessions||[]).filter(item=>item.nodeId===nodeId&&['preparing','prepared','active','stopping'].includes(item.status)).length+(worker?.organizerBusy||0);
     const gate=claim?'':app.data.settings?.paused?'Remote dispatch is paused':switching?'This role is switching CLI; wait for the handoff to finish.':missingFreshConfig?'Configure the role device, CLI, model and project workspace before opening a terminal session.':!worker?.online?'Device offline or not connected':busy?'This project is still running on that device; view live replies in the web page first and resume after it finishes.':occupied>=(worker?.capacity||1)?'Device CLI limit reached; return an unused terminal to the platform or wait for running work.':'';
     const feedback=create('p','inline-error',claim?.error||gate);feedback.hidden=!(claim?.error||gate);feedback.setAttribute('role','status');terminalDialog.append(feedback);
     const actions=create('div','form-actions');terminalDialog.append(actions);
@@ -1016,11 +1066,15 @@ function openRoleTerminal(role) {
         copy.onclick=async()=>{try{await navigator.clipboard.writeText(claim.command);copy.textContent='Copied';}catch{feedback.hidden=false;feedback.textContent='Clipboard unavailable; use the iTerm entry.';}};actions.append(copy);
       }
       const release=create('button','secondary','Return to platform');release.type='button';
-      release.onclick=async()=>{release.disabled=true;try{
+      const stop=create('button','danger','Stop CLI and return');stop.type='button';
+      const stopGate=!worker?.online?'Device offline; reconnect before stopping the CLI':worker?.capabilities?.terminalControl!==1?'Upgrade this Worker to check or stop terminal processes.':'';
+      stop.disabled=!!stopGate;if(stopGate)stop.title=stopGate;
+      const returnControl=async action=>{returning=true;release.disabled=true;stop.disabled=true;feedback.hidden=false;feedback.textContent=action==='stop'?'Stopping terminal CLI…':'Returning terminal control…';try{
         const path=claim.kind==='new'?`/api/projects/${encodeURIComponent(claim.projectId)}/roles/${encodeURIComponent(claim.roleId)}/terminal`:`/api/runs/${encodeURIComponent(claim.runId)}/terminal`;
-        await api(path,{method:'POST',json:claim.kind==='new'?{action:'release',id:claim.id}:{action:'release'}});if(claim.kind==='new')operationId=crypto.randomUUID();await refreshState({quiet:true});render(mode);
-      }catch(e){feedback.hidden=false;feedback.textContent=e.message;release.disabled=false;}};
-      actions.append(release);
+        await api(path,{method:'POST',json:{action,id:claim.id}});if(claim.kind==='new')operationId=crypto.randomUUID();await refreshState({quiet:true});render(mode);
+      }catch(e){feedback.hidden=false;feedback.textContent=e.message;release.disabled=false;stop.disabled=!!stopGate;}finally{returning=false;}};
+      release.onclick=()=>void returnControl('release');stop.onclick=()=>{if(confirm(t('Stop this terminal CLI and return control to Workbench? Unfinished terminal work will be interrupted.')))void returnControl('stop');};
+      actions.append(release,stop);
     } else {
       const prepare=create('button','primary',run?'Verify and prepare resume':'Open new session');prepare.type='button';prepare.disabled=!!gate;
       prepare.onclick=async()=>{prepare.disabled=true;try{
@@ -1034,6 +1088,7 @@ function openRoleTerminal(role) {
   terminalDialog.languageCleanup?.();
   const languageCleanup=onLanguageChange(()=>{if(terminalDialog.open)render(terminalDialog.querySelector('select')?.value||'');});
   terminalDialog.languageCleanup=languageCleanup;terminalDialog.addEventListener('close',languageCleanup,{once:true});
+  terminalDialog.refreshState=()=>{const mode=terminalDialog.querySelector('select')?.value||'';if(terminalDialog.open&&!returning&&signature(mode)!==lastSignature)render(mode);};
   render();if(!terminalDialog.open)terminalDialog.showModal();
 }
 
@@ -1537,7 +1592,7 @@ function renderRunResult(result) {
   const section = create('section', 'subsection run-result');
   const heading = create('div', 'subsection-heading');
   heading.append(create('h3', '', 'Execution Result'), create('span', 'subsection-note', 'Runtime output'));
-  section.append(heading, create('div', 'result-content', typeof result === 'string' ? result : safeJson(result)));
+  section.append(heading, create('div', 'result-content', typeof result === 'string' ? simplifiedCliOutput(result) : safeJson(result)));
   return section;
 }
 
@@ -1619,13 +1674,13 @@ function renderRunOutput(run, events) {
   const section = create('section', 'run-log-content run-output');
   if (!events.length && !run?.result) section.append(create('div', 'event-empty', run ? 'Waiting for CLI output…' : 'Task has not started yet'));
   let text = '';
-  const flushText = () => { if (text) { section.append(create('pre', 'run-log-pre run-output-text', text)); text = ''; } };
+  const flushText = () => { if (text) { section.append(create('pre', 'run-log-pre run-output-text', simplifiedCliOutput(text))); text = ''; } };
   for (const event of events) {
     if (event.type === 'text') { text += stripAnsi(eventPayloadText(event)); continue; }
     flushText();
     const block = create('div', `run-output-entry${event.type === 'error' ? ' error' : ''}`);
     block.append(create('small', '', `${event.type === 'error' ? t('Error') : event.type === 'log' ? t('CLI log') : t('Reply')} · ${formatTime(event.createdAt)}`),
-      create('pre', 'run-log-pre', stripAnsi(eventPayloadText(event))));
+      create('pre', 'run-log-pre', simplifiedCliOutput(stripAnsi(eventPayloadText(event)))));
     section.append(block);
   }
   flushText();
@@ -1664,7 +1719,8 @@ function renderRunArtifacts(run) {
   const section = create('section', 'run-log-content');
   if (run?.report) {
     const report = create('div', 'run-artifact-report');
-    report.append(create('h3', '', 'Delivery Report'), create('p', '', run.report.summary || ''));
+    const verdict={passed:'Passed',failed:'Not passed',blocked:'Blocked',needs_input:'User decision needed'}[run.report.verdict]||'To verify';
+    report.append(create('h3', '', 'Delivery Report'),create('p','',t('Business verdict: {v}',{v:t(verdict)})), create('p', '', run.report.summary || ''));
     if (run.report.evidence?.length) report.append(create('pre', 'run-log-pre', run.report.evidence.join('\n')));
     section.append(report);
   }
@@ -1957,7 +2013,7 @@ function connectUpdates() {
   disconnectUpdates();
   if (app.token) {
     startPolling();
-    setConnection('Token auth · 10 s polling');
+    setConnection('Syncing Home…');
     return;
   }
   startSse();
@@ -1977,6 +2033,12 @@ function startPolling() {
   app.pollTimer = setInterval(() => refreshState({ quiet: true }), POLL_INTERVAL);
 }
 
+/** A resumed PWA must verify its data immediately; this does not reload the page or discard drafts. */
+function refreshAfterActivation() {
+  if (document.visibilityState === 'hidden') return;
+  void refreshState();
+}
+
 function startSse() {
   if (app.token || app.eventSource) return;
   const source = new EventSource('/api/events');
@@ -1984,7 +2046,7 @@ function startSse() {
   source.addEventListener('open', () => {
     clearInterval(app.pollTimer);
     app.pollTimer = null;
-    setConnection('Connected · live updates');
+    void refreshState();
   });
   source.addEventListener('change', () => refreshState({ quiet: true }));
   source.onerror = () => {
@@ -2041,7 +2103,7 @@ document.querySelector('#close-history').addEventListener('click', () => documen
 document.querySelector('#close-device-edit').addEventListener('click', () => document.querySelector('#device-edit-dialog').close());
 document.querySelector('#device-edit-dialog').addEventListener('close', () => document.querySelector('#device-edit-content').replaceChildren());
 document.querySelector('#close-run').addEventListener('click', () => { dom.runDialog.close(); app.requestVersion++; });
-document.querySelector('#refresh-state').addEventListener('click', () => refreshState());
+document.querySelector('#refresh-state').addEventListener('click', () => {void roleRefresh.refreshTerminals().catch(error=>setError(error.message));});
 document.querySelector('#close-file-dialog').addEventListener('click', () => dom.fileDialog.close());
 dom.fileDialog.addEventListener('close', () => { app.fileReadVersion++; });
 
@@ -2251,5 +2313,9 @@ function syncLanguage() {
   }).then(showLanguageChoice);
 }
 
+window.addEventListener('focus', refreshAfterActivation);
+window.addEventListener('online', refreshAfterActivation);
+window.addEventListener('pageshow', refreshAfterActivation);
+document.addEventListener('visibilitychange', refreshAfterActivation);
 connectUpdates();
 refreshState().finally(() => void syncLanguage());

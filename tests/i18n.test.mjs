@@ -121,18 +121,22 @@ test('language switch changes platform prompts and default roles', async () => {
     templates: roles.defaultRoleTemplates()
   }));
   const a = await snapshot('en'), b = await snapshot('zh');
-  for (const k of ['platform', 'supervisor', 'rules', 'composed']) {
+  assert.equal(a.supervisor, '');
+  assert.equal(b.supervisor, '');
+  for (const k of ['platform', 'rules', 'composed']) {
     assert.notEqual(a[k], b[k], k);
     assert.ok(!hasCjk(a[k]), `${k} (en) has CJK`);
     assert.ok(hasCjk(b[k]), `${k} (zh) has no CJK`);
   }
   assert.deepEqual(a.templates.map(t => t.key), b.templates.map(t => t.key));
-  assert.deepEqual(a.templates.map(t => t.key), ['reviewer', 'planner', 'developer', 'tester']);
+  assert.deepEqual(a.templates.map(t => t.key), ['planner', 'developer', 'reviewer', 'tester', 'architect', 'debugger', 'deployer', 'documenter']);
   a.templates.forEach((t, i) => {
     assert.notEqual(t.name, b.templates[i].name);
-    assert.notEqual(t.instructions, b.templates[i].instructions);
+    assert.equal(t.instructions, '');
+    assert.equal(b.templates[i].instructions, '');
+    assert.notEqual(t.responsibility, b.templates[i].responsibility);
     assert.notEqual(t.modelHint, b.templates[i].modelHint);
-    assert.ok(hasCjk(b.templates[i].instructions) && !hasCjk(t.instructions));
+    assert.ok(hasCjk(b.templates[i].responsibility) && !hasCjk(t.responsibility));
   });
   // The module does not freeze text at import time.
   assert.equal(await withLanguage('en', () => prompts.defaultPlatformPrompt()), a.platform);
@@ -195,8 +199,8 @@ test('run payload language does not leak between concurrent runs', async () => {
     withLanguage('en', async () => { await new Promise(r => setTimeout(r, 5)); return roles.defaultRoleTemplates()[0].name; }),
     withLanguage('zh', async () => roles.defaultRoleTemplates()[0].name)
   ]);
-  assert.equal(a, en['defaultRoles.codeReviewer']);
-  assert.equal(b, zh['defaultRoles.codeReviewer']);
+  assert.equal(a, en['roleTemplates.planner']);
+  assert.equal(b, zh['roleTemplates.planner']);
 });
 
 test('package scripts and files are wired', () => {

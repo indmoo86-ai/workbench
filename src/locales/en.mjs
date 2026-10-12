@@ -1,6 +1,29 @@
 // English message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'followup.configChanged': 'Follow-up settings changed; reload before saving.',
+  'followup.noSupervisor': 'Waiting for an enabled project supervisor.',
+  'followup.waitingSilence': 'Waiting for the updated chat silence duration.',
+  'followup.bindingChanged': 'The verified CLI/device binding differs from the current role; reconcile the role switch before follow-up.',
+  'followup.context': 'Platform trigger and current task facts (not new user authorization): {context}. Message excerpts below are background; use wb history read for their originals and wb result read for related requests.',
+  'followup.event': '[Workbench event] This project chat has been quiet for about {minutes} minutes. Review recent messages and current tasks to decide whether coordination or help is needed; act within the original authorization, or finish quietly. This follow-up is recorded in the background; use wb note to publish a message if useful. Existing user-confirmation and approval tools remain available. Silence is not consent and does not mean an active task failed.',
+  'followup.invalidConfig': 'Follow-up requires an enabled boolean and an integer silence duration from 1 to 10080 minutes.',
+  'roleTemplates.planner': 'Planner',
+  'roleTemplates.plannerResponsibility': 'Create and maintain development plans; clarify the proposed solution.',
+  'roleTemplates.developer': 'Executor',
+  'roleTemplates.developerResponsibility': 'Implement and fix code, and verify the changes.',
+  'roleTemplates.reviewer': 'Reviewer',
+  'roleTemplates.reviewerResponsibility': 'Independently review documents, plans and code; report issues and suggestions.',
+  'roleTemplates.tester': 'Tester',
+  'roleTemplates.testerResponsibility': 'Test features and user workflows; report reproducible issues.',
+  'roleTemplates.architect': 'Architect',
+  'roleTemplates.architectResponsibility': 'Design system architecture, interfaces and data flows.',
+  'roleTemplates.debugger': 'Debugger',
+  'roleTemplates.debuggerResponsibility': 'Find root causes and propose or implement fixes.',
+  'roleTemplates.deployer': 'Deployer',
+  'roleTemplates.deployerResponsibility': 'Build and deploy the specified version; verify service health.',
+  'roleTemplates.documenter': 'Documenter',
+  'roleTemplates.documenterResponsibility': 'Write and maintain project documentation, examples and handoff notes.',
   "sourceSync.failure": "Source synchronization: {code} {detail}",
   "sourceSync.systemName": "Source synchronization",
   "sourceSync.continuedReceipt": "Continuing the same owned workspace from these previously verified source inputs: {versions}. Your prior turn edits are retained, not overwritten with the original snapshot. Re-read current files; this receipt is not a claim that your output still equals the initial input.",
@@ -17,6 +40,10 @@ export default Object.freeze({
   'roleTerminal.pending': 'This terminal request is still preparing or requires release. Retry the same request or return it to the platform.',
   'roleTerminal.startingNew': 'Starting a new CLI session in {workspace}. Return it to the platform after the CLI exits.',
   'roleTerminal.manualContext': 'This is an interactive terminal session, not a managed Workbench turn. Use native CLI tools; the managed wb bridge is unavailable.',
+  'terminalControl.identityUnknown': 'Unable to verify this terminal process identity. Exit it in the terminal before returning it to the platform.',
+  'terminalControl.stopPending': 'The terminal process has not stopped yet. Its takeover is retained; refresh to check again.',
+  'terminalControl.upgrade': 'Upgrade this Worker to check or stop terminal processes.',
+  'terminalControl.offline': 'Device offline; terminal processes cannot be checked.',
   'capacity.invalid': 'CLI capacity must be an integer from 1 to 64.',
   'capacity.upgrade': 'Upgrade this Worker before changing its CLI capacity.',
   'capacity.full': 'This device has no free CLI slots. Wait for an execution or terminal takeover to finish.',
@@ -35,19 +62,18 @@ Use the current team and capabilities, preserve explicit user assignments, and k
 Help the implementer and originating reviewer settle each finding with changes or supported explanations and re-checks. If they cannot agree, organize evidence or involve the planner; unresolved findings remain open.
 Choose your own tools and methods and resolve blockers for teammates. When a dedicated entry is missing, use terminal access, teammates or tool development and integration to keep advancing; verify the capability and resume the original task. Handle authorized local work directly. Ask only for a concrete missing decision or authority and keep advancing unaffected work. Conclude with implementation, review, actual testing and remaining work.
 Work in this turn's workspace by default. Explicit user authorization for other directories, repositories or devices permits work within that scope; do not ask again. Actual runtime permissions still apply: if restricted, seek the required access or hand off to an execution environment that has it.`,
-  'collaboration.supervisorResponsibility': 'Analyze goals, organize execution and acceptance, complete simple work directly, coordinate complex planning and resolve team blockers.',
+  'collaboration.supervisorResponsibility': 'Analyze goals, coordinate work, move tasks forward and resolve blockers.',
   'collaboration.plannerResponsibility': 'Develop and revise implementation plans for complex tasks; explain plan details, interfaces and tradeoffs and answer teammates’ questions throughout delivery.',
   'collaboration.developerResponsibility': 'Implement code changes and fixes, self-test, hand results to reviewers and testers, and remain the primary owner of subsequent code corrections.',
-  'collaboration.reviewerResponsibility': 'Independently review plans and code in the agreed sequence; discuss findings with the original implementer and planner or supervisor, and confirm fixes or supported rebuttals.',
+  'collaboration.reviewerResponsibility': 'Independently review documents, plans and code; report findings as agreed for this task. Collaborate with an evidenced owner when needed, and recheck changes or explanations when assigned.',
   'collaboration.testerResponsibility': 'Verify the deployed test version through realistic human-like operations, usually with Playwright; report reproducible failures to the original implementer and re-test fixes.',
   'collaboration.plannerInstructions': `Turn complex requirements into an actionable implementation plan: goal, approach, steps and dependencies, relevant interfaces/files, risks and acceptance checks. Inspect enough real context to make decisions and state important unknowns.
 Maintain and revise the plan as work progresses. Answer teammates’ questions about its details and resolve design ambiguities; notify affected implementers, reviewers and the supervisor when decisions change. Provide a clear next action rather than sending them back to rediscover the requirement.`,
   'collaboration.developerInstructions': `Implement the assigned changes using the supervisor's task and the planner's current plan. Inspect the actual workspace, preserve existing work, investigate failures and run focused self-checks. Ask the planner when design details are unclear.
 When ready, actively send the exact version, changed files and checks to the selected reviewers sequentially, then to testing, or request the supervisor to schedule these stages if not already arranged. Do not duplicate an existing review or test request.
 Own follow-up fixes. Discuss each finding with its originating reviewer or tester; fix and request re-check, or send evidence explaining why no change is needed and obtain their confirmation. Ask the planner about design questions and the supervisor about unresolved blockers.`,
-  'collaboration.reviewerInstructions': `Review the current requirements and exact code or plan version independently. Work sequentially with the other selected reviewers rather than opening competing edits; start your own analysis before comparing prior conclusions.
-For each material finding provide its location, trigger, impact and evidence. Send it to the original implementer and notify the planner or supervisor. Discuss whether a change is necessary; verify the new version after a fix, or examine the implementer's explanation and explicitly confirm or reject it. Keep unresolved findings visible and ask the supervisor to coordinate when needed.
-Return the agreed findings, review conclusion, evidence and unverified areas. A review is not a substitute for deployed-version testing.`,
+  'collaboration.reviewerInstructions': `Review the assigned task and specified version independently; return findings with locations, evidence and impact.
+During independent review, submit your own conclusions first; the requester organizes discussion after collecting them. Consult suitable peers freely when facts need clarification. Establish authorship or implementation ownership from task records rather than role names. Follow up fixes and verification only when this task includes modification or re-review.`,
   'collaboration.testerInstructions': `Test the delivered work against the original requirements. First verify that the intended version is deployed and reachable in the authorized test environment; prepare that environment when authorized or request deployment from the implementer or supervisor.
 For web flows, normally use Playwright to simulate real human navigation, clicks, input and confirmation. Cover the main path and relevant error and boundary cases; check the observable result rather than only a script exit code.
 Send failures, reproduction steps, expected/actual behavior, version and evidence to the original implementer. Discuss disputed results, involve the planner when expected behavior is unclear, and re-test fixes. Report what actually passed and what was not tested, distinguishing test data from real business writes.`,
@@ -306,6 +332,7 @@ mode is parallel or serial; purpose is plan/audit/develop/test/merge/migration/d
 Default reviews are sequential, one reviewer per serial stage; parallel independent reviews require an explicit user request. Development in different repositories may run in parallel, with writeRepositories listing the repository keys; parallel development in the same module must be followed by a single-member merge stage and testing. Planning, development and testing occupy separate stages; database migration, deployment and production operations run serially and exclusively.
 The platform advances automatically after each stage completes. The failurePolicy interface defaults to stop: if a dependent step fails, it stops. When organizing several roles to independently review the same input read-only, put them in their own batch and explicitly choose failurePolicy:"collect_reviews"; do not mix them with later modification steps. This mode is limited to all members having purpose=audit and no writeRepositories: once the run is confirmed to have ended, a temporary service error (such as 503 or a clear network connection error) is saved as the original error and the next member continues, with no automatic retry; output that exceeds the limit is separately recorded as "Incomplete result", the gap is likewise kept and the independent reviews continue, and it must not be treated as a temporary service fault or as review approval. Explicitly negative opinions are also collected and the run continues. Permission/login problems, unknown errors, user cancellation, waiting for a user answer, version anomalies, or an unclear process state still stop it, and you must not switch models or work around them on your own. When a tester/planner role reviews a design read-only, that also uses audit; actually running tests, editing documents, developing, merging, or deploying must be scheduled in a separate strict plan and must not be mixed into collect_reviews.
 An independent review reads only the shared input and does not treat other reviews' results as a prerequisite for passing. After collecting the successes, negatives, and gaps, summarize first, then schedule modifications separately based on valid findings; missing reviews are not approval. Preserve the user's original requirements and restrictions in every stage. Isolated or cross-device Git delivery needs authorized commits and the existing delivery approval; uncommitted files do not transfer automatically. If the user forbids committing, do not request a commit or wb deliver: keep an already supported same-device serial shared-workspace flow, or report the delivery prerequisite instead of changing the user's restriction.
+When assigning independent reviews, state that reviewers return their own findings before you organize the collected discussion. Allow factual clarification as needed; do not infer authorship from role names or turn review into implementation rework by default.
 After a successful submission, end the current turn immediately; the platform has registered the wait and will automatically wake you to summarize when all stages finish. Do not poll, do not call again, and do not run an extra wb wait. Attachments are passed along with the schedule. Parallelism is limited by device capacity.
 The platform may fall back to same-device serial execution because of a dirty directory or a non-Git directory, and a cross-device version mismatch will block; you must report this truthfully. To call other roles, do not use @ in group-chat text in place of the wb tools.`,
   'executionPlans.onlyProjectSupervisorCanApprove': 'Only the project supervisor can approve an execution schedule',
@@ -563,6 +590,25 @@ Execution purpose: {purpose}. {p4}{p5}`,
   'hosting.projectGitCredentialInvalidPlatform': 'The project Git credential is invalid or the platform does not match',
   'hosting.invalidGitAccount': 'Invalid Git account',
   // src/message-progress.mjs
+  'executionProgress.label.queued': 'Pending execution',
+  'executionProgress.label.running': 'In progress',
+  'executionProgress.label.waiting': 'Waiting',
+  'executionProgress.label.completed': 'Completed',
+  'executionProgress.label.stopped': 'Stopped',
+  'executionProgress.label.error': 'Execution error',
+  'executionProgress.queued': 'Waiting to be scheduled',
+  'executionProgress.worker_received': 'CLI starting',
+  'executionProgress.running': 'CLI running',
+  'executionProgress.waiting_reply': 'Waiting for the current question or other roles to reply',
+  'executionProgress.waiting_dependencies': 'Waiting on prior steps',
+  'executionProgress.waiting_files': 'Waiting for file delivery',
+  'executionProgress.waiting_device': 'Waiting for the device to connect; the original run is not redispatched',
+  'executionProgress.waiting_user': 'Waiting for user confirmation',
+  'executionProgress.reconciling': 'Execution state needs reconciling',
+  'executionProgress.stopping': 'Waiting for stop confirmation',
+  'executionProgress.cancelled': 'This round was stopped',
+  'executionProgress.no_response': 'Run ended without a reply; verify the original run',
+  'executionProgress.failed': 'Execution or delivery did not complete; see the logs',
   'messageProgress.cancelled': 'Cancelled',
   'messageProgress.historicalResultNoLongerResumed': 'Historical result; no longer resumed',
   'messageProgress.runEndedBusinessConclusionNot': 'Run ended; business conclusion not passed',
@@ -825,7 +871,6 @@ Partial output (not a delivery): {p3}`,
   'roleCalls.targetRoleHasNoRepository': 'The target role has no repository directory',
   'roleCalls.sourceCallDoesNotBelong': 'The source call does not belong to this project',
   'roleCalls.sourceCallHasEndedBeen': 'The source call has ended, been cancelled, or the user has changed direction',
-  'roleCalls.discussionHasAlreadyUsedThree': 'This discussion has already used three consultation rounds; summarize the existing results and hand any remaining questions to the supervisor or the user',
   'roleCalls.userHasChangedDirectionOld': 'The user has changed direction; the old call chain cannot dispatch further',
   'roleCalls.collaborationCallsExceed4Levels': 'Collaboration calls exceed 4 levels; hand it back to the planner role',
   'roleCalls.rejectedRoleLoopInActive': 'Rejected a role loop in the active call chain',
@@ -1120,6 +1165,7 @@ Attachments: {p1} (the body does not include the attachments' full text)`,
   'runReports.businessReportNotRecordedDiscussion': 'Business report not recorded: a discussion is in progress or a question is awaiting an answer. Finish after reply/resolve as this turn requires; a waiting business turn simply ends; information needed from the user is left to the original business continuation turn to report.',
   'runReports.verdictMustBePassedFailed': 'verdict must be passed/failed/blocked/needs_input',
   'runReports.reportSummaryMustBe1': 'Report summary must be 1-3000 characters',
+  'runReports.placeholderNotEvidence': 'A report needs an actual conclusion and evidence, not test/TODO placeholders. Use wb help to inspect the format without submitting a business verdict.',
   'runReports.verificationEvidenceAllowsAtMost': 'Verification evidence allows at most 20 items of up to 1500 characters each',
   'runReports.passedVerdictMustIncludeActual': 'A passed verdict must include actual verification evidence; use blocked if it cannot be verified',
   'runReports.nextStepMustBeAt': 'Next step must be at most 1000 characters',
@@ -1132,7 +1178,7 @@ Memory/docs as needed: wb memory search, wb docs read; do not read all history e
 Consult with wb call --role ROLE --kind consult --request-id STABLE_ID --text DESCRIPTION; a same-project cross-device call is also delivered directly, with no supervisor relay needed. Ask one clear question at a time, attach the necessary background, file versions, and the expected answer; retry the same question with the same ID.
 Output your own analysis as a normal reply; put a targeted question in the text of the communication tool selected for this turn, and the platform separately shows the question record "sender role → @recipient role" and its linked reply. When discuss is open, prefer ask for clarifying the current task's rules; call is for independent analysis/review/output, or for targets that do not have discuss open. Do not copy a whole analysis into a consultation, and do not send the same group-chat note repeatedly.
 When you need several opinions, first wb call each of them, then wb wait with a short resume note and end the turn; the platform returns to the original session once the results are collected. Do not poll, sleep, or send keep-alive messages; the execution slot and the five-minute idle keep-alive are managed by the Worker.
-When consulted, give your conclusion and the necessary evidence directly; do not modify files by default, and do not call the asker back to hand over the answer. When a business task truly needs clarification from the upstream role that is waiting for you, follow the discuss protocol actually open this turn; if it is not open, you cannot get around the dependency check with a reverse call. Follow up only on unresolved questions, at most three rounds; end once resolved, and do not send acknowledgement/thank-you exchanges. An @ in group-chat text does not trigger dispatch.
+When consulted, give your conclusion and the necessary evidence directly; do not modify files by default, and do not call the asker back to hand over the answer. When a business task truly needs clarification from the upstream role that is waiting for you, follow the discuss protocol actually open this turn; if it is not open, you cannot get around the dependency check with a reverse call. Follow up only on unresolved questions within the platform's current collaboration budget; report outstanding items when it is exhausted. End once resolved, and do not send acknowledgement/thank-you exchanges. An @ in group-chat text does not trigger dispatch.
 When configuration is wrong or a call is rejected, report the blocker; do not bypass wb to curl the Home Agent interface directly. Use source IDs for long reports so they can be read on demand.
 The Worker records handoffs automatically, so there is no need to mechanically run wb boot and wb handoff; a detailed handoff can still use wb handoff.{p1}`,
   // src/runtime-probe.mjs
@@ -1448,7 +1494,13 @@ wb handoff last      Read the most recent handoff
 Handoff example:
   wb handoff --done "Fixed login validation" --next "@reviewer check the diff" --verify "Local curl passed"
 
-The Worker fills in handoffs automatically. Before a new run ends you must submit a real business conclusion with wb report; a turn that is waiting on child calls does not need to report a pass early.`,
+Ask the user for clarification or a decision (ordinary task turns):
+  wb report '{"verdict":"needs_input","summary":"Should this task use option A or option B?","next":"Continue the current task after the user chooses."}'
+Replace the example with the actual question, necessary context and options. After submitting, end the turn and wait for the user rather than guessing a decision. The user can quote this result and reply to the original role on the project page; when WeChat is enabled, the platform notifies, receives the reply and resumes. Delivery success or pending is not a user answer.
+Discussion-only turns (clarification / answer_resume), and turns already waiting on a discussion, do not accept business reports. Include questions for the user in the discussion reply or conclusion and return them to the original business task to ask. Do not use needs_input instead of a discussion reply in these turns.
+wb wait waits for peer requests, not for the user. Native permission approvals and configuration/delivery confirmations keep their own entry points; needs_input grants no permission. An @ in text and wb note only communicate text, not dispatch work.
+
+The Worker fills in handoffs automatically. Before an ordinary task ends, submit a real business conclusion with wb report; turns waiting for child calls or handling discussions need not report passed early.`,
   // src/wechat-channel.mjs
   'wechatChannel.invalidWechatClientName': 'Invalid WeChat client name',
   'wechatChannel.invalidWechatClientConfiguration': 'Invalid WeChat client configuration',
@@ -1632,4 +1684,12 @@ wb stands for this full prefix; every call uses this turn's prefix, and historic
   'minimal.waitTimeout': 'A dependency wait timed out; the original requests remain active: {requestIds}. No teammate was cancelled or rerun. Continue independent work or wait on these same requests again. Prior task state: {resumeSummary}\n',
   'minimal.dependencyEvent': 'Current state of this task\'s original dependencies at execution admission: {events}',
   'minimal.externalRepositories': 'This turn also has repository mappings outside cwd: {repositories}. Use only the targets authorized for this task.',
+  'cliRecovery.identityUnknown': 'Process identity is not verified; checking continues and forced shutdown is unavailable.',
+  'cliRecovery.stopPending': 'Waiting for the verified old CLI and its tools to exit.',
+  'cliRecovery.bindingChanged': 'The pending task or native session changed. Refresh its state.',
+  'cliRecovery.processChanged': 'The old CLI process changed; check the current process before confirming again.',
+  'cliRecovery.oldProcessExited': 'The original CLI process exited; session history is preserved.',
+  'cliRecovery.oldProcessStopped': 'The verified old CLI was stopped; session history is preserved.',
+  'cliRecovery.waiting': 'Waiting for the original CLI; stop it and continue only after confirmation.',
+  'cliRecovery.checking': 'Checking original CLI session occupancy.',
 });

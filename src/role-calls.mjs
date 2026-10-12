@@ -68,7 +68,7 @@ export class RoleCalls {
       }
       let ancestor = normalized.parentRequestId ? this.db.get('coordinationRequests', normalized.parentRequestId) : null;
       if (ancestor && (callTerminal.has(ancestor.status) || ancestor.steeringTaskId)) throw new Error(tr('roleCalls.sourceCallHasEndedBeen'));
-      if(input.kind==='consult' && (ancestor?.consultRound||0)>=3)throw new Error(tr('roleCalls.discussionHasAlreadyUsedThree'));
+      // Schedule completion and different reviewers also cause continuations; bound actual calls with the root budget and cycle checks, not wake-up count.
       let depth = 0, rootRequestId = ancestor?.rootRequestId || ancestor?.id || normalized.id;
       while (ancestor) {
         if(ancestor.steeringTaskId)throw new Error(tr('roleCalls.userHasChangedDirectionOld'));
@@ -191,8 +191,10 @@ export class RoleCalls {
     if (!r || (r.currentRunId && r.currentRunId !== runId) || r.status === 'cancelled') return;
     if (!callTerminal.has(r.status) && (r.status !== 'waiting_call' || run.status !== 'succeeded')) {
       const outcome=outcomeFor(this.db,run), report=this.db.get('runReports',run.id);
-      r = this.db.put('coordinationRequests', { ...r, outcome,runStatus:run.status,failureKind:runFailureKind(run),reportSummary:report?.summary||null,error:run.status==='succeeded'?null:run.error||null,
-        status: run.status === 'succeeded' && !['failed','blocked','needs_input'].includes(outcome) ? 'succeeded' : 'failed',
+      // A negative review is a delivered answer. Only execution or missing-response errors fail a call.
+      const missingReply=run.status==='succeeded'&&r.kind==='consult'&&![run.result,report?.summary].some(text=>typeof text==='string'&&text.trim());
+      r = this.db.put('coordinationRequests', { ...r, outcome,runStatus:run.status,failureKind:missingReply?'incomplete_output':runFailureKind(run),reportSummary:report?.summary||null,error:missingReply?tr('messageProgress.runEndedWithoutReply'):run.status==='succeeded'?null:run.error||null,
+        status: run.status === 'succeeded' && !missingReply ? 'succeeded' : 'failed',
         result: run.result || run.error || '', updatedAt: new Date().toISOString() });
     }
     this.resume(r.id);

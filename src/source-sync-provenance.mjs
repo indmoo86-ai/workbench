@@ -1,6 +1,7 @@
 import {resolve,relative,isAbsolute} from 'node:path';
 import {contentHash,validateSourcePath} from './source-sync-manifest.mjs';
-import {captureSourceSnapshot,readSourceFile,readSourceBlob,saveSourceBlob} from './source-sync-files.mjs';
+import {captureSourceSnapshot,captureDirectorySnapshot,readSourceFile,readSourceBlob,saveSourceBlob} from './source-sync-files.mjs';
+import {sourceScopeBinding} from './source-sync-scopes.mjs';
 
 const hash=bytes=>bytes===null?null:contentHash(bytes);
 const input=item=>{try{return typeof item.input==='string'?JSON.parse(item.input):item.input||item.arguments||{};}catch{return {};}};
@@ -52,7 +53,7 @@ function expectedBytes(candidate,before) {
 export function recordSourceWrite({db,run,repository,event,before,after,observation}) {
   const item=event.payload?.item||event.item||{},path=observation?.path;
   let candidate;
-  try{validateSourcePath(path);candidate=sourceWriteCandidates(item).find(c=>relative(repository.localRoot,resolve(run.workspace,c.path))===path);}catch{}
+  try{validateSourcePath(path,repository.scopePolicy);candidate=sourceWriteCandidates(item).find(c=>relative(repository.localRoot,resolve(run.workspace,c.path))===path);}catch{}
   const beforeBytes=observation?.beforeBytes,afterBytes=observation?.afterBytes;
   const predicted=candidate&&beforeBytes!==undefined?expectedBytes(candidate,beforeBytes):undefined;
   const verified=item.status==='completed'&&!item.is_error&&candidate&&observation?.stable&&!observation.overlap
@@ -60,14 +61,14 @@ export function recordSourceWrite({db,run,repository,event,before,after,observat
     &&predicted!==undefined&&hash(predicted)===hash(afterBytes);
   if(!verified)return {certainty:'unknown',roleId:null,candidates:run.roleId?[run.roleId]:[]};
   const id=contentHash(JSON.stringify([run.id,item.id||event.id,repository.id,path,hash(beforeBytes),hash(afterBytes)]));
-  return db.put('sourceSyncProvenance',{id,projectId:run.projectId,repositoryId:repository.id,path,roleId:run.roleId,runId:run.id,
+  return db.put('sourceSyncProvenance',{id,projectId:run.projectId,repositoryId:repository.id,root:repository.localRoot,path,roleId:run.roleId,runId:run.id,
     nodeId:run.nodeId,roleSessionId:run.roleSessionId||null,beforeHash:hash(beforeBytes),afterHash:hash(afterBytes),certainty:'attributed',
     evidenceId:event.id||item.id,method:candidate.change?'verified_patch':'verified_tool_content'});
 }
 
 /** Conflicting evidence stays explicit; neither timestamps nor the most recent active role break ties. */
-export function attributeSourceChange({records,repositoryId,path,afterHash,nodeId,sourceRunId}) {
-  const found=records.filter(r=>r.repositoryId===repositoryId&&r.path===path&&r.afterHash===afterHash&&r.certainty==='attributed'&&(!nodeId||r.nodeId===nodeId)&&(!sourceRunId||r.runId===sourceRunId));
+export function attributeSourceChange({records,repositoryId,path,afterHash,nodeId,sourceRunId,root}) {
+  const found=records.filter(r=>r.repositoryId===repositoryId&&r.path===path&&r.afterHash===afterHash&&r.certainty==='attributed'&&(!nodeId||r.nodeId===nodeId)&&(!sourceRunId||r.runId===sourceRunId)&&(!root||r.root===root));
   const candidates=[...new Set(found.map(r=>r.roleId))];
   return candidates.length===1?{certainty:'attributed',roleId:candidates[0],runId:found.at(-1).runId,candidates,evidenceIds:found.map(r=>r.id)}
     :{certainty:'unknown',roleId:null,runId:null,candidates,evidenceIds:found.map(r=>r.id)};
@@ -76,12 +77,12 @@ export function attributeSourceChange({records,repositoryId,path,afterHash,nodeI
 /** Capture enabled Run preimages and serialize proof reads per tool without pretending to observe external shells. */
 export class SourceProvenanceTracker {
   constructor({db,run,repositories,blobRoot,publish}){Object.assign(this,{db,run,repositories,blobRoot,publish});this.states=new Map();this.tools=new Map();this.epochs=new Map();this.pending=new Set();}
-  async start(){for(const repo of this.repositories){try{const snapshot=await captureSourceSnapshot({root:repo.localRoot,repositoryId:repo.id,blobRoot:this.blobRoot});this.states.set(repo.id,snapshot.entries);}catch{this.states.set(repo.id,null);}}}
+  async start(){for(const repo of this.repositories){try{const capture=repo.scopeKind==='directory'?captureDirectorySnapshot:captureSourceSnapshot;const snapshot=await capture({root:repo.localRoot,repositoryId:repo.id,scopePolicy:repo.scopePolicy,blobRoot:this.blobRoot});this.states.set(repo.id,snapshot.entries);}catch{this.states.set(repo.id,null);}}}
   observe(event){
     const update=event.payload?.item;if(!update)return;const id=update.id||update.tool_use_id;if(!id)return;
     const item={...this.tools.get(id),...update};this.tools.set(id,item);
     for(const candidate of sourceWriteCandidates(item)){
-      const absolute=resolve(this.run.workspace,candidate.path),repo=this.repositories.find(r=>{const p=relative(r.localRoot,absolute);return p&&!p.startsWith('../')&&!isAbsolute(p);});if(!repo)continue;
+      const absolute=resolve(this.run.workspace,candidate.path),repo=this.repositories.find(r=>{const p=relative(r.localRoot,absolute);try{validateSourcePath(p,r.scopePolicy);return p&&!p.startsWith('../')&&!isAbsolute(p);}catch{return false;}});if(!repo)continue;
       const path=relative(repo.localRoot,absolute),key=`${repo.id}:${path}`,epoch=(this.epochs.get(key)||0)+1;this.epochs.set(key,epoch);
       if(item.status!=='completed'||item.is_error||!this.states.get(repo.id))continue;
       const task=this.capture({event:{...event,payload:{...event.payload,item}},repo,path,key,epoch}).catch(()=>{}).finally(()=>this.pending.delete(task));this.pending.add(task);
@@ -90,7 +91,7 @@ export class SourceProvenanceTracker {
   async capture({event,repo,path,key,epoch}){
     const state=this.states.get(repo.id),before=Object.hasOwn(state,path)?state[path]:null;
     const beforeBytes=before?await readSourceBlob(this.blobRoot,before.hash):null;
-    const captured=await readSourceFile(repo.localRoot,path);
+    const captured=await readSourceFile(repo.localRoot,path,repo.scopePolicy);
     if(captured.bytes)await saveSourceBlob(this.blobRoot,captured.bytes);
     const proof=recordSourceWrite({db:this.db,run:this.run,repository:repo,event,before,after:captured.entry,observation:{path,beforeBytes,afterBytes:captured.bytes,stable:true,overlap:this.epochs.get(key)!==epoch}});
     state[path]=captured.entry;
@@ -101,9 +102,10 @@ export class SourceProvenanceTracker {
 
 /** Home accepts the original Run's identity, not a role ID supplied by model prose or a later reader. */
 export function acceptSourceProvenance(db,run,proof) {
-  const repo=run.repositories?.find(r=>r.id===proof.repositoryId);
+  const config=db.get('sourceSyncConfigs',run.projectId),scope=config?.scopeKind==='directory'&&config.bindings?.find(b=>b.repositoryId===proof.repositoryId&&b.nodeId===run.nodeId&&b.root===proof.root&&sourceScopeBinding(db,run.projectId,b.repositoryId,b.nodeId)?.localRoot===b.root);
+  const repo=scope||run.repositories?.find(r=>r.id===proof.repositoryId);
   if(!repo||proof.projectId!==run.projectId||proof.runId!==run.id||proof.nodeId!==run.nodeId||proof.roleId!==run.roleId||proof.certainty!=='attributed')return false;
-  try{validateSourcePath(proof.path);}catch{return false;}
+  try{validateSourcePath(proof.path,scope?.scopePolicy);}catch{return false;}
   if(!/^[a-f0-9]{64}$/.test(proof.id)||[proof.beforeHash,proof.afterHash].some(h=>h!==null&&!/^[a-f0-9]{64}$/.test(h||'')))return false;
   db.put('sourceSyncProvenance',proof);return true;
 }

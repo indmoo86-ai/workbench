@@ -1,13 +1,13 @@
 import { t } from './i18n.js';
 import {createRoleSwitchUI} from './role-switch.js';
 import {createRoleHistoryTabs} from './role-history.js';
-/** The supervisor device is the single routing setting; saving it also updates the fixed project supervisor. */
-export function supervisorSettings({ api, getData, getProject, refreshState, create }) {
+/** 总管详情使用原有配置接口，页面调整不改变项目接待角色和会话绑定。 */
+export function supervisorSettings({ api, getData, getProject, refreshState, create, openTask }) {
   const form = document.querySelector('#supervisor-form');
   const host=form.parentElement,settings=create('div','supervisor-configuration');settings.id='supervisor-settings-body';
-  for(const child of [...host.children])if(child.tagName!=='H3')settings.append(child);
+  for(const child of [...host.children])if(!child.classList.contains('dialog-heading'))settings.append(child);
   host.append(settings);
-  const history=createRoleHistoryTabs({host,settings,getData,getRole:()=>getData().supervisorRoles?.find(r=>r.id===getProject()?.supervisorRoleId),api,refreshState,create,formatTime:value=>new Date(value).toLocaleString()});
+  const history=createRoleHistoryTabs({host,settings,getData,getRole:()=>getData().supervisorRoles?.find(r=>r.id===getProject()?.supervisorRoleId),api,refreshState,create,formatTime:value=>new Date(value).toLocaleString(),openTask});
   const cliSwitch=createRoleSwitchUI({api,refreshState});
   const feedback = document.querySelector('#supervisor-feedback');
   let projectId, revision = 0, busy = false;
@@ -51,24 +51,30 @@ export function supervisorSettings({ api, getData, getProject, refreshState, cre
   function prepare() {
     if (busy) return;
     const p = getProject(), data = getData(); projectId = p?.id;
-    document.querySelector('#supervisor-settings').hidden = !p;
     if (!p) return;
-    document.querySelector('#supervisor-responsibility').textContent = t('Built-in responsibility: {responsibility}', {
-      responsibility: data.supervisorRoles?.find(r => r.id === p.supervisorRoleId)?.responsibility || ''
-    });
-    document.querySelector('#project-supervisor-prompt-preview').textContent = data.settings?.supervisorPrompt ?? data.promptDefaults?.supervisorPrompt ?? '';
+    const role=data.supervisorRoles?.find(r=>r.id===p.supervisorRoleId);
+    form.elements.name.value=role?.name||t('Supervisor@@roleCard');
+    form.elements.responsibility.value=role?.responsibility||'';
+    document.querySelector('#project-supervisor-prompt-preview').value = data.settings?.supervisorPrompt ?? data.promptDefaults?.supervisorPrompt ?? '';
     selectOptions(form.elements.nodeId, data.workers.map(w => ({ id: w.id, name: `${w.name} · ${w.online ? t('Online') : t('Offline')}` })), p.supervisorNodeId, 'Select supervisor device');
     form.elements.nodeId.disabled = false;
     form.elements.enabled.disabled = !!p.supervisorRoleId;
     nodeChanged();
     feedback.hidden = true;
     history.refresh();
-    const role=data.supervisorRoles?.find(r=>r.id===p.supervisorRoleId);
+  }
+  function open() {
+    if(busy||!getProject())return;
+    prepare();history.reset();host.showModal();form.elements.nodeId.focus();
+    const data=getData(),role=data.supervisorRoles?.find(r=>r.id===getProject()?.supervisorRoleId);
     if(role){const pending=cliSwitch.resume({projectId,role,host:form,operation:data.roleSwitches?.find(op=>op.roleId===role.id&&!['committed','cancelled'].includes(op.status))});if(pending){busy=true;void pending.catch(error=>{feedback.textContent=error.message;feedback.hidden=false;}).finally(()=>{busy=false;});}}
   }
+  document.querySelector('#close-supervisor-dialog').addEventListener('click',()=>{if(!busy)host.close();else void cliSwitch.cancel();});
+  host.addEventListener('cancel',event=>{if(busy){event.preventDefault();void cliSwitch.cancel();}});
   form.elements.nodeId.addEventListener('change', nodeChanged);
   form.elements.runtime.addEventListener('change', () => models());
   form.elements.model.addEventListener('change', () => efforts(form.elements.effort.value));
+  form.addEventListener('input', () => { feedback.hidden = true; });
   form.addEventListener('submit', async e => {
     e.preventDefault(); if (busy || !projectId) return;
     const id = projectId, fields = Object.fromEntries(new FormData(form));
@@ -90,5 +96,5 @@ export function supervisorSettings({ api, getData, getProject, refreshState, cre
     } catch (error) { feedback.textContent = error.message; feedback.hidden = false; }
     finally { busy = false; form.querySelector('button[type=submit]').disabled = false; }
   });
-  return { prepare };
+  return { open, refresh:()=>{if(host.open){document.querySelector('#project-supervisor-prompt-preview').value=getData().settings?.supervisorPrompt??getData().promptDefaults?.supervisorPrompt??'';history.refresh();}} };
 }

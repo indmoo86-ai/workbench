@@ -1,3 +1,5 @@
+import {executionProgress} from './execution-progress.js';
+
 /** Hiding applies to the current version only; the dock reappears when the same plan resumes or has new results. */
 export function planDismissKey(plan) {
   return JSON.stringify([plan.id, plan.status, plan.updatedAt || plan.createdAt || '']);
@@ -5,15 +7,23 @@ export function planDismissKey(plan) {
 
 /** A step that never actually started is not reported as a failed run; the CLI final state and the report verdict are shown separately. */
 export function planMemberLabel(request, run, task) {
-  if(!request)return 'Not started';
-  if(request.notExecutedReason || (!request.currentRunId&&request.status==='failed'))return 'Not executed';
-  if(run?.status==='failed')return 'Execution failed';
-  if(run?.status==='interrupted'||request.status==='cancelled')return 'Cancelled';
-  if(run?.status==='succeeded') {
-    const verdict=request.outcome||run.report?.verdict;
-    return {passed:'Done',failed:'Verdict: not passed',blocked:'Verdict: blocked',needs_input:'Awaiting answer',unverified:'No verdict'}[verdict]||'To verify';
+  return executionProgress({request,run,task}).label;
+}
+
+/** A scheduler stage can be open while every member is still queued; display execution evidence, not that lifecycle flag. */
+export function planStageActivity(stage, requests=[], runs=[], tasks=[]) {
+  const current=(stage?.members||[]).map(member=>{
+    let request=requests.find(r=>r.id===member.requestId);
+    for(let i=0;request?.continuationRequestId&&i<20;i++)request=requests.find(r=>r.id===request.continuationRequestId);
+    return {request,run:runs.find(r=>r.id===request?.currentRunId),task:tasks.find(t=>t.id===request?.taskId)};
+  });
+  const progress=current.map(executionProgress);
+  for(const state of ['running','waiting','queued','error','stopped','completed']) {
+    const p=progress.find(item=>item.state===state);
+    if(p)return {state:p.state,label:p.label,reason:p.reason||p.detail};
   }
-  return task?.waitingReason||({succeeded:'Done',running:'Running',queued:'Queued',waiting_dependencies:'Waiting on prior steps',failed:'Failed'}[request.status]||'Waiting');
+  const p=executionProgress({task:{status:{succeeded:'completed',cancelled:'cancelled',failed:'blocked'}[stage?.status]||'ready'}});
+  return {state:p.state,label:p.label,reason:stage?.error||''};
 }
 
 /** Show only the latest plan round created for the project; closing does not fall back to older rounds, and progress is still derived from call state. */
@@ -51,6 +61,6 @@ export function planDockState(plans, requests, projectId, dismissedKeys = []) {
   const total = stages.reduce((count, stage) => count + (stage.members || []).length, 0);
   const completed = stages.reduce((count, stage) => count + (stage.status === 'succeeded'
     ? (stage.members || []).length : (stage.members || []).filter(member => completedRequest(member.requestId)).length), 0);
-  const currentStage = current.status==='completed_with_issues'?'Reviews collected; some failed or missing':stages.find(stage => stage.status !== 'succeeded' && !(current.failurePolicy==='collect_reviews'&&stage.status==='failed'))?.title || (current.status === 'succeeded' ? 'All done' : 'Waiting to advance');
+  const currentStage = current.status==='completed_with_issues'?'Reviews collected; see replies and reports':stages.find(stage => stage.status !== 'succeeded' && !(current.failurePolicy==='collect_reviews'&&stage.status==='failed'))?.title || (current.status === 'succeeded' ? 'All done' : 'Waiting to advance');
   return { current, plans: dated, dismissible, completed, total, currentStage };
 }

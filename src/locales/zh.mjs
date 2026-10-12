@@ -1,6 +1,29 @@
 // Simplified Chinese message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'followup.configChanged': '主动跟进设置已变更，请刷新后再保存。',
+  'followup.noSupervisor': '等待可用且已启用的项目总管。',
+  'followup.waitingSilence': '等待达到更新后的静默时长。',
+  'followup.bindingChanged': '已核验的 CLI／设备绑定与当前角色不一致，请先核对角色切换状态。',
+  'followup.context': '平台触发与当前任务事实（不构成用户新增授权）：{context}。以下消息摘录仅作背景，可通过 wb history read 查看原文、wb result read 查看关联请求。',
+  'followup.event': '【Workbench 平台事件】项目群聊已静默约 {minutes} 分钟。请结合近期对话和当前任务，判断是否需要继续协同或帮助用户推进；有需要就按原授权处理，没有需要可以保持沉默。本次跟进仅记后台，需要公开消息时使用 wb note；用户确认和审批仍用已有入口。静默不代表用户同意，也不代表活动任务失败。',
+  'followup.invalidConfig': '主动跟进开关须为布尔值，静默时间须为 1 至 10080 的整数分钟。',
+  'roleTemplates.planner': '计划',
+  'roleTemplates.plannerResponsibility': '制定和维护开发计划，解答方案问题。',
+  'roleTemplates.developer': '执行',
+  'roleTemplates.developerResponsibility': '实现和修复代码，完成自测。',
+  'roleTemplates.reviewer': '审核',
+  'roleTemplates.reviewerResponsibility': '独立审核文档、方案和代码，反馈问题与建议。',
+  'roleTemplates.tester': '测试',
+  'roleTemplates.testerResponsibility': '验证功能和用户流程，反馈可复现的问题。',
+  'roleTemplates.architect': '架构设计',
+  'roleTemplates.architectResponsibility': '设计系统架构、接口和数据流。',
+  'roleTemplates.debugger': '故障排查',
+  'roleTemplates.debuggerResponsibility': '定位故障根因，提出或实施修复。',
+  'roleTemplates.deployer': '构建部署',
+  'roleTemplates.deployerResponsibility': '构建和部署指定版本，核验服务状态。',
+  'roleTemplates.documenter': '文档维护',
+  'roleTemplates.documenterResponsibility': '编写和维护项目文档、示例与交接资料。',
   "sourceSync.failure": "源代码同步：{code} {detail}",
   "sourceSync.systemName": "源代码同步",
   "sourceSync.continuedReceipt": "继续使用同一任务拥有的工作目录，原先已核对的源码输入为：{versions}。你上一轮的修改保留，不会被初始快照覆盖。请重读当前文件；这份回执不表示修改后的产物仍等于初始输入。",
@@ -17,6 +40,10 @@ export default Object.freeze({
   'roleTerminal.pending': '这个终端请求仍在准备或需要释放，请重试同一请求，或将其归还平台。',
   'roleTerminal.startingNew': '正在 {workspace} 打开新的 CLI 会话，CLI 退出后请归还平台。',
   'roleTerminal.manualContext': '这是交互式终端会话，不是工作台托管执行。使用原生 CLI 工具，当前没有托管 wb 桥接。',
+  'terminalControl.identityUnknown': '无法确认此终端进程的身份。请先在终端退出，再归还平台。',
+  'terminalControl.stopPending': '终端进程尚未停止，接管仍然保留；请刷新后再次核对。',
+  'terminalControl.upgrade': '请升级这台设备的 Worker，以核对或停止终端进程。',
+  'terminalControl.offline': '设备离线，无法核对终端进程。',
   'capacity.invalid': 'CLI 最大运行数必须是 1 到 64 的整数。',
   'capacity.upgrade': '请先升级这台设备的 Worker，再修改 CLI 最大运行数。',
   'capacity.full': '这台设备没有空闲 CLI 名额，请等待执行或终端接管结束。',
@@ -35,19 +62,18 @@ export default Object.freeze({
 推动实现者与原审核者逐项确认修改或不修改的理由，修复后复核。无法达成一致时组织补证或请计划角色澄清，未解决的问题保持开放。
 自主选择工具和实施方法，负责解决其他角色的阻塞。缺少专用入口时，利用终端、同伴或开发接入工具继续推进，验证后续接原任务；本机已授权工作可以直接完成。确需用户决策或新增权限时说明具体缺口，其余工作继续推进。最终汇总实现、审核、真实测试和剩余事项。
 默认在本轮工作区内操作；用户明确授权其他目录、仓库或设备后，按授权范围操作，不重复询问。实际运行权限仍生效，受限时争取所需权限或交给具备权限的执行环境。`,
-  'collaboration.supervisorResponsibility': '分析目标、组织执行与验收，直接处理简单工作，协调复杂规划并解决团队阻塞。',
+  'collaboration.supervisorResponsibility': '分析目标、协调分工，推进任务并处理阻塞。',
   'collaboration.plannerResponsibility': '负责复杂任务的开发计划和实施方案，持续修订方案、解释细节与接口，回答其他角色的计划问题。',
   'collaboration.developerResponsibility': '负责代码实现、修复和自测，交接审核与测试，持续承担原实现内容的后续返工。',
-  'collaboration.reviewerResponsibility': '按约定顺序独立审核方案与代码，与原实现者、计划或总管核对问题，复核修改或无需修改的理由。',
+  'collaboration.reviewerResponsibility': '独立审核文档、方案和代码，按本轮约定反馈问题；按需与有明确关联的负责人协作，受托时复核修改及解释。',
   'collaboration.testerResponsibility': '针对已部署的测试版本模拟真实操作，通常使用 Playwright；向原实现者反馈可复现问题并复测修复。',
   'collaboration.plannerInstructions': `把复杂需求变成可执行方案，说明目标、实施方法、步骤与依赖、相关接口或文件、风险和验收方式。结合必要的真实上下文作判断，标明重要未知项。
 持续维护并修订计划，回答同伴对方案细节的询问，澄清设计歧义。决定改变时通知受影响的执行、审核和总管。给出明确下一步，让执行者能够接着做，不必重新猜需求。`,
   'collaboration.developerInstructions': `依据总管的任务和计划角色的当前方案实施代码修改。核对实际工作区，保留已有改动，定位失败原因并做针对性自测；方案不清楚时直接询问计划角色。
 完成后主动把准确版本、变更文件和验证结果交给选定的审核角色依次审核，再交测试；尚未安排时可请总管组织这些阶段，已有审核或测试请求不重复派发。
 后续问题继续由你负责。与提出问题的审核者或测试者确认必要性，修复后请其复核；认为无需修改时提供证据和解释，并取得对方确认。设计疑问找计划，无法解决的阻塞交总管协调。`,
-  'collaboration.reviewerInstructions': `依据原始要求和准确的代码或方案版本独立审查。与其他选定审核者依次进行，先形成自己的判断，再参考前序意见，避免同时修改同一内容。
-每个重要问题说明位置、触发条件、影响和证据，直接反馈原实现者，并通知计划或总管。双方确认是否需要修改；修复后核对新版本，无需修改时复核实现者的解释，明确接受或指出仍有疑问。未解决问题保持可见，必要时请总管协调。
-返回已达成一致的问题处理结果、审核结论、证据和未覆盖项。审核通过不代替已部署版本的真实测试。`,
+  'collaboration.reviewerInstructions': `依据本轮任务和指定版本独立审核，返回有位置、依据和影响的意见。
+独立审核阶段先提交自己的结论，由发起者收齐后组织讨论；需要澄清事实时可自主咨询合适同伴。联系作者或实现者前依据任务记录确认其身份，不按角色名称推定负责人。只有本轮包含修改或复核时，才跟进修复及其验证。`,
   'collaboration.testerInstructions': `根据原始要求测试交付物。先确认对应版本已经部署到获准的测试环境且可访问；有授权时准备该环境，否则明确请求实现者或总管安排部署。
 页面流程通常使用 Playwright 模拟人的导航、点击、输入和确认，覆盖主路径及相关异常、边界场景，检查实际操作结果，而非只看脚本退出码。
 把失败步骤、预期与实际、版本和证据反馈原实现者。对争议结果共同核对，预期行为不明确时找计划角色确认，修复后复测。报告真实通过项和未测试项，区分测试数据与真实业务写入。`,
@@ -305,6 +331,7 @@ ask 接受后马上结束回合释放容量；已经提交业务报告则结束�
 mode 为 parallel 或 serial；purpose 为 plan/audit/develop/test/merge/migration/deploy/production。顶层 repositories 可列出本次实际需要读写的仓库 key，省略则全部准备；角色权限不改变。每阶段结束必须 wb report 提交业务结论。
 审核默认依次执行，每位审核者一个串行阶段；仅在用户明确要求时安排独立并行审核。不同仓库开发可并行，writeRepositories 填仓库 key；同一模块并行开发必须紧跟一个单人 merge 阶段再测试。计划、开发、测试各占独立阶段；数据库迁移、部署、生产操作只能串行独占。
 阶段完成后平台自动推进。failurePolicy 接口默认 stop，依赖步骤失败就停止。组织多位角色对同一输入独立只读审核时，应单独成批，并显式选择 failurePolicy:"collect_reviews"，不要混入后续修改步骤。此模式仅限全员 purpose=audit 且无 writeRepositories：确认执行已结束后，临时服务错误（如503、明确网络连接错误）保存原始错误并继续下一位，不自动重试；输出超限另记“结果不完整”，同样保留缺失并继续独立审核，不能当作临时服务故障或审核通过。显式否定意见也继续收集。权限/登录问题、未知错误、用户取消、等待用户回答、版本异常或进程状态不明仍停止，不自行换模型或绕过。测试/计划角色只读审查设计也用 audit；真正执行测试、修改文档、开发、合并、部署必须另排严格计划，不得混入 collect_reviews。
+派发独立审核时，明确本轮先提交独立意见，由你收齐后组织讨论；允许按需核实事实，不按角色名称推定作者或把审核默认转为开发返工。
 独立审核只读取共同输入，不把其他审核结果作为必须通过的前提。收齐成功、否定和缺失后先汇总，再按有效意见单独安排修改；不得把缺失审核视为通过。每个阶段都保留用户原始要求与限制。隔离或跨设备 Git 交付需要已授权的提交和原有交付审批，未提交文件不会自动传送。用户禁止提交时，不得要求 commit 或 wb deliver；沿用已支持的同设备串行共享工作区流程，或说明交付前提，不替用户修改限制。
 提交成功后立即结束当前回合，平台已登记等待，全部阶段结束后自动唤醒你汇总。不轮询、不重复调用、不额外 wb wait。附件会沿安排传递。并行受设备容量约束。
 平台可能因脏目录/非 Git 退回同设备串行，跨设备版本不一致会阻塞，必须如实说明。调用其他角色不要用群聊文字 @ 代替 wb 工具。`,
@@ -563,6 +590,25 @@ mode 为 parallel 或 serial；purpose 为 plan/audit/develop/test/merge/migrati
   'hosting.projectGitCredentialInvalidPlatform': '项目 Git 凭据无效或平台不匹配',
   'hosting.invalidGitAccount': 'Git 账号无效',
   // src/message-progress.mjs
+  'executionProgress.label.queued': '待执行',
+  'executionProgress.label.running': '执行中',
+  'executionProgress.label.waiting': '等待中',
+  'executionProgress.label.completed': '已完成',
+  'executionProgress.label.stopped': '已停止',
+  'executionProgress.label.error': '执行异常',
+  'executionProgress.queued': '等待调度',
+  'executionProgress.worker_received': 'CLI 启动中',
+  'executionProgress.running': 'CLI 执行中',
+  'executionProgress.waiting_reply': '等待当前问题处理或其他角色回复',
+  'executionProgress.waiting_dependencies': '等待前序步骤',
+  'executionProgress.waiting_files': '等待文件交付',
+  'executionProgress.waiting_device': '等待设备连接，不重派原执行',
+  'executionProgress.waiting_user': '等待用户确认',
+  'executionProgress.reconciling': '执行状态待核对',
+  'executionProgress.stopping': '等待停止确认',
+  'executionProgress.cancelled': '本轮已停止',
+  'executionProgress.no_response': '执行已结束但没有答复，请核对原执行',
+  'executionProgress.failed': '执行或结果交付未完成，请查看日志',
   'messageProgress.cancelled': '已取消',
   'messageProgress.historicalResultNoLongerResumed': '历史结果，不再续接',
   'messageProgress.runEndedBusinessConclusionNot': '执行已结束，业务结论未通过',
@@ -825,7 +871,6 @@ repository.clone=true 仅在目标不存在时克隆；false 检查已有仓库�
   'roleCalls.targetRoleHasNoRepository': '目标角色缺少仓库目录',
   'roleCalls.sourceCallDoesNotBelong': '来源调用不属于此项目',
   'roleCalls.sourceCallHasEndedBeen': '来源调用已结束、已取消或用户已调整方向',
-  'roleCalls.discussionHasAlreadyUsedThree': '本次讨论已完成三轮咨询，请汇总已有结果；仍有问题交给主管或用户',
   'roleCalls.userHasChangedDirectionOld': '用户已调整方向，旧调用链不能继续派单',
   'roleCalls.collaborationCallsExceed4Levels': '协作调用超过 4 层，请交回计划角色处理',
   'roleCalls.rejectedRoleLoopInActive': '拒绝活动调用链中的角色循环',
@@ -1120,6 +1165,7 @@ repository.clone=true 仅在目标不存在时克隆；false 检查已有仓库�
   'runReports.businessReportNotRecordedDiscussion': '未登记业务报告：当前正在讨论或已发问等待。请按本轮要求 reply/resolve 后结束，等待中的业务回合直接结束；需要用户补充的信息留给原业务续接回合报告。',
   'runReports.verdictMustBePassedFailed': 'verdict 必须为 passed/failed/blocked/needs_input',
   'runReports.reportSummaryMustBe1': '报告摘要需为 1–3000 字',
+  'runReports.placeholderNotEvidence': '报告须填写实际结论与证据，不能提交 test、TODO 等占位内容。查看格式请使用 wb help，不要用业务结论探测接口。',
   'runReports.verificationEvidenceAllowsAtMost': '验证证据最多 20 条，每条 1500 字',
   'runReports.passedVerdictMustIncludeActual': '通过结论必须附实际验证证据；无法验证请用 blocked',
   'runReports.nextStepMustBeAt': '下一步最多 1000 字',
@@ -1132,7 +1178,7 @@ repository.clone=true 仅在目标不存在时克隆；false 检查已有仓库�
 咨询 wb call --role 角色 --kind consult --request-id 固定编号 --text 说明；同项目跨设备也直接投递，不需要主管转述。每次问一个明确问题，附必要背景、文件版本和期望答案；同一问题重试沿用编号。
 自己的分析按普通回复输出；定向问题放在本轮所选通信工具的 text 中，平台单独展示“发送角色 → @接收角色”的提问记录和关联回复。已开放 discuss 时，当前任务的规则澄清优先 ask；call 用于独立分析/审核/产出，或未开放 discuss 的目标。不要把整段分析重复复制成咨询，也不要重复发送同样的群聊留话。
 需要多个意见时先分别 wb call，再 wb wait 简短续接说明并结束本轮，平台收齐结果后回到原会话。不要轮询、sleep 或发送保活消息；执行名额和五分钟空闲保活由 Worker 管理。
-收到咨询直接给结论和必要依据，不默认修改文件，不反向 call 提问者来交答案。业务任务中确需向等待你的上游澄清时，以本轮实际开放的 discuss 协议为准；未开放不能用反向 call 绕过依赖检查。只针对未解决问题追问，最多三轮；解决后结束，不发送收到/谢谢式往返。群聊正文 @ 不触发派单。
+收到咨询直接给结论和必要依据，不默认修改文件，不反向 call 提问者来交答案。业务任务中确需向等待你的上游澄清时，以本轮实际开放的 discuss 协议为准；未开放不能用反向 call 绕过依赖检查。只针对未解决问题按平台当前协作预算追问，预算耗尽时列明未完成事项；解决后结束，不发送收到/谢谢式往返。群聊正文 @ 不触发派单。
 配置错误或调用被拒绝时报告阻塞，不绕过 wb 直接 curl Home Agent 接口。长报告用来源编号供按需读取。
 Worker 自动记录交接，无需机械执行 wb boot 和 wb handoff，详细交接仍可 wb handoff。{p1}`,
   // src/runtime-probe.mjs
@@ -1448,7 +1494,13 @@ wb handoff last      读最近一份交接
 交接示例：
   wb handoff --done "修了登录校验" --next "@审核 看 diff" --verify "本地 curl 通过"
 
-Worker 自动补交接。新执行结束前必须 wb report 提交真实业务结论；等待子调用的回合无需提前报告通过。`,
+向用户提问或请求决定（普通任务回合）：
+  wb report '{"verdict":"needs_input","summary":"请确认本次采用方案 A 还是方案 B？","next":"收到选择后继续当前任务。"}'
+将示例替换为实际问题、必要背景和选项；提交后结束本轮，等待用户答复，不自行猜测决定。用户可在项目页面引用这条结果并回复原角色；启用微信时由平台通知、接收答复并续接。发送成功或 pending 不等于用户已回答。
+讨论专用回合（clarification / answer_resume）及已登记讨论等待的回合不接收业务报告；把需要用户确认的问题写入讨论答复或结论，交回原业务任务，由其向用户提出。不要在这些回合使用 needs_input 代替讨论回复。
+wb wait 用于等待同伴请求，不用于等待用户。原生权限审批和配置、交付确认仍使用各自入口；needs_input 不授予操作权限。正文中的 @ 和 wb note 只传递文字，不会自动派发协作。
+
+Worker 自动补交接。普通任务结束前用 wb report 提交真实业务结论；等待子调用或处理讨论的回合无需提前报告通过。`,
   // src/wechat-channel.mjs
   'wechatChannel.invalidWechatClientName': '微信客户端名称无效',
   'wechatChannel.invalidWechatClientConfiguration': '微信客户端配置无效',
@@ -1632,4 +1684,12 @@ wb 表示这个完整前缀；每次调用都使用本轮前缀，不复用历�
   'minimal.waitTimeout': '依赖等待已超时，原请求仍有效：{requestIds}。没有取消或重跑同伴。可继续独立工作，或再次等待这些原请求。此前任务状态：{resumeSummary}\n',
   'minimal.dependencyEvent': '本任务原依赖在实际启动时的最新状态：{events}',
   'minimal.externalRepositories': '本轮另有工作目录之外的仓库映射：{repositories}。仅操作本任务已授权的目标。',
+  'cliRecovery.identityUnknown': '进程身份尚未确认，继续核对中，暂不允许强制结束。',
+  'cliRecovery.stopPending': '正在等待已核实的旧 CLI 及其工具进程退出。',
+  'cliRecovery.bindingChanged': '待执行任务或原生会话已变更，请刷新状态。',
+  'cliRecovery.processChanged': '旧 CLI 进程已发生变化，请核对当前进程后重新确认。',
+  'cliRecovery.oldProcessExited': '原 CLI 进程已退出，会话历史保留。',
+  'cliRecovery.oldProcessStopped': '已停止核实的旧 CLI，会话历史保留。',
+  'cliRecovery.waiting': '正在等待原 CLI；确认后可停止旧 CLI 并继续。',
+  'cliRecovery.checking': '正在核对原 CLI 会话占用。',
 });

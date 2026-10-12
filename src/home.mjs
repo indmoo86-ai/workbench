@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { WebSocketServer } from 'ws';
 import { Store, terminal } from './store.mjs';
-import {assertAgentSender} from './agent-bridge.mjs';
+import {assertAgentSender,allowsPausedAgentOperation} from './agent-bridge.mjs';
 import {freezeExecutionConfiguration,supportsMinimalInstructions,instructionProtocolIssue} from './execution-configuration.mjs';
 import {validateCliCapacity,reservedTerminalSlots,registrationCapacity} from './device-capacity.mjs';
 import { SessionTools } from './session-tools.mjs';
@@ -23,6 +23,7 @@ import { RoleCalls } from './role-calls.mjs';
 import {RoleDiscussions} from './role-discussions.mjs';
 import {supportsDiscussion} from './discussion-policy.mjs';
 import {recentProjectArtifacts} from './run-artifacts.mjs';
+import {ProjectFiles} from './project-files.mjs';
 import { RoleSteering } from './role-steering.mjs';
 import { WorkspaceStateFeed } from './workspace-state.mjs';
 import { messageProgress, reconcileCallResults } from './message-progress.mjs';
@@ -43,9 +44,11 @@ import { ExecutionPlans, schedulingRules } from './execution-plans.mjs';
 import { History } from './history.mjs';
 import { saveRunReport } from './run-reports.mjs';
 import { ScheduledJobs } from './scheduled-jobs.mjs';
+import {ProactiveFollowup} from './proactive-followup.mjs';
+import {CliRecoveryHome} from './cli-session-recovery-home.mjs';
 import { TimerAgentActions } from './timer-agent.mjs';
 import { inspectRunProgress } from './run-monitor.mjs';
-import { projectTerminalLock, terminalCommand, terminalLaunchView } from './terminal-resume.mjs';
+import { projectTerminalLock, terminalCommand, terminalLaunchView, TERMINAL_PREPARATION_TTL_MS } from './terminal-resume.mjs';
 import { ProjectGitVersions } from './project-git-versions.mjs';
 import {SourceSyncHome} from './source-sync-transport.mjs';
 import {acceptSourceProvenance} from './source-sync-provenance.mjs';
@@ -98,6 +101,7 @@ const conversationContext = new ConversationContext(db);
 conversationContext.recover();
 for(const task of db.list('tasks').filter(task=>task.origin==='chat'&&task.status==='ready'&&task.contextState==='pending'))db.put('tasks',{...task,contextState:null});
 const scheduledJobs = new ScheduledJobs(db,rooms);
+const proactiveFollowup=new ProactiveFollowup(db,rooms);
 const timerAgent = new TimerAgentActions(db,scheduledJobs);
 const executionPlans = new ExecutionPlans(db,calls,workerQuery,{
   request:(run,items)=>deliveries.request(run,{requestId:'planned-handoff',commit:items[0].commit,items,summary:tr('home.supervisorStageDeliveryContinueWith')}),
@@ -116,6 +120,8 @@ for (const run of db.list('runs').filter(r => !terminal.has(r.status))) db.put('
 const sockets = new Map();
 const viewers = new Set();
 const queries = new Map();
+const cliRecovery=new CliRecoveryHome({db,query:workerQuery,online:id=>online(id),change:()=>change()});
+rooms.nativeRecoveryReason=task=>cliRecovery.reason(task);
 const workspaceFeed = new WorkspaceStateFeed();
 const roleSwitches=new RoleSwitches(db);
 const roleSwitchRuntime=new RoleSwitchRuntime({db,switches:roleSwitches,query:workerQuery,dispatch,change:()=>change(),
@@ -127,6 +133,7 @@ const outputChanged=()=>{if(!changeTimer){changeTimer=setTimeout(change,100);cha
 const send = (ws, payload) => { if (ws?.readyState === 1) ws.send(JSON.stringify(payload)); };
 const online = id => sockets.get(id)?.readyState === 1;
 const sourceSync=new SourceSyncHome({db,data,online,socket:id=>sockets.get(id),change,rooms,query:workerQuery});
+const projectFiles=new ProjectFiles({db,online,query:workerQuery});
 const setup = new ProjectSetup(db, rooms, workerQuery, online, change);
 const credentials = new CredentialStore(join(data, 'credentials'));
 const hosting = new Hosting(db, credentials);
@@ -256,8 +263,9 @@ function snapshot() {
     supervisorRoles:db.list('roles').filter(r=>supervisorIds.get(r.projectId)===r.id&&r.systemSupervisor&&!r.platformAssistant&&!r.archivedAt).map(({instructions,...r})=>({...r,responsibility:roleResponsibility(r)})),
     discussionThreads:db.list('discussionThreads'),discussionDeliveries:db.list('discussionDeliveries'),
     roleSwitches:db.list('roleSwitches').map(roleSwitchView),
+    cliRecoveries:db.list('cliRecoveries').filter(r=>!['ready','resolved'].includes(r.state)).map(({binding,fingerprint,...record})=>record),
     sourceSyncSummaries:db.list('projects').map(p=>({id:p.id,projectId:p.id,enabled:sourceSync.sync.config(p.id).enabled,conflicts:db.listProject('sourceSyncConflicts',p.id).filter(c=>!['resolved','cancelled'].includes(c.status)).length})),
-    terminalSessions: db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)).map(terminalLaunchView),
+    terminalSessions: db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)).map(s=>terminalLaunchView({...s,roleId:s.roleId||(s.runId?db.get('runs',s.runId)?.roleId:null)})),
     attachmentTransfers:db.list('attachmentTransfers').slice(-200).map(({fingerprint,...t})=>t),
     hostingAccounts: db.list('hostingAccounts'), devices: db.list('devices').map(d => ({ ...d, status: online(d.nodeId) ? 'online' : d.status })), repositoryOperations: db.list('repositoryOperations'),
     repositories: db.list('repositories'), repositoryWorkspaces: db.list('repositoryWorkspaces'), setupProposals: db.list('setupProposals'), projectGitVersions:db.list('projectGitVersions'),
@@ -273,6 +281,7 @@ function snapshot() {
 }
 /** Scheduling does not call a model; it only issues new executions after the Worker has finished reconnection verification. */
 function scheduleChat() {
+  cliRecovery.tick();
   void roleSwitchRuntime.tick();
   if(reconcileCallResults(db,calls))change();
   try { if(scheduledJobs.tick()) change(); } catch(error) {console.error(tr('home.scheduledJobCheckFailed'),error.message);}
@@ -284,6 +293,7 @@ function scheduleChat() {
     if (request.status === 'waiting_call') calls.resume(request.id);
     if (['queued', 'waiting_delivery'].includes(request.status)) calls.reconcile(request.id);
   }
+  try {if(proactiveFollowup.tick())change();}catch(error){console.error('Proactive follow-up:',error.message);}
   for(const task of db.list('tasks').filter(task=>task.origin==='chat'&&task.status==='ready'))prepareChatContext(task);
   const scheduled = rooms.schedule(id => online(id) && sockets.get(id).workerReady);
   for (const nodeId of scheduled.nodes) dispatch(nodeId);
@@ -313,6 +323,53 @@ function workerQuery(run, action, path, timeout = 10000) {
     queries.set(id, { nodeId: run.nodeId, resolve: value => { clearTimeout(timer); resolveQuery(value); }, reject: e => { clearTimeout(timer); reject(e); } });
     send(sockets.get(run.nodeId), { type: 'query', id, runId: run.id, action, path, language: getLanguage() });
   });
+}
+const terminalRefreshes=new Map();
+/** Only the Worker can inspect remote PIDs; unknown/offline checks retain the lock and released receipts wake the original queue. */
+function refreshProjectTerminals(projectId,{automatic=false}={}) {
+  const key=`${projectId}:${automatic?'auto':'manual'}`;
+  if(terminalRefreshes.has(key))return terminalRefreshes.get(key);
+  const operation=(async()=>{
+    if(!db.get('projects',projectId))throw new Error(tr('store.projectNotFound'));
+    const claims=db.listProject('terminalSessions',projectId).filter(s=>{
+      if(['released','cancelled'].includes(s.status))return false;
+      if(!automatic)return true;
+      const worker=db.get('workers',s.nodeId),expired=Date.now()-Date.parse(s.createdAt)>=TERMINAL_PREPARATION_TTL_MS;
+      // Older Workers revoke unused links immediately, so never send them a fresh reservation automatically.
+      return online(s.nodeId)&&worker?.capabilities?.terminalControl===1&&(s.status!=='preparing'||expired)&&(worker.capabilities.terminalAutoReturn===1||expired);
+    }),groups=new Map(),results=[];
+    for(const claim of claims){const group=groups.get(claim.nodeId)||[];group.push(claim);groups.set(claim.nodeId,group);}
+    await Promise.all([...groups].map(async([nodeId,members])=>{
+      let checked;
+      try{
+        if(!online(nodeId))throw new Error(tr('terminalControl.offline'));
+        if(db.get('workers',nodeId)?.capabilities?.terminalControl!==1)throw new Error(tr('terminalControl.upgrade'));
+        const reply=await workerQuery({nodeId},'terminal_check',{projectId,nodeId,automatic,claims:members.map(({id,projectId,nodeId})=>({id,projectId,nodeId}))},20000);
+        checked=reply.results;
+        if(!Array.isArray(checked)||checked.length!==members.length||members.some(s=>!checked.some(c=>c.id===s.id&&['released','active','unknown',...(automatic?['prepared']:[])].includes(c.processState)&&c.checkedAt)))throw new Error(tr('terminalControl.stopPending'));
+      }catch(error){checked=members.map(s=>({id:s.id,processState:'unknown',checkedAt:new Date().toISOString(),reason:error.message}));}
+      for(const result of checked){db.transaction(()=>{const current=db.get('terminalSessions',result.id);if(!current||current.projectId!==projectId||current.nodeId!==nodeId||['released','cancelled'].includes(current.status))return;
+        db.put('terminalSessions',{...current,processState:result.processState,lastCheckedAt:result.checkedAt,processError:result.reason||null,...(result.processState==='released'?{status:'released',releasedAt:result.checkedAt}:result.processState==='active'?{status:result.status==='stopping'?'stopping':'active'}:{})});});results.push({...result,nodeId});}
+    }));
+    if(results.length||!automatic){change();scheduleChat();}return {results,released:results.filter(s=>s.processState==='released').length,active:results.filter(s=>s.processState==='active').length,unknown:results.filter(s=>s.processState==='unknown').length};
+  })().finally(()=>terminalRefreshes.delete(key));
+  terminalRefreshes.set(key,operation);return operation;
+}
+/** Reconcile without a browser: process proofs survive disconnects and wake only the original queue after release. */
+function reconcileTerminals(nodeId) {
+  const projects=new Set(db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)&&(!nodeId||s.nodeId===nodeId)).map(s=>s.projectId));
+  return Promise.all([...projects].filter(id=>db.get('projects',id)).map(id=>refreshProjectTerminals(id,{automatic:true}))).catch(error=>console.error('Terminal reconciliation failed:',error.message));
+}
+/** Stopping is an explicit human action, scoped to the saved lease rather than arbitrary browser-supplied PIDs. */
+async function returnTerminal(claim,action) {
+  let result;
+  if(action==='stop'){
+    if(db.get('workers',claim.nodeId)?.capabilities?.terminalControl!==1)throw new Error(tr('terminalControl.upgrade'));
+    result=await workerQuery(claim,'terminal_stop',{id:claim.id,projectId:claim.projectId,nodeId:claim.nodeId},30000);
+    if(result?.released!==true||result.id!==claim.id)throw new Error(tr('terminalControl.stopPending'));
+  }else result=await workerQuery(claim,'terminal_release',{id:claim.id});
+  db.transaction(()=>{const current=db.get('terminalSessions',claim.id);if(current&&current.projectId===claim.projectId&&current.nodeId===claim.nodeId)db.put('terminalSessions',{...current,status:'released',processState:'released',releasedAt:new Date().toISOString()});});
+  change();scheduleChat();return {released:true,forced:result.forced===true};
 }
 const server = http.createServer(async (req, res) => {
   try {
@@ -443,6 +500,7 @@ const server = http.createServer(async (req, res) => {
         assertAgentSender(b);
         const run = db.get('runs', b.runId);
         if (!run || terminal.has(run.status) || ['stopping', 'reconciling'].includes(run.status)) throw new Error(tr('home.currentExecutionHasEndedStopping'));
+        if(db.get('settings','main')?.paused&&!allowsPausedAgentOperation(pathname,b))throw new Error(tr('home.remoteExecutionPaused'));
         if(run.switchOperationId&&!['/api/agent/setup/catalog','/api/agent/history/search','/api/agent/history/read','/api/agent/sessions/current','/api/agent/sessions/list','/api/agent/sessions/summary','/api/agent/sessions/read','/api/agent/conversation/summary'].includes(pathname))throw new Error('CLI handoff maintenance permits history reads only.');
         if(pathname==='/api/agent/source-sync'){const result=await sourceSync.agent.execute(run,b.action,b.input||{});change();return json(res,result);}
         if(pathname==='/api/agent/source-candidates'){const result=b.finish?await sourceSync.agent.completeCandidate(run,b.candidateId):sourceSync.agent.stageCandidate(run,b);change();return json(res,result);}
@@ -568,6 +626,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (pathname === '/api/tasks' && req.method === 'POST') { const r = db.createTask(await body(req)); change(); return json(res, r, 201); }
       let m;
+      if((m=pathname.match(/^\/api\/projects\/([^/]+)\/proactive-followup$/))){
+        if(req.method==='GET')return json(res,proactiveFollowup.view(m[1]));
+        if(req.method==='POST'){const result=proactiveFollowup.save(m[1],await body(req));change();return json(res,result);}
+      }
       if((m=pathname.match(/^\/api\/tasks\/([^/]+)\/detail$/)) && req.method==='GET') {
         const task=db.get('tasks',decodeURIComponent(m[1]));
         if(!task)return json(res,{error:tr('home.taskNotFound')},404);
@@ -648,6 +710,9 @@ const server = http.createServer(async (req, res) => {
       }
       if ((m = pathname.match(/^\/api\/projects\/([^/]+)\/git-versions$/)) && req.method === 'POST') {
         return json(res,await projectGitVersions.refresh(m[1]));
+      }
+      if((m=pathname.match(/^\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/cli-recovery$/))&&req.method==='POST'){
+        return json(res,await cliRecovery.confirm(m[1],m[2],await body(req)));
       }
       if ((m = pathname.match(/^\/api\/projects\/([^/]+)\/roles\/([^/]+)\/archive$/)) && req.method === 'POST') {
         const r = rooms.archiveRole(m[1], m[2]); change(); return json(res, r);
@@ -744,13 +809,13 @@ const server = http.createServer(async (req, res) => {
         for(const id of stopped.stopRunIds){const target=db.get('runs',id);if(target)dispatch(target.nodeId);}
         change();return json(res,stopped.run);
       }
+      if((m=pathname.match(/^\/api\/projects\/([^/]+)\/terminals\/refresh$/))&&req.method==='POST')return json(res,await refreshProjectTerminals(m[1]));
       if((m=pathname.match(/^\/api\/projects\/([^/]+)\/roles\/([^/]+)\/terminal$/)) && req.method==='POST') {
         const [_,projectId,roleId]=m,b=await body(req);
-        if(b.action==='release') {
+        if(['release','stop'].includes(b.action)) {
           const claim=db.get('terminalSessions',b.id);
           if(claim?.kind!=='new'||claim.projectId!==projectId||claim.roleId!==roleId)throw new Error(tr('home.thereNoTerminalTakeoverFor'));
-          await workerQuery(claim,'terminal_release',{id:claim.id});
-          db.put('terminalSessions',{...db.get('terminalSessions',claim.id),status:'released'});change();scheduleChat();return json(res,{released:true});
+          return json(res,await returnTerminal(claim,b.action));
         }
         if(b.action!=='prepare'||typeof b.operationId!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(b.operationId))throw new Error(tr('home.invalidTakeoverAction'));
         const repeated=db.get('terminalSessions',b.operationId);
@@ -782,11 +847,10 @@ const server = http.createServer(async (req, res) => {
       if ((m = pathname.match(/^\/api\/runs\/([^/]+)\/terminal$/)) && req.method === 'POST') {
         const b=await body(req), r=db.get('runs',m[1]);
         if(!r)throw new Error(tr('home.runNotFound'));
-        const existing=projectTerminalLock(db,r.projectId,r.nodeId);
-        if(b.action==='release') {
-          if(!existing || existing.runId!==r.id)throw new Error(tr('home.thereNoTerminalTakeoverFor'));
-          await workerQuery(r,'terminal_release',{id:existing.id});
-          db.put('terminalSessions',{...existing,status:'released'});change();scheduleChat();return json(res,{released:true});
+        const existing=['release','stop'].includes(b.action)&&b.id?db.get('terminalSessions',b.id):projectTerminalLock(db,r.projectId,r.nodeId);
+        if(['release','stop'].includes(b.action)) {
+          if(!existing || existing.runId!==r.id||existing.projectId!==r.projectId||existing.nodeId!==r.nodeId)throw new Error(tr('home.thereNoTerminalTakeoverFor'));
+          return json(res,await returnTerminal(existing,b.action));
         }
         if(b.action!=='prepare')throw new Error(tr('home.invalidTakeoverAction'));
         if(r.historyClearedAt)throw new Error(tr('roleSessions.historyWasCleared'));
@@ -808,15 +872,21 @@ const server = http.createServer(async (req, res) => {
           const identityFile=b.useLocalSshKey===true && process.platform==='darwin' && device ? (await credentials.get(device.id))?.keyPath : null;
           const command=terminalCommand(info,device || null,identityFile);
           const value=terminalLaunchView({...claim,...info,status:'prepared',command});
-          db.put('terminalSessions',value);change();return json(res,value);
+          db.transaction(()=>{if(db.get('terminalSessions',claim.id)?.status!=='preparing')throw new Error(tr('roleTerminal.pending'));db.put('terminalSessions',value);});change();return json(res,value);
         } catch(error) {
+          if(['released','cancelled'].includes(db.get('terminalSessions',claim.id)?.status))throw error;
           let status='blocked';
           try { await workerQuery(r,'terminal_release',{id:claim.id});status='released'; } catch {}
-          db.put('terminalSessions',{...claim,status,error:error.message});change();throw error;
+          const current=db.get('terminalSessions',claim.id);
+          if(!['released','cancelled'].includes(current?.status))db.put('terminalSessions',{...current,...claim,status,error:error.message});change();throw error;
         }
       }
       if ((m = pathname.match(/^\/api\/projects\/([^/]+)\/artifacts$/)) && req.method === 'GET') {
+        if(db.get('sourceSyncConfigs',m[1])?.scopeKind==='directory')return json(res,await projectFiles.list(m[1]));
         return json(res,await recentProjectArtifacts(db,m[1],workerQuery,online));
+      }
+      if((m=pathname.match(/^\/api\/projects\/([^/]+)\/(local-files|local-file)$/))&&req.method==='GET'){
+        return json(res,m[2]==='local-files'?await projectFiles.list(m[1]):await projectFiles.read(m[1],url.searchParams.get('scopeId'),url.searchParams.get('path'),{metadata:url.searchParams.get('metadata')==='1'}));
       }
       if ((m = pathname.match(/^\/api\/runs\/([^/]+)\/(detail|events|files|file|document)$/)) && req.method === 'GET') {
         const r = db.get('runs', m[1]); if (!r) throw new Error(tr('home.runNotFound2'));
@@ -824,8 +894,12 @@ const server = http.createServer(async (req, res) => {
         if (m[2] === 'events') {
           const after=Number(url.searchParams.get('after')||0);
           if(!Number.isSafeInteger(after)||after<0)throw new Error(tr('home.invalidEventCursor'));
-          return json(res, { events: db.events(r.id,after) });
+          const limit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):null;
+          if(limit!==null&&(!Number.isSafeInteger(limit)||limit<1||limit>1000))throw new Error(tr('home.invalidEventCursor'));
+          const events=db.events(r.id,after,limit===null?-1:limit+1);
+          return json(res, { events:limit===null?events:events.slice(0,limit),...(limit===null?{}:{hasMore:events.length>limit,runState:{status:r.status,lastSeq:r.lastSeq,finishedAt:r.finishedAt}}) });
         }
+        if(['file','document'].includes(m[2])){const ref=projectFiles.reference(r,url.searchParams.get('path'));if(ref)return json(res,await projectFiles.read(r.projectId,ref.scopeId,ref.path,{metadata:url.searchParams.get('metadata')==='1'}));}
         const result = await workerQuery(r, m[2], url.searchParams.get('path'),m[2]==='document'?30000:10000);
         return json(res, result);
       }
@@ -871,10 +945,15 @@ const server = http.createServer(async (req, res) => {
     files['/workspace-inspector.js']='workspace-inspector.js';
     files['/source-sync.js']='source-sync.js';
     files['/state-data.js']='state-data.js';
+    files['/execution-progress.js']='execution-progress.js';
+    files['/live-scene.js']='live-scene.js';
+    files['/cli-recovery.js']='cli-recovery.js';
     files['/browser-token.js']='browser-token.js';
     files['/role-switch.js']='role-switch.js';
     files['/role-history.js']='role-history.js';
     files['/i18n.js']='i18n.js';
+    files['/output-language.js']='output-language.js';
+    files['/vendor/opencc-t2cn.js']='vendor/opencc-t2cn.js';
     files['/locales/zh.js']='locales/zh.js';
     const file = files[pathname]; if (!file) return json(res, { error: tr('home.pageNotFound') }, 404);
     const bytes = await readFile(join(base, 'public', file));
@@ -900,13 +979,13 @@ wss.on('connection', ws => {
         sockets.set(nodeId, ws); clearTimeout(registerTimer);
         const config=db.get('workerConfigs',nodeId),limits=registrationCapacity(m.node,config);
         db.put('workers', { ...m.node, ...config,...limits,id:nodeId, lastSeen: new Date().toISOString() });
-        send(ws, { type: 'registered', paused: !!db.get('settings', 'main')?.paused, language: getLanguage(),...(m.node.capabilities?.cliCapacity===1?{capacity:limits.desiredCapacity}:{}) }); change(); return;
+        send(ws, { type: 'registered', paused: !!db.get('settings', 'main')?.paused, language: getLanguage(),cliRecovery:1,...(m.node.capabilities?.cliCapacity===1?{capacity:limits.desiredCapacity}:{}) }); change(); return;
       }
       if (!nodeId || sockets.get(nodeId) !== ws) throw new Error(tr('home.nodeNotRegisteredYet'));
-      if(m.type==='source_sync_receipt'||m.type==='source_sync_command_ack'){
+      if(['source_sync_receipt','source_sync_command_ack','source_sync_watch_ack','source_sync_watch_status','source_sync_dirty'].includes(m.type)){
         void sourceSync.message(nodeId,m).catch(e=>send(ws,{type:'error',error:e.message}));return;
       }
-      if (m.type === 'ready') { ws.workerReady = true; dispatch(nodeId); scheduleChat(); collectUsage(nodeId); }
+      if (m.type === 'ready') { ws.workerReady = true; void reconcileTerminals(nodeId); dispatch(nodeId); scheduleChat(); collectUsage(nodeId); }
       if (m.type === 'heartbeat') db.put('workers', { ...db.get('workers', nodeId), lastSeen: new Date().toISOString() });
       if(m.type==='launch_deferred') {
         const c=db.get('commands',m.id);
@@ -987,10 +1066,11 @@ const heartbeat = setInterval(() => {
   for (const r of viewers) r.write(': keepalive\n\n');
 }, 15000);
 const chatScheduler = setInterval(scheduleChat, 1000);
+const terminalMonitor=setInterval(()=>{void reconcileTerminals();},15000);terminalMonitor.unref();
 const sourceSyncTimer=setInterval(()=>{void sourceSync.tick().catch(e=>console.error(e.message));},1000);sourceSyncTimer.unref();
 const wechatPoll = setInterval(() => { void wechat.tick().catch(error => { console.error(tr('home.wechatChannelCheckFailed'), error.message); }); }, 4000);
 wechatPoll.unref();
 const progressMonitor=setInterval(()=>{if(inspectRunProgress(db,online))change();},60000);progressMonitor.unref();
 const usageCollector = setInterval(() => { for(const nodeId of sockets.keys())collectUsage(nodeId); }, 6*60*60*1000);
 server.listen(port, host, () => console.log(tr('home.agentWorkbenchHttpData', { host, port, data })));
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { clearInterval(heartbeat); clearInterval(chatScheduler); clearInterval(usageCollector); usageRetry.stop(); for (const ws of wss.clients) ws.terminate(); for (const r of viewers) r.end(); server.close(() => { db.close(); process.exit(0); }); });
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { clearInterval(heartbeat); clearInterval(chatScheduler); clearInterval(terminalMonitor); clearInterval(usageCollector); usageRetry.stop(); for (const ws of wss.clients) ws.terminate(); for (const r of viewers) r.end(); server.close(() => { db.close(); process.exit(0); }); });

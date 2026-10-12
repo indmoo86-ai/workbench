@@ -1,9 +1,12 @@
 import { t, dateLocale } from './i18n.js';
 import { agentIconEl, UI_ICON, workerDisplayName } from './role-icons.js';
-import { renderMarkdown, linkRunDocuments } from './markdown.js';
+import { renderMarkdown, linkRunDocuments, localizeDocumentLinks } from './markdown.js';
+import {simplifiedCliOutput} from './output-language.js';
+import {executionProgress} from './execution-progress.js';
 import { createHistoryViewer } from './history-view.js';
 import {createRoleSwitchUI} from './role-switch.js';
 import {createRoleHistoryTabs} from './role-history.js';
+import {createCliRecoveryUI} from './cli-recovery.js';
 
 /** Long text only changes its carrier; the file content keeps the original line breaks, whitespace and trailing characters. */
 export function longTextFileName(text) {
@@ -13,10 +16,10 @@ export function longTextFileName(text) {
   return `${stem.replace(/\.(md|markdown|txt)$/i, '')}.md`;
 }
 
-/** Merge device probes per project; only queries status and never restarts, resumes or dispatches any role task. */
+/** Refresh real terminal processes before CLI probes; stale takeover receipts let the original queued work continue. */
 export function createRoleRefresh({api,refreshState,getData,getProject,button,feedback,onUpdate=()=>{}}) {
   let busy=false;
-  const notices=new Map(),checks=new Map();
+  const notices=new Map(),checks=new Map(),terminalChecks=new Map();
   const binding=role=>JSON.stringify([role.nodeId,role.runtime,role.model]);
   const setCheck=(role,state)=>checks.set(role.id,{...state,binding:binding(role),checkedAt:new Date().toISOString()});
   const transient=error=>![401,403,429].includes(error.status)&&(error.isNetworkError||error.status>=500||/timed? ?out|disconnect|ECONNRESET|ETIMEDOUT|temporarily unavailable|超时|断开|暂时不可用/i.test(error.message||''));
@@ -28,14 +31,25 @@ export function createRoleRefresh({api,refreshState,getData,getProject,button,fe
     button.title=busy?'Querying CLI status and remaining quota…':'Refresh role status and remaining quota';
     feedback.hidden=!notice;feedback.textContent=notice||'';
   }
+  /** Both refresh buttons share one per-project check; offline/old Workers are reported without removing their lock. */
+  function refreshTerminals() {
+    const project=getProject();if(!project)return refreshState().then(()=> '');
+    if(terminalChecks.has(project.id))return terminalChecks.get(project.id);
+    const operation=(async()=>{const result=await api(`/api/projects/${encodeURIComponent(project.id)}/terminals/refresh`,{method:'POST',json:{},signal:AbortSignal.timeout(25000)});
+      const summary=t('Terminal processes checked: {released} returned, {active} running, {unknown} unverified.',result);
+      const reasons=[...new Set(result.results.filter(r=>r.reason).map(r=>r.reason))];
+      notices.set(project.id,[summary,...reasons].join(' '));await refreshState({quiet:true});update();onUpdate();return [summary,...reasons].join(' ');
+    })().finally(()=>terminalChecks.delete(project.id));terminalChecks.set(project.id,operation);return operation;
+  }
   async function refresh() {
     const project=getProject();
     if(busy||!project||!rolesFor(project.id).length)return;
     const roles=rolesFor(project.id),workers=getData().workers||[],groups=new Map();
     for(const role of roles){const group=groups.get(role.nodeId)||[];group.push(role);groups.set(role.nodeId,group);}
     busy=true;notices.set(project.id,'Refreshing CLI status and remaining quota…');for(const role of roles)setCheck(role,{state:'checking'});update();onUpdate();
-    const warnings=[];let checked=0,retried=0;
+    const warnings=[];let checked=0,retried=0,terminalSummary='';
     try {
+      try{terminalSummary=await refreshTerminals();}catch(error){warnings.push(t('Terminal check failed: {message}',{message:error.message}));}
       await Promise.all([...groups].map(async([nodeId,members])=>{
         const worker=workers.find(item=>item.id===nodeId),label=worker?.name||members.map(role=>role.name).join(t(', '));
         if(!worker?.online){warnings.push(t('{label}: device offline or not connected', { label }));for(const role of members)setCheck(role,{state:'failed',error:'Device offline or not connected'});return;}
@@ -62,13 +76,13 @@ export function createRoleRefresh({api,refreshState,getData,getProject,button,fe
       }));
       await refreshState({quiet:true});
       const devices = t(checked===1?'{count} device':'{count} devices', { count: checked });
-      notices.set(project.id,`${warnings.length?t('Checked {devices}; {warnings}. Quota that could not be obtained keeps its previous value or is unknown', { devices, warnings: warnings.join(t('; ')) }):t('Refreshed role status and quota on {devices} · {time}', { devices, time: new Date().toLocaleTimeString(dateLocale()) })}${retried?t(retried===1?' · {count} transient check failure was retried':' · {count} transient check failures were retried', { count: retried }):''}${t('. Old tasks were not re-run; history is preserved.')}`);
+      notices.set(project.id,`${terminalSummary?terminalSummary+' ':''}${warnings.length?t('Checked {devices}; {warnings}. Quota that could not be obtained keeps its previous value or is unknown', { devices, warnings: warnings.join(t('; ')) }):t('Refreshed role status and quota on {devices} · {time}', { devices, time: new Date().toLocaleTimeString(dateLocale()) })}${retried?t(retried===1?' · {count} transient check failure was retried':' · {count} transient check failures were retried', { count: retried }):''}${t('. Old tasks were not re-run; history is preserved.')}`);
     }catch(error){notices.set(project.id,t('Refresh incomplete: {message}', { message: error.message }));}
     finally{busy=false;update();onUpdate();}
   }
   button.addEventListener('click',()=>void refresh());
   update();
-  return {refresh,update,getCheck:role=>{const check=checks.get(role.id);return check?.binding===binding(role)?check:null;}};
+  return {refresh,refreshTerminals,update,getCheck:role=>{const check=checks.get(role.id);return check?.binding===binding(role)?check:null;}};
 }
 
 /** Keep the full streamed body; the CLI completion snapshot replaces the current segment to avoid duplicating delta and snapshot. */
@@ -171,9 +185,10 @@ function createMessageQueue({api,refreshState,create,setError}) {
 }
 
 /** The chat only handles display and user actions; role selection, idempotency and scheduling are validated by Home. */
-export function createRoomUI({ api, refreshState, openTask, stopRun, decideApproval, create, formatTime, setError, configureDevice }) {
+export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopRun, decideApproval, create, formatTime, setError, configureDevice }) {
   const historyViewer=createHistoryViewer({api});
   const messageQueue=createMessageQueue({api,refreshState,create,setError});
+  const cliRecoveryUI=createCliRecoveryUI({api,refreshState,getData:()=>data,create});
   const feed = document.querySelector('#chat-feed');
   // Configuration, plans and messages share one scroll area so status cards do not permanently crowd out the body.
   const scroller = document.querySelector('#chat-scroll');
@@ -209,7 +224,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     previewDialog.className = 'message-fullscreen';
     previewDialog.setAttribute('aria-label', 'Full attachment text');
     const header = create('div', 'message-fullscreen-heading');
-    header.append(create('strong', '', name), copyMessageButton(text), iconAction('back', 'Close attachment preview', () => previewDialog.close()));
+    header.append(create('strong', '', name), copyMessageButton(text), iconAction('close', 'Close attachment preview', () => previewDialog.close()));
     if (downloadUrl) header.insertBefore(iconAction('original', 'Download original', () => {
       const link = create('a'); link.href = downloadUrl; link.download = name; link.click();
     }), header.lastChild);
@@ -420,7 +435,11 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     catch { setError('Not enough browser draft storage; the original text is still on this page. Copy a backup first and do not close the page'); return false; }
   };
   const draft = () => drafts[projectId] ||= { text: '', replyToId: null, replyLabel: '' };
-  const status = r => ({ queued: 'Preparing', starting: 'Starting', running: 'Running', waiting_user: 'Awaiting approval', stopping: 'Stopping', reconciling: 'Awaiting reconciliation', succeeded: 'Completed', interrupted: 'Stopped', failed: 'Failed' }[r?.status] || 'Waiting to run');
+  const taskProgress=(task,run)=>{
+    const request=run?.discussionDeliveryId?null:data.requests?.find(r=>r.id===(run?.requestId||task?.requestId));
+    const nodeId=run?.nodeId||task?.roleSnapshot?.nodeId;
+    return executionProgress({run,task:run?.discussionDeliveryId?null:task,request,online:!nodeId||Boolean(data.workers?.some(w=>w.id===nodeId&&w.online))});
+  };
   const button = (label, action, className = 'secondary compact') => {
     const b = create('button', className, label); b.type = 'button'; b.addEventListener('click', () => action(b)); return b;
   };
@@ -535,8 +554,8 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     return copy;
   }
 
-  /** Collapsing only affects display; viewing and copying the full text always use the complete original. */
-  const renderLinkedMarkdown=(text,runId)=>linkRunDocuments(renderMarkdown(text),runId);
+  /** CLI prose is simplified for display only; copying and the Original view retain the complete stored text. */
+  const renderLinkedMarkdown=(text,runId)=>localizeDocumentLinks(linkRunDocuments(renderMarkdown(simplifiedCliOutput(text)),runId),runId,api);
   function replyPreview(text, markdown = true, runId = null) {
     const preview = create('div', 'chat-reply-preview');
     preview.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', text));
@@ -553,7 +572,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     const run=data.runs?.find(r=>r.id===view.runId);
     const message=histories.get(view.projectId)?.messages.find(m=>m.id===`result-${view.runId}`);
     const text=fullRunReply(run,liveText(view.runId),message);
-    const label=run?status(run):task?.waitingReason || (task?.status==='cancelled'?'Cancelled':'Waiting to start');
+    const label=t(taskProgress(task,run).label);
     view.heading.textContent=`${view.name || t('Role')} · ${label}`;
     view.copy.disabled=!text;
     if(text===view.text && view.label===label)return;
@@ -620,12 +639,14 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
 
   function renderLiveBubble(task, messages) {
     const run = data.runs?.find(r => r.id === task.currentRunId);
+    const recoveryButton=cliRecoveryUI.button(task);
+    if(task.backgroundFollowup||run?.backgroundFollowup){const approvals=run?renderApprovalsInline(run):null;if(!recoveryButton)return approvals;const entry=create('div','chat-approvals');if(approvals)entry.append(approvals);entry.append(recoveryButton);return entry;}
     if (run && messages.some(m => m.runId === run.id)) return null;
     const role = task.roleSnapshot || {};
     const row = create('article', 'chat-row agent is-live');
     row.append(avatarFor(role, role.name));
     const col = create('div', 'chat-col');
-    const label = run ? status(run) : task.status === 'cancelled' ? 'Cancelled' : task.status === 'blocked' ? (task.error || 'Blocked') : task.waitingReason || 'Waiting to be scheduled';
+    const progress=taskProgress(task,run),label=t(progress.label);
     col.append(create('div', 'chat-name', `@${role.name || t('Role')} · ${label}`));
     const bubble = create('div', 'chat-bubble');
     const preview = run ? liveText(run.id) : '';
@@ -636,10 +657,12 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       bubble.append(typing, create('span', 'chat-typing-label', label));
     }
     col.append(bubble);
+    if(progress.reason||progress.detail)col.append(create('p','workspace-note',t(progress.reason||progress.detail)));
     const alert=run&&data.runAlerts?.find(a=>a.id===run.id);
     if(alert)col.append(create('p','run-alert',alert.reason));
     const approvals = run ? renderApprovalsInline(run) : null;
     if (approvals) col.append(approvals);
+    if(recoveryButton)col.append(recoveryButton);
     const actions = [];
     if (preview) actions.push(copyMessageButton(preview));
     actions.push(fullscreenMessageButton(preview, role.name, true, [], task.id, run?.id));
@@ -654,6 +677,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       }));
     }
     if (run) actions.push(iconAction('log', 'Log', () => openTask(task.id,run.id)));
+    if (run&&openLiveScene) actions.push(iconAction('live', 'Live execution (read-only)', () => openLiveScene(run)));
     if (actions.length) col.append(chatMeta('', actions));
     row.append(col);
     if (run && ['starting', 'running', 'waiting_user', 'stopping'].includes(run.status)) void pullLive(run.id);
@@ -669,7 +693,11 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     const role = agent ? (data.roles || []).find(r => r.id === m.roleId) || (data.runs || []).find(r => r.id === m.runId)?.roleSnapshot : null;
     if (agent) row.append(avatarFor(role, m.senderName));
     const col = create('div', 'chat-col');
-    col.append(create('div', 'chat-name', agent ? `@${m.senderName}` : m.broadcast ? 'Me · notify everyone' : 'Me'));
+    const header = create('div', 'chat-message-header');
+    const time = create('time', '', formatTime(m.createdAt));
+    if (m.createdAt) time.dateTime = m.createdAt;
+    header.append(create('div', 'chat-name', agent ? `@${m.senderName}` : m.broadcast ? 'Me · notify everyone' : 'Me'), time);
+    col.append(header);
     const bubble = create('div', `chat-bubble${handoff || replyDirection ? ' handoff-card' : ''}`);
     if(discussion){const title=create('div','handoff-title');title.append(create('strong','',`${m.senderName||t('Me')} → @${discussion.to}`));bubble.append(title,create('div','handoff-label',t('Peer discussion · {state}', { state: discussion.state })));}
     if (m.replyToId) {
@@ -701,7 +729,8 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
         const target=data.roles?.find(r=>r.id===request.targetRoleId)?.name;
         const note=create('div',`message-progress${progress.attention?' needs-attention':''}`,`${target?`@${target} · `:''}${progress.label}`);
         const times={registeredAt:'Registered',sentAt:'Sent',receivedAt:'Device acknowledged',startedAt:'Run started',resultAt:'Run ended',resumeStartedAt:'Initiator resumed'};
-        note.dataset.stage=progress.stage;note.title=[progress.reason,...Object.entries(progress.timestamps||{}).filter(([,v])=>v).map(([k,v])=>t('{v}: {time}', { v: times[k]||k, time: formatTime(v) }))].filter(Boolean).join('\n');
+        note.dataset.stage=progress.stage;note.dataset.state=progress.state||'';note.title=[progress.reason,...Object.entries(progress.timestamps||{}).filter(([,v])=>v).map(([k,v])=>t('{v}: {time}', { v: times[k]||k, time: formatTime(v) }))].filter(Boolean).join('\n');
+        if(progress.reason&&['waiting','error'].includes(progress.state))note.append(create('span','message-progress-reason',` · ${progress.reason}`));
         bubble.append(note);
       }
     }
@@ -720,23 +749,20 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       try{await api(`/api/runs/${encodeURIComponent(discussion.stopRunId)}/stop`,{method:'POST',json:{commandId:`discussion-owner-stop:${discussion.stopRunId}:${discussion.questionId}`}});await refreshState({quiet:true});}catch(e){setError(e.message);b.disabled=false;}
     }));
     actions.push(copyMessageButton(handoff ? m.handoff.summary || m.text : m.text));
-    actions.push(fullscreenMessageButton(handoff ? m.handoff.summary || m.text : m.text, m.senderName, true, m.attachments, null, m.runId));
     actions.push(iconAction('original','Original',()=>{void historyViewer.open(m.projectId,m.runId&&!discussion?'result':'message',m.runId&&!discussion?m.runId:m.id).catch(e=>setError(e.message));}));
-    if(m.runId&&!discussion) {
-      const report=data.runReports?.find(r=>r.id===m.runId);
-      const run=data.runs?.find(r=>r.id===m.runId);
-      if(!run?.discussionWaiting&&(report||run?.reportRequired)) bubble.append(create('div','report-verdict',t('Business verdict: {v}', { v: ({passed:t('Passed'),failed:t('Not passed'),blocked:t('Blocked'),needs_input:t('User decision needed')}[report?.verdict])||t('To verify') })));
-    }
     if (m.runId) {
       const run = data.runs?.find(r => r.id === m.runId);
       if (run) actions.push(iconAction('log', 'Log', () => openTask(run.taskId,run.id)));
     }
-    col.append(bubble, chatMeta(formatTime(m.createdAt), actions));
+    actions.push(fullscreenMessageButton(handoff ? m.handoff.summary || m.text : m.text, m.senderName, agent || Boolean(handoff), m.attachments, null, m.runId));
+    if(m.runId&&openLiveScene){const run=data.runs?.find(r=>r.id===m.runId);if(run)actions.push(iconAction('live','Live execution (read-only)',()=>openLiveScene(run)));}
+    col.append(bubble, chatMeta('', actions));
     row.append(col);
     return row;
   }
 
   function renderMessages() {
+    cliRecoveryUI.refresh();
     const history = histories.get(projectId), messages = history?.messages || [];
     const scrollTop = scroller.scrollTop;
     const atBottom = scroller.scrollHeight - scroller.clientHeight - scrollTop < 120;

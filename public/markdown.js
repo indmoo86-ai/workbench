@@ -1,3 +1,5 @@
+import {t} from './i18n.js';
+
 /**
  * Renders Agent output as a safe Markdown subset.
  * Only DOM nodes are created and raw HTML is never accepted, so model messages cannot become a script entry point.
@@ -88,18 +90,49 @@ export function renderMarkdown(source) {
 
 /** Local or cloud documents in role replies open in a same-origin read-only page; the path is re-authorized by the Run workspace. */
 export function runDocumentHref(href,runId){
-  if(!runId||typeof href!=='string'||!/^(?:\/(?!\/)|\.\.?\/)/.test(href)||!/\.(?:md|markdown|txt)$/i.test(href))return null;
+  if(!runId||typeof href!=='string'||!/^(?:\/(?!\/)|\.\.?\/|\.workbench\/docs\/)/.test(href)||!/\.(?:md|markdown|txt)$/i.test(href))return null;
   return `/document.html?${new URLSearchParams({runId,path:href})}`;
 }
 
 export function linkRunDocuments(root,runId){
   if(!runId)return root;
+  root.normalize();
+  // 显式路径可能来自行内代码或普通文本；代码块和已有链接不做二次转换。
+  const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),nodes=[];let node;
+  while((node=walker.nextNode()))if(!node.parentElement.closest('a,pre'))nodes.push(node);
+  for(const text of nodes){
+    const exact=text.parentElement.tagName==='CODE'&&runDocumentHref(text.textContent,runId);
+    const pattern=/(?:\/(?!\/)|\.\.?\/|\.workbench\/docs\/)[^\s`<>"'，。；：！？、()\[\]]+\.(?:md|markdown|txt)(?=$|[\s，。；：！？、()\[\]])/gi;
+    const matches=exact?[{index:0,0:text.textContent}]:[...text.textContent.matchAll(pattern)];if(!matches.length)continue;
+    const fragment=document.createDocumentFragment();let cursor=0;
+    for(const match of matches){if(match.index>0&&/[\w:/]/.test(text.textContent[match.index-1]))continue;
+      fragment.append(document.createTextNode(text.textContent.slice(cursor,match.index)));const link=element('a');link.textContent=match[0];link.setAttribute('href',match[0]);fragment.append(link);cursor=match.index+match[0].length;
+    }
+    if(cursor){fragment.append(document.createTextNode(text.textContent.slice(cursor)));text.replaceWith(fragment);}
+  }
   for(const link of root.querySelectorAll('a[href]')){
-    const href=runDocumentHref(link.getAttribute('href'),runId);
+    const original=link.getAttribute('href'),href=runDocumentHref(original,runId);
     if(!href)continue;
     link.setAttribute('href',href);
     link.setAttribute('target','_blank');
     link.setAttribute('rel','opener');
+    link.dataset.documentPath=original;
+  }
+  return root;
+}
+
+/** 仅在 Mac 实际读取确认后替换可见路径；异步返回只更新原链接，不触碰新项目的 DOM。 */
+const documentMetadata=new Map();
+export function localizeDocumentLinks(root,runId,api){
+  for(const link of [...root.querySelectorAll('a[data-document-path]')].slice(0,12)){
+    const original=link.dataset.documentPath;
+    const key=JSON.stringify([runId,original]);let cached=documentMetadata.get(key);
+    if(!cached||Date.now()-cached.at>15000){cached={at:Date.now(),promise:api(`/api/runs/${encodeURIComponent(runId)}/document?metadata=1&path=${encodeURIComponent(original)}`)};documentMetadata.set(key,cached);if(documentMetadata.size>200)documentMetadata.delete(documentMetadata.keys().next().value);}
+    void cached.promise.then(result=>{
+      if(!result.shared)return;link.dataset.syncState=result.syncState;
+      if(result.path){if(link.textContent===original)link.textContent=result.path;link.title=result.path;link.setAttribute('translate','no');}
+      else{link.title=t('Waiting for local synchronization');if(link.textContent===original)link.textContent=`${original.split('/').at(-1)} · ${t('Waiting for local synchronization')}`;}
+    }).catch(()=>{});
   }
   return root;
 }
@@ -152,6 +185,8 @@ function appendInline(parent, input) {
     if (code) {
       const node = element('code'); node.textContent = code[1]; parent.append(node); cursor += code[0].length; continue;
     }
+    const documentPath=text.slice(cursor).match(/^(?:\/(?!\/)|\.\.?\/|\.workbench\/docs\/)[^\s`<>"'，。；：！？、()\[\]]+\.(?:md|markdown|txt)(?=$|[\s，。；：！？、()\[\]])/i);
+    if(documentPath){parent.append(document.createTextNode(documentPath[0]));cursor+=documentPath[0].length;continue;}
     const strong = text.slice(cursor).match(/^(\*\*|__)(?=\S)([\s\S]*?\S)\1/);
     if (strong) {
       const node = element('strong'); appendInline(node, strong[2]); parent.append(node); cursor += strong[0].length; continue;
@@ -172,7 +207,7 @@ function appendInline(parent, input) {
       cursor += link[0].length; continue;
     }
     let end = cursor + 1;
-    while (end < text.length && !/[\n\\`*_[\]]/.test(text[end])) end += 1;
+    while (end < text.length && !/[\n\\`*_[\]/]/.test(text[end])) end += 1;
     parent.append(document.createTextNode(text.slice(cursor, end))); cursor = end;
   }
 }

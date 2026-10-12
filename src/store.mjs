@@ -6,7 +6,7 @@ import { giteeRepository } from './repository.mjs';
 import { roleWorkspace } from './project-repositories.mjs';
 import { projectRepositories } from './project-space.mjs';
 import { projectTerminalLock } from './terminal-resume.mjs';
-import { RoleSessions } from './role-sessions.mjs';
+import { RoleSessions,taskConversationId } from './role-sessions.mjs';
 import { buildRunContext } from './run-context.mjs';
 import { steeringWaitReason } from './role-steering.mjs';
 import {RoleDiscussions} from './role-discussions.mjs';
@@ -15,6 +15,7 @@ import { tr } from './i18n.mjs';
 import {switchSettled,roleSwitchWaitReason,effectiveExecutionRole,isSwitchMaintenance} from './role-switch-policy.mjs';
 import {syncError} from './source-sync-manifest.mjs';
 import {sourceInputWaitReason,sourceConflictContext} from './source-sync-input.mjs';
+import {ProactiveFollowup,followupFor,privateFollowup} from './proactive-followup.mjs';
 
 export const terminal = new Set(['succeeded', 'failed', 'interrupted']);
 const now = () => new Date().toISOString();
@@ -28,13 +29,25 @@ export class Store {
       CREATE TABLE IF NOT EXISTS records(kind TEXT NOT NULL,id TEXT NOT NULL,data TEXT NOT NULL,PRIMARY KEY(kind,id));
       CREATE TABLE IF NOT EXISTS events(id TEXT PRIMARY KEY,run_id TEXT NOT NULL,seq INTEGER NOT NULL,data TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS events_run ON events(run_id,seq);
+      CREATE TABLE IF NOT EXISTS room_message_receipts(seq INTEGER PRIMARY KEY AUTOINCREMENT,message_id TEXT NOT NULL UNIQUE,project_id TEXT NOT NULL,received_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS room_receipts_project ON room_message_receipts(project_id,seq);
       CREATE INDEX IF NOT EXISTS records_kind_project ON records(kind,json_extract(data,'$.projectId'));`);
   }
   get(kind, id) { const r = this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind, id); return r ? JSON.parse(r.data) : null; }
   list(kind) { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(r.data)); }
   /** Project-local sync metadata must not scan or serialize other projects' full manifests. */
   listProject(kind,projectId) {return this.db.prepare("SELECT data FROM records WHERE kind=? AND json_extract(data,'$.projectId')=? ORDER BY rowid").all(kind,projectId).map(r=>JSON.parse(r.data));}
-  put(kind, value) { this.db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind, value.id, JSON.stringify(value)); return value; }
+  put(kind, value) {
+    if(kind==='roomMessages')return this.transaction(()=>{
+      const previous=this.get(kind,value.id);
+      if(!previous)this.db.prepare('INSERT OR IGNORE INTO room_message_receipts(message_id,project_id,received_at) VALUES(?,?,?)').run(value.id,value.projectId,now());
+      this.db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(value));return value;
+    });
+    this.db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind, value.id, JSON.stringify(value));return value;
+  }
+  /** A monotonic Home receipt survives edits, imports, deletion and restarts without trusting a device timestamp. */
+  messageCursor(projectId){return this.db.prepare('SELECT COALESCE(MAX(seq),0) AS seq FROM room_message_receipts WHERE project_id=?').get(projectId).seq;}
+  messageArrivals(projectId,after){return this.db.prepare("SELECT r.data,m.seq,m.received_at FROM room_message_receipts m JOIN records r ON r.kind='roomMessages' AND r.id=m.message_id WHERE m.project_id=? AND m.seq>? ORDER BY m.seq").all(projectId,after).map(r=>({...JSON.parse(r.data),receiptSeq:r.seq,receivedAt:r.received_at}));}
   remove(kind, id) { this.db.prepare('DELETE FROM records WHERE kind=? AND id=?').run(kind, id); }
   /** A synchronous transaction makes the check and the creation a single operation, avoiding duplicate claims. */
   transaction(fn) {
@@ -66,7 +79,7 @@ export class Store {
       if(this.list('roleSwitches').some(op=>op.projectId===id&&(!switchSettled(op)||!op.steps.released)))throw new Error('Project still has an unsettled CLI switch.');
       if(this.listProject('sourceSyncCommands',id).some(c=>!c.result))throw syncError('sync_busy');
       for(const c of this.listProject('sourceSyncCommands',id))this.put('sourceSyncTombstones',{id:c.id,nodeId:c.nodeId,projectId:id,generation:c.generation,deletedAt:now()});
-      for(const kind of ['sourceSyncConfigs','sourceSyncManifests','sourceSyncVersions','sourceSyncDevices','sourceSyncBatches','sourceSyncConflicts','sourceSyncConflictHistory','sourceSyncCandidates','sourceSyncProvenance','sourceSyncCommands','sourceSyncReceipts','sourceSyncUploads','sourceSyncUploadReceipts'])for(const r of this.listProject(kind,id))this.remove(kind,r.id);
+      for(const kind of ['sourceSyncConfigs','sourceSyncManifests','sourceSyncVersions','sourceSyncDevices','sourceSyncBatches','sourceSyncConflicts','sourceSyncConflictHistory','sourceSyncCandidates','sourceSyncProvenance','sourceSyncCommands','sourceSyncReceipts','sourceSyncUploads','sourceSyncUploadReceipts','sourceSyncWatchStates','sourceSyncWatchNotices'])for(const r of this.listProject(kind,id))this.remove(kind,r.id);
       if(this.list('discussionThreads').some(t=>t.projectId===id&&t.status==='open')
         ||this.list('discussionDeliveries').some(d=>d.projectId===id&&['queued','dispatched','runtime_accepted','reconciling'].includes(d.status))
         ||this.list('discussionIntents').some(i=>i.projectId===id&&i.status==='queued'))throw new Error(tr('store.projectStillHasUnfinishedDiscussions'));
@@ -88,6 +101,9 @@ export class Store {
       }
       for (const t of this.list('tasks').filter(t => t.projectId === id)) this.remove('tasks', t.id);
       for (const m of this.list('roomMessages').filter(m => m.projectId === id)) this.remove('roomMessages', m.id);
+      this.remove('proactiveFollowups',id);
+      for(const kind of ['cliRecoveries','cliRecoveryDecisions'])for(const record of this.list(kind).filter(r=>r.projectId===id))this.remove(kind,record.id);
+      this.db.prepare('DELETE FROM room_message_receipts WHERE project_id=?').run(id);
       for (const r of this.list('roles').filter(r => r.projectId === id)) this.remove('roles', r.id);
       for (const w of this.list('workspaces').filter(w => w.projectId === id)) this.remove('workspaces', w.id);
       for (const g of this.list('gitChecks').filter(g => g.projectId === id)) this.remove('gitChecks', g.id);
@@ -128,7 +144,8 @@ export class Store {
       if (prior) { if (prior.fingerprint !== fingerprint) throw new Error(tr('store.commandidParameterConflict')); return this.get('runs', prior.runId); }
       if (this.get('settings', 'main')?.paused) throw new Error(tr('store.remoteCommandsPaused'));
       if (this.get('workers',nodeId)?.capabilities?.projectSpace !== 1) throw new Error(tr('store.upgradeTargetWorkerSupportShared'));
-      const storedTask = this.get('tasks', taskId);
+      const storedTask = new ProactiveFollowup(this).prepareStart(taskId);
+      if(!storedTask&&this.get('tasks',taskId))return null;
       if (!storedTask) throw new Error(tr('store.taskNotFound'));
       const task = storedTask.executionBinding ? {...storedTask,roleSnapshot:effectiveExecutionRole(this,storedTask),model:effectiveExecutionRole(this,storedTask).model} : storedTask;
       const switchReason=roleSwitchWaitReason(this,task);if(switchReason)throw new Error(switchReason);
@@ -145,9 +162,10 @@ export class Store {
       if (!task.roleSnapshot?.systemSupervisor && repositories.some(repo => !repo.localRoot)) throw new Error(tr('store.projectRepositoriesOnDeviceNot'));
       const sourceWait=sourceInputWaitReason(this,task,nodeId);if(sourceWait)throw syncError(sourceWait);
       const roleSession = isSwitchMaintenance(task) ? this.get('roleSessions',task.switchSessionId) : task.origin === 'chat' && (task.roleSnapshot?.id || task.roleId)
-        ? new RoleSessions(this).getOrCreate({projectId:task.projectId,conversationId:task.sourceInputs?.length&&task.execution?.isolated?`${task.projectId}:source:${task.sourceSessionKey||task.sourceConflictAssignmentId||task.id}`:task.conversationId||task.projectId,
+        ? new RoleSessions(this).getOrCreate({projectId:task.projectId,conversationId:taskConversationId(task),
           roleId:task.roleSnapshot?.id||task.roleId,nodeId,runtime:task.roleSnapshot?.runtime||'codex',model:task.model,workspaceRoot:binding.localRoot}) : null;
       const run = { id: randomUUID(), taskId, projectId: task.projectId, nodeId, repositoryId,turnPurpose:'task',directionRevision:task.directionRevision||1,
+        ...(followupFor(this,task)?{proactiveFollowup:followupFor(this,task),backgroundFollowup:privateFollowup(this,task)}:{}),
         ...(isSwitchMaintenance(task)?{switchOperationId:task.switchOperationId,switchPhase:task.switchPhase,switchHandoffHash:task.switchHandoffHash}:{}),
         ...(storedTask.executionBinding?{originalRoleSnapshot:storedTask.roleSnapshot,executionBinding:storedTask.executionBinding,inputTask:task}:{}),
         sourceInputs:structuredClone(task.sourceInputs||[]),sourceSyncBatchId:task.sourceSyncBatchId||null,
@@ -161,6 +179,7 @@ export class Store {
         requestId: task.requestId || null, deliveryId: task.deliveryId || null, continuationRunId: task.continuationRunId || null, planId: task.planId || null, planVersion: task.planVersion || null, stepId: task.stepId || null,
         ...(task.origin === 'chat' ? { roleId: task.roleId, roleSnapshot: task.roleSnapshot, sourceMessageId: task.sourceMessageId, sourceRunId: task.sourceRunId, hop: task.hop || 0 } : {}) };
       if(task.origin==='chat'&&!isSwitchMaintenance(task)) {
+        if(run.backgroundFollowup)run.followupState=this.listProject('tasks',task.projectId).filter(t=>t.id!==task.id).slice(-10).map(t=>({taskId:t.id,status:t.status,roleId:t.roleId,runId:t.currentRunId||null,requestId:t.requestId||null,waitingReason:t.waitingReason||null}));
         const context=this.get('conversationContexts',`${task.projectId}:${task.conversationId||task.projectId}`);
         const source=task.sourceMessageId?this.get('roomMessages',task.sourceMessageId):null;
         const messages=this.list('roomMessages').filter(message=>message.projectId===task.projectId && (message.conversationId||message.projectId)===(task.conversationId||task.projectId) && message.kind!=='summary');
@@ -217,6 +236,9 @@ export class Store {
         if (r.stopRequested && !terminal.has(next.status) && next.status !== 'reconciling') next.status = 'stopping';
       }
       if (e.type === 'usage') next.usage = e.payload;
+      // Preserve finished business results while accepting the owning Worker's driver-exit facts.
+      if(e.type==='status'&&terminal.has(r.status)&&e.payload.runtimeRetained===false&&e.payload.processSettled===true)
+        Object.assign(next,{runtimeRetained:false,processSettled:true,driverState:e.payload.driverState,...(e.payload.pid===null?{pid:null,previousPid:e.payload.previousPid||r.pid}:{})});
       if (e.type === 'status' && e.payload.controlLost) {
         for (const a of this.list('approvals').filter(a => a.runId === r.id && ['pending', 'responding'].includes(a.status))) {
           this.put('approvals', { ...a, status: a.status === 'responding' ? 'unconfirmed' : 'expired' });
@@ -238,7 +260,7 @@ export class Store {
       return next;
     });
   }
-  events(runId, after = 0) { return this.db.prepare('SELECT data FROM events WHERE run_id=? AND seq>? ORDER BY seq').all(runId,after).map(r => JSON.parse(r.data)); }
+  events(runId, after = 0, limit = -1) { return this.db.prepare('SELECT data FROM events WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?').all(runId,after,limit).map(r => JSON.parse(r.data)); }
   /** Manual acceptance only applies to the latest successful execution; a stale page cannot confirm the result of another round. */
   acceptTask(taskId, runId) {
     return this.transaction(() => {

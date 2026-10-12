@@ -4,7 +4,7 @@ import {open,writeFile,lstat,realpath,rename,link,unlink,chmod,mkdir} from 'node
 import {constants} from 'node:fs';
 import {join,dirname,resolve} from 'node:path';
 import {contentHash,syncError,entryEqual,manifestDigest,SOURCE_SYNC_LIMITS} from './source-sync-manifest.mjs';
-import {sourceFilePath,readSourceFile,readSourceBlob,captureSourceSnapshot,captureGitBase} from './source-sync-files.mjs';
+import {sourceFilePath,readSourceFile,readSourceBlob,captureSourceSnapshot,captureGitBase,captureDirectorySnapshot} from './source-sync-files.mjs';
 
 const exec=promisify(execFile),now=()=>new Date().toISOString();
 const exists=async path=>{try{return await lstat(path);}catch(e){if(e.code==='ENOENT')return null;throw e;}};
@@ -31,6 +31,7 @@ async function privateEntry(path) {
 
 /** Recover an interrupted promotion only from exact saved evidence; unknown writers never lose their copy. */
 async function recoverFile(db,journal,root) {
+  const policy=journal.scopePolicy||{};
   if(journal.status==='applied'||journal.status==='unchanged')return journal;
   const targetPath=join(root,journal.path);
   if(await realpath(dirname(targetPath))!==dirname(targetPath))throw syncError('unsafe_file',journal.path);
@@ -40,12 +41,12 @@ async function recoverFile(db,journal,root) {
     const alias=await exists(privatePath);
     if(alias?.isFile()&&!alias.isSymbolicLink()&&alias.ino===target.ino&&alias.dev===target.dev){await unlink(privatePath);break;}
   }
-  const current=(await readSourceFile(root,journal.path)).entry,backup=await privateEntry(journal.backupPath);
+  const current=(await readSourceFile(root,journal.path,policy)).entry,backup=await privateEntry(journal.backupPath);
   if(entryEqual(current,journal.after)&&(journal.before===null||backup&&entryEqual(backup,journal.before)))
     return db.put('sourceSyncJournals',{...journal,status:'applied',reconciled:true,updatedAt:now()});
   if(backup){
     // Restore only into an absent path; link is no-clobber, unlike an overwriting rename.
-    if(current===null&&journal.before!==null){const target=await sourceFilePath(root,journal.path,{createParents:true});try{await link(journal.backupPath,target.path);await unlink(journal.backupPath);}catch(e){if(e.code!=='EEXIST')throw e;}}
+    if(current===null&&journal.before!==null){const target=await sourceFilePath(root,journal.path,{createParents:true,policy});try{await link(journal.backupPath,target.path);await unlink(journal.backupPath);}catch(e){if(e.code!=='EEXIST')throw e;}}
     return db.put('sourceSyncJournals',{...journal,status:'conflict',reason:'recovery_requires_review',updatedAt:now()});
   }
   if(entryEqual(current,journal.before))return journal;
@@ -54,25 +55,25 @@ async function recoverFile(db,journal,root) {
 
 /** Apply a fixed batch with per-file journaling, backups and no-clobber final installation. */
 export async function applySourceChanges({command,root,changes,db,blobRoot,cancelled=()=>false}) {
-  root=await realpath(root);
+  root=await realpath(root);const policy=command.scopePolicy||{};
   if(!/^[a-zA-Z0-9:_-]{1,160}$/.test(command.id||'')||!Array.isArray(changes)||changes.length>SOURCE_SYNC_LIMITS.paths)throw syncError('invalid_command');
   const previous=Object.fromEntries(changes.map(c=>[c.path,c.before])),next=Object.fromEntries(changes.map(c=>[c.path,c.after]));
-  if(Object.keys(next).length!==changes.length)throw syncError('duplicate_path');manifestDigest(previous);manifestDigest(next);
+  if(Object.keys(next).length!==changes.length)throw syncError('duplicate_path');manifestDigest(previous,policy);manifestDigest(next,policy);
   if(changes.reduce((n,c)=>n+(c.after?.size||0),0)>SOURCE_SYNC_LIMITS.batchBytes)throw syncError('batch_too_large');
-  if(await head(root)!==command.baseCommit)throw syncError('git_baseline_mismatch');
-  await excludeRecoveryFiles(root);
+  if(command.scopeKind!=='directory'&&await head(root)!==command.baseCommit)throw syncError('git_baseline_mismatch');
+  if(command.scopeKind!=='directory')await excludeRecoveryFiles(root);
   const fingerprint=signature(command,root),files=[];
   for(const change of changes){
     const id=`${command.id}:${contentHash(change.path)}`;let journal=db.get('sourceSyncJournals',id);
     if(journal&&journal.fingerprint!==fingerprint)throw syncError('command_conflict');
     if(journal){journal=await recoverFile(db,journal,root);if(['applied','unchanged','conflict'].includes(journal.status)){files.push(journal);continue;}}
     if(cancelled()){if(journal)db.put('sourceSyncJournals',{...journal,status:'cancelled',updatedAt:now()});return {status:'cancelled',files};}
-    if(await head(root)!==command.baseCommit)throw syncError('git_baseline_mismatch');
-    const current=await readSourceFile(root,change.path);
-    const target=await sourceFilePath(root,change.path,{createParents:true});
+    if(command.scopeKind!=='directory'&&await head(root)!==command.baseCommit)throw syncError('git_baseline_mismatch');
+    const current=await readSourceFile(root,change.path,policy);
+    const target=await sourceFilePath(root,change.path,{createParents:true,policy});
     const key=contentHash(id),backupPath=join(dirname(target.path),`.wb-source-sync-${key}.old`),tempPath=join(dirname(target.path),`.wb-source-sync-${key}.new`);
     const base={id,commandId:command.id,projectId:command.projectId,repositoryId:command.repositoryId,generation:command.generation,fingerprint,
-      path:change.path,before:change.before,after:change.after,backupPath,tempPath,updatedAt:now()};
+      scopeKind:command.scopeKind||'repository',scopePolicy:policy,path:change.path,before:change.before,after:change.after,backupPath,tempPath,updatedAt:now()};
     if(entryEqual(current.entry,change.after)){files.push(db.put('sourceSyncJournals',{...base,status:'unchanged'}));continue;}
     if(!entryEqual(current.entry,change.before)){files.push(db.put('sourceSyncJournals',{...base,status:'conflict',reason:'target_changed',observed:current.entry}));continue;}
     if(change.after){const bytes=await readSourceBlob(blobRoot,change.after.hash);if(bytes.length!==change.after.size)throw syncError('blob_corrupt');
@@ -82,9 +83,9 @@ export async function applySourceChanges({command,root,changes,db,blobRoot,cance
     }
     journal=db.put('sourceSyncJournals',{...base,status:'prepared'});
     if(cancelled()){db.put('sourceSyncJournals',{...journal,status:'cancelled',updatedAt:now()});return {status:'cancelled',files};}
-    const fresh=await readSourceFile(root,change.path);
+    const fresh=await readSourceFile(root,change.path,policy);
     if(!entryEqual(fresh.entry,change.before)){files.push(db.put('sourceSyncJournals',{...journal,status:'conflict',reason:'target_changed',observed:fresh.entry}));continue;}
-    await sourceFilePath(root,change.path,{createParents:true});
+    await sourceFilePath(root,change.path,{createParents:true,policy});
     if(change.before!==null){
       if(await exists(backupPath))throw syncError('unsafe_recovery_file');
       await rename(target.path,backupPath);
@@ -92,10 +93,10 @@ export async function applySourceChanges({command,root,changes,db,blobRoot,cance
       if(!entryEqual(displaced,change.before)){files.push(await recoverFile(db,journal,root));continue;}
     }
     if(change.after){
-      try{await sourceFilePath(root,change.path,{createParents:true});await link(tempPath,target.path);await unlink(tempPath);}
+      try{await sourceFilePath(root,change.path,{createParents:true,policy});await link(tempPath,target.path);await unlink(tempPath);}
       catch(e){if(e.code!=='EEXIST')throw e;files.push(db.put('sourceSyncJournals',{...journal,status:'conflict',reason:'target_changed'}));continue;}
     }
-    const observed=(await readSourceFile(root,change.path)).entry;
+    const observed=(await readSourceFile(root,change.path,policy)).entry;
     if(!entryEqual(observed,change.after)){files.push(db.put('sourceSyncJournals',{...journal,status:'conflict',reason:'target_changed',observed}));continue;}
     files.push(db.put('sourceSyncJournals',{...journal,status:'applied',updatedAt:now()}));
   }
@@ -109,37 +110,40 @@ export class SourceSyncWorker {
   }
   canStart(projectId) {return !this.db.get('sourceSyncReservations',projectId);}
   async execute(command) {
+    const observing=command.scopeKind==='directory'&&command.action==='capture';
     const fingerprint=contentHash(JSON.stringify(command)),old=this.db.get('sourceSyncCommands',command.id);
     if(old&&old.fingerprint!==fingerprint)throw syncError('command_conflict');
     if(old?.result&&['completed','partial_conflict','cancelled','blocked'].includes(old.result.status))return old.result;
     if(this.running.has(command.id))return {status:'reconciling'};
     this.db.put('sourceSyncCommands',{id:command.id,projectId:command.projectId,command,fingerprint,status:'pending'});
     if(this.paused()&&!this.db.get('sourceSyncReservations',command.projectId))return {status:'blocked',reason:'paused'};
-    if(this.takeoverState(command.projectId)||this.activeRuns().some(r=>(r.projectId==='*'||r.projectId===command.projectId)&&!['succeeded','failed','interrupted'].includes(r.status)))return {status:'waiting_idle'};
+    if(!observing&&(this.takeoverState(command.projectId)||this.activeRuns().some(r=>(r.projectId==='*'||r.projectId===command.projectId)&&!['succeeded','failed','interrupted'].includes(r.status))))return {status:'waiting_idle'};
     const held=this.db.get('sourceSyncReservations',command.projectId);if(held&&held.commandId!==command.id)return {status:'waiting_idle'};
-    this.running.add(command.id);this.db.put('sourceSyncReservations',{id:command.projectId,commandId:command.id,repositoryId:command.repositoryId});
+    this.running.add(command.id);if(!observing)this.db.put('sourceSyncReservations',{id:command.projectId,commandId:command.id,repositoryId:command.repositoryId});
     try{
       const binding=await this.resolveBinding(command);
       if(!binding||binding.generation!==command.generation)throw syncError('binding_changed');
       let result;
       if(command.action==='capture'&&this.db.get('sourceSyncCancellations',command.id))result={status:'cancelled',files:[]};
       else if(command.action==='capture'){
-        const options={root:binding.root,repositoryId:command.repositoryId,generation:command.generation,blobRoot:this.blobRoot,expectedHead:command.baseCommit};
-        const base=await captureGitBase(options),manifest=await captureSourceSnapshot({...options,base});result={status:'completed',base,manifest};
+        const options={root:binding.root,repositoryId:command.repositoryId,generation:command.generation,blobRoot:this.blobRoot,expectedHead:command.baseCommit,scopePolicy:command.scopePolicy||{},baselineEntries:command.baselineEntries};
+        if(command.scopeKind==='directory'){
+          const manifest=await captureDirectorySnapshot(options),base={...manifest,entries:{},digest:manifestDigest({},options.scopePolicy),excluded:[]};result={status:'completed',base,manifest};
+        }else{const base=await captureGitBase(options),manifest=await captureSourceSnapshot({...options,base});result={status:'completed',base,manifest};}
       }else if(command.action==='apply')result=await applySourceChanges({command,root:binding.root,changes:command.changes,db:this.db,blobRoot:this.blobRoot,
         cancelled:()=>this.paused()||this.db.get('sourceSyncCancellations',command.id)});
       else throw syncError('invalid_sync_action');
       this.db.transaction(()=>{
         this.db.put('sourceSyncCommands',{...this.db.get('sourceSyncCommands',command.id),status:result.status,result});
         this.db.put('sourceSyncReceipts',{id:command.id,projectId:command.projectId,generation:command.generation,fingerprint,result,createdAt:now()});
-        this.db.remove('sourceSyncReservations',command.projectId);
+        if(this.db.get('sourceSyncReservations',command.projectId)?.commandId===command.id)this.db.remove('sourceSyncReservations',command.projectId);
       });return result;
     }catch(error){
       const uncertain=this.db.list('sourceSyncJournals').some(j=>j.commandId===command.id&&j.status==='prepared');
       const result={status:uncertain?'reconciling':'blocked',reason:error.code||'apply_failed'};
       this.db.transaction(()=>{
         this.db.put('sourceSyncCommands',{...this.db.get('sourceSyncCommands',command.id),status:result.status,...(!uncertain?{result}:{})});
-        if(!uncertain){this.db.put('sourceSyncReceipts',{id:command.id,projectId:command.projectId,generation:command.generation,fingerprint,result,createdAt:now()});this.db.remove('sourceSyncReservations',command.projectId);}
+        if(!uncertain){this.db.put('sourceSyncReceipts',{id:command.id,projectId:command.projectId,generation:command.generation,fingerprint,result,createdAt:now()});if(this.db.get('sourceSyncReservations',command.projectId)?.commandId===command.id)this.db.remove('sourceSyncReservations',command.projectId);}
       });return result;
     }finally{this.running.delete(command.id);}
   }

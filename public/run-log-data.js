@@ -1,15 +1,15 @@
 import { t } from './i18n.js';
-/** Business acceptance belongs to the Task; a past discussion keeps its own outcome and is not rewritten by the original task's acceptance. */
-export function taskRunDisplayStatus(task,run) {
-  if(run?.discussionDeliveryId)return run.status;
-  return ['done','awaiting_acceptance'].includes(task.status)?task.status:run?.status||task.status;
+import {executionProgress} from './execution-progress.js';
+/** Acceptance stays in the report/actions. A historical or discussion Run is not relabeled by the current task's waits. */
+export function taskRunDisplayStatus(task,run,request) {
+  return executionProgress({run,task,request}).state;
 }
 
 /** Execution details put only real tool calls on the tools page; status updates of the same tool are merged. */
 export function partitionRunLog(events = []) {
   const result = { input: null, output: [], tools: [] };
   const toolIndex = new Map();
-  for (const event of [...events].sort((a, b) => (a.seq || 0) - (b.seq || 0))) {
+  for (const event of mergeRunEvents([],events)) {
     if (event.type === 'input') {
       result.input = event.payload || null;
       continue;
@@ -23,11 +23,15 @@ export function partitionRunLog(events = []) {
     if (!item || ['reasoning', 'userMessage', 'contextCompaction'].includes(item.type)) continue;
     const key = item.id || `seq:${event.seq}`;
     const previous = toolIndex.get(key);
+    const merged={...(previous?.item||{}),...item};
+    if(item.aggregatedOutput!==undefined||item.output!==undefined)merged.aggregatedOutput=item.aggregatedOutput??item.output;
+    else if(typeof item.outputDelta==='string')merged.aggregatedOutput=String(previous?.item?.aggregatedOutput||'')+item.outputDelta;
+    delete merged.outputDelta;
     if (previous) {
-      previous.item = { ...previous.item, ...item };
+      previous.item = merged;
       previous.updatedAt = event.createdAt || previous.updatedAt;
     } else {
-      const tool = { seq: event.seq, createdAt: event.createdAt, updatedAt: event.createdAt, item };
+      const tool = { seq: event.seq, createdAt: event.createdAt, updatedAt: event.createdAt, item:merged };
       toolIndex.set(key, tool);
       result.tools.push(tool);
     }

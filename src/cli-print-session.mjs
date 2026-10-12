@@ -4,6 +4,8 @@ import { nativeSessionId } from './terminal-resume.mjs';
 import { tr } from './i18n.mjs';
 import { executionText } from './input-language.mjs';
 
+const MAX_TOOL_OUTPUT = 12000;
+
 function extractText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) return content.map(extractText).filter(Boolean).join('');
@@ -12,6 +14,15 @@ function extractText(content) {
   if (content.content !== undefined) return extractText(content.content);
   if (typeof content.result === 'string') return content.result;
   return '';
+}
+
+function boundedToolOutput(content) {
+  const text=extractText(content);
+  let output;
+  if(typeof content==='string'||text)output=text;
+  else if(content===undefined||content===null)return {value:undefined,truncated:false};
+  else try{output=JSON.stringify(content);}catch{output=String(content);}
+  return {value:output.slice(-MAX_TOOL_OUTPUT),truncated:output.length>MAX_TOOL_OUTPUT};
 }
 
 function roleRules(roleName, roleInstructions) {
@@ -87,7 +98,7 @@ export class CliPrintSession {
       this.emit('status',{status:'running',workspace:this.cwd,nativeSessionId:this.nativeSessionId});
       this.sendTurn(prompt);return;
     }
-    this.proc = spawn(this.bin(), this.args(prompt), { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], env: this.env });
+    this.proc = spawn(this.bin(), this.args(prompt), { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], env: this.env,detached:process.platform!=='win32' });
     this.proc.stdin.on('error',e=>{if(!this.done){this.finish('failed',tr('cliPrintSession.cliInputStreamClosed', { message: e.message }));this.shutdown();}});
     // Grok uses stdin EOF as a user-cancel signal while headless tools are running.
     if (this.runtime !== 'grok' && !this.keepAlive) try { this.proc.stdin.end(); } catch {}
@@ -172,12 +183,26 @@ export class CliPrintSession {
       }
     }
     // Agy 1.2.x reports the tool lifecycle via step_update; a stable ID lets the page merge start and end.
-    if(this.runtime==='agy' && type==='step_update' && m.step_type==='tool' && m.tool_info && m.step_index!==undefined) {
+    if(this.runtime==='agy' && type==='step_update' && m.step_type==='tool' && m.tool_info && m.step_index!==undefined && (m.conversation_id||this.nativeSessionId)) {
+      const output=boundedToolOutput(m.tool_info.output);
       this.emit('tool',{text:m.tool_name||m.tool_info.name||tr('cliPrintSession.toolCall'),item:{
         id:`agy:${m.conversation_id||this.nativeSessionId}:${m.step_index}`,type:'tool_call',
-        name:m.tool_name||m.tool_info.name,arguments:m.tool_info.parameters,output:m.tool_info.output,
+        name:m.tool_name||m.tool_info.name,arguments:m.tool_info.parameters,output:output.value,...(output.truncated?{outputTruncated:true}:{}),
         status:m.state==='DONE'?'completed':['ERROR','FAILED'].includes(m.state)?'failed':'inProgress'
       }});
+    }
+    const toolResult=m.tool_result||m.toolResult||(type==='tool_result'||type==='tool_result_delta'?m:null);
+    if(toolResult) {
+      const id=toolResult.tool_use_id||toolResult.toolUseId||toolResult.call_id||toolResult.id;
+      const output=toolResult.output??toolResult.content??toolResult.result??toolResult.delta;
+      if(id&&output!==undefined) {
+        const isDelta=type==='tool_result_delta'||toolResult.type==='tool_result_delta';
+        const bounded=boundedToolOutput(output);
+        this.emit('tool',{text:toolResult.name||tr('cliPrintSession.toolResult'),item:{
+          id,type:'tool_result',status:isDelta?'inProgress':toolResult.is_error?'failed':'completed',
+          is_error:Boolean(toolResult.is_error),[isDelta?'outputDelta':'output']:bounded.value,...(bounded.truncated?{outputTruncated:true}:{})
+        }});
+      }
     }
     const tool = m.tool_use || m.toolCall || (type === 'tool_use' || type === 'tool_call' || type === 'tool' ? m : null);
     if (tool && (tool.name || tool.title || tool.command || type === 'tool_call')) {
@@ -186,7 +211,7 @@ export class CliPrintSession {
     if (Array.isArray(m.message?.content)) {
       for (const block of m.message.content) {
         if (block?.type === 'tool_use' || block?.name) this.emit('tool', { text: block.name || block.type || tr('cliPrintSession.working2'), item: block });
-        if(block?.type==='tool_result'&&block.tool_use_id)this.emit('tool',{text:tr('cliPrintSession.toolResult'),item:{id:block.tool_use_id,status:block.is_error?'failed':'completed',is_error:Boolean(block.is_error)}});
+        if(block?.type==='tool_result'&&block.tool_use_id){const output=boundedToolOutput(block.content);this.emit('tool',{text:tr('cliPrintSession.toolResult'),item:{id:block.tool_use_id,type:'tool_result',status:block.is_error?'failed':'completed',is_error:Boolean(block.is_error),output:output.value,...(output.truncated?{outputTruncated:true}:{})}});}
       }
     }
   }

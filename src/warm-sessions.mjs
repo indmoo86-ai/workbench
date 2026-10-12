@@ -7,8 +7,8 @@ export function warmSessionFingerprint({folder,runtimeType,model,effort,roleName
 
 /** Only cache processes of completed turns; active Runs are still managed by the Worker's existing concurrency table. */
 export class WarmSessions {
-  constructor({idleMs=300000,max=4,changed=()=>{}}={}) {
-    this.idleMs=idleMs; this.max=max; this.changed=changed; this.entries=new Map();
+  constructor({idleMs=300000,max=4,changed=()=>{},retired=()=>{}}={}) {
+    this.idleMs=idleMs; this.max=max; this.changed=changed; this.retired=retired; this.entries=new Map();
   }
   alive(session) { return Boolean(session?.proc && !session.proc.killed && session.proc.exitCode===null && session.proc.signalCode===null); }
   owns(pid) { return [...this.entries.values()].some(e=>e.session.proc?.pid===pid); }
@@ -26,7 +26,7 @@ export class WarmSessions {
     const entry={session,fingerprint,metadata,idleUntil:new Date(Date.now()+this.idleMs).toISOString()};
     this.entries.set(key,entry);
     entry.timer=setTimeout(()=>{void this.drop(key);},this.idleMs);entry.timer.unref();
-    entry.onExit=()=>{if(this.entries.get(key)===entry){clearTimeout(entry.timer);this.entries.delete(key);this.changed();}};
+    entry.onExit=()=>{if(this.entries.get(key)===entry){clearTimeout(entry.timer);this.entries.delete(key);this.retireEntry(entry);this.changed();}};
     session.proc.once('exit',entry.onExit);
     this.changed();return true;
   }
@@ -54,8 +54,11 @@ export class WarmSessions {
     }
     if(this.entries.get(key)===entry)this.entries.delete(key);
     proc?.removeListener('exit',entry.onExit);
+    this.retireEntry(entry);
     this.changed();
   }
+  /** Report exit once; taking a driver for reuse does not retire it. */
+  retireEntry(entry){if(entry.retirementNotified)return;entry.retirementNotified=true;this.retired(entry.metadata,entry.session.proc?.pid);}
   async closeProject(projectId) {for(const [key,e] of this.entries)if(e.metadata.projectId===projectId)await this.drop(key);}
   async closeAll() {await Promise.all([...this.entries.keys()].map(key=>this.drop(key)));}
 }

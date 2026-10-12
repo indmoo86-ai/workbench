@@ -8,6 +8,17 @@ const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 allowed.add('/api/agent/discussions');
 allowed.add('/api/agent/source-sync');
 
+/** Dispatch pause must not swallow accepted work's conclusions; new work and write operations remain blocked. */
+export function allowsPausedAgentOperation(pathname,input={}) {
+  return new Set(['/api/agent/report','/api/agent/wait','/api/agent/note','/api/agent/setup/catalog','/api/agent/history/search','/api/agent/history/read','/api/agent/sessions/current','/api/agent/sessions/list','/api/agent/sessions/summary','/api/agent/sessions/read','/api/agent/conversation/summary']).has(pathname)
+    ||pathname==='/api/agent/discussions'&&['peers','read','reply','resolve'].includes(input.action);
+}
+
+/** Pause is not cancellation: retained identity, connection and live process checks still apply to every tool call. */
+export function canSendAgentOperation({paused,quitting,connected,status},pathname,input) {
+  return !quitting&&connected&&['running','starting'].includes(status)&&(!paused||allowsPausedAgentOperation(pathname,input));
+}
+
 /** Sender identity belongs to the persisted Run; target role/session identifiers remain valid tool input. */
 export function assertAgentSender(input) {
   if (['sender','senderId','senderName','senderRoleId','fromRoleId','sourceRoleId','ownerRoleId','projectId','nodeId'].some(key=>Object.hasOwn(input||{},key)))
@@ -71,7 +82,7 @@ export async function startAgentBridge({ workspace, runId, home, token, canSend 
             if (!info.isFile() || info.size > 65536) throw new Error(tr('agentBridge.toolRequestFileInvalidToo'));
             const input = JSON.parse(await readFile(path, 'utf8'));
             assertAgentSender(input.payload);
-            if (!canSend()) throw new Error(tr('agentBridge.executionHasStoppedRemoteOperations'));
+            if (!canSend(input.pathname,input.payload)) throw new Error(tr('agentBridge.executionHasStoppedRemoteOperations'));
             if(input.payload?.runId&&input.payload.runId!==runId)throw new Error(tr('agentBridge.toolRequestCannotImpersonateAnother'));
             response = { result: await homeRequest(home, token, input.pathname, { ...input.payload, runId }) };
           } catch (error) { response = { error: error.message }; }

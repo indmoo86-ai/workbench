@@ -5,7 +5,8 @@ import { createHash } from 'node:crypto';
 
 export const defaultPlatformPrompt = () => tr('minimal.platformDefault');
 
-export const defaultSupervisorPrompt = () => tr('minimal.supervisorDefault');
+// Supervisors use the shared platform context unless the user explicitly adds an execution prompt.
+export const defaultSupervisorPrompt = () => '';
 
 const PROMPT_LIMIT = 6000;
 /** Runtime rules are always English; UI-localized defaults and user-saved prompts stay independent. */

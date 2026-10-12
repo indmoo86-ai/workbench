@@ -9,6 +9,7 @@ import {buildTeamContext} from './team-context.mjs';
 import { tr, isMessage } from './i18n.mjs';
 import {roleSwitchWaitReason} from './role-switch-policy.mjs';
 import {waitDependencies} from './coordination-wait.mjs';
+import {followupFor} from './proactive-followup.mjs';
 
 const now=()=>new Date().toISOString();
 const closed=new Set(['succeeded','failed','interrupted','stopping','reconciling']);
@@ -58,7 +59,9 @@ export class RoleDiscussions {
       const binding=roleWorkspace(this.db,thread.projectId,nodeId,null);
       if(!binding||binding.localRoot!==session.workspaceRoot)throw new Error(tr('roleDiscussions.recipientWorkspaceHasChanged'));
       const purpose=message.kind==='question'?'clarification':'answer_resume';
+      const followup=followupFor(this.db,task);
       const run={id:randomUUID(),taskId:task.id,businessTaskId:task.id,projectId:thread.projectId,nodeId,roleId:role.id,roleSnapshot:{...role},
+        ...(followup?{proactiveFollowup:followup,backgroundFollowup:followup.roleId===role.id}:{}),
         roleSessionId:session.id,resumeNativeSessionId:session.nativeSessionId||null,resumeNativeSession:session.nativeSession||null,resumeWorkspace:session.workspace||null,
         discussionDeliveryId:delivery.id,discussionThreadId:thread.id,discussionMessageId:message.id,directionRevision:thread.directionRevision,turnPurpose:purpose,
         discussionProtocol:2,permissionProfile:discussionPolicy({turnPurpose:purpose}).profileId,projectScope:true,projectRoot:binding.localRoot,

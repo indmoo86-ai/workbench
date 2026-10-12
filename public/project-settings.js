@@ -2,7 +2,7 @@ import { t } from './i18n.js';
 import { workerDisplayName } from './role-icons.js';
 
 /** Node folder selection and repository settings share the existing authenticated API and never upload local browser files. */
-export function projectSettings({ api, getData, getProject, refreshState, create, setError, openSettings, closeSettings }) {
+export function projectSettings({ api, getData, getProject, refreshState, create, setError, openSettings, closeSettings, openTask }) {
   const picker = document.querySelector('#folder-dialog');
   const crumbs = document.querySelector('#folder-crumbs');
   const list = document.querySelector('#folder-list');
@@ -13,11 +13,37 @@ export function projectSettings({ api, getData, getProject, refreshState, create
   const projectForm = document.querySelector('#project-form'), bindingForm = document.querySelector('#binding-form');
   const form = document.querySelector('#project-settings-form');
   const checkButton = document.querySelector('#repository-check'), feedback = document.querySelector('#project-settings-feedback');
+  const folderFeedback = document.querySelector('#project-folder-feedback'), deleteFeedback = document.querySelector('#project-delete-feedback');
   const workspaceNode = document.querySelector('#settings-workspace-node');
   const localRoot = document.querySelector('#settings-local-root');
   const pickSettingsFolder = document.querySelector('#pick-settings-folder');
   const saveSettingsFolder = document.querySelector('#save-settings-folder');
   let workerId, current = null, callback, serial = 0, settingsId, savedUrl = '', busy = false, allowedRoots = [], filterText = '';
+  const followupForm=document.querySelector('#proactive-followup-form'),followupFeedback=document.querySelector('#followup-feedback'),followupStatus=document.querySelector('#followup-status'),viewFollowup=document.querySelector('#view-followup');
+  let followupVersion=0,followupConfig=null,followupProject=null;
+  function followupDisabled(value){for(const element of followupForm.elements)element.disabled=value;viewFollowup.disabled=value||!followupConfig?.execution?.taskId;}
+  function showFollowup(value){
+    followupConfig=value;followupForm.elements.enabled.checked=value.enabled;followupForm.elements.silenceMinutes.value=value.silenceMinutes;
+    const execution=value.execution;
+    followupStatus.textContent=execution?[t(execution.progress?.label||execution.status),execution.waitingReason||execution.error||''].filter(Boolean).join(' · '):value.waitingReason||t(value.enabled?(value.anchorMessageId?'Waiting for chat silence':'Waiting for a new complete message'):'Proactive follow-up is off');
+    viewFollowup.disabled=!execution?.taskId;
+  }
+  async function loadFollowup(){
+    const id=getProject()?.id,version=++followupVersion;if(!id)return;
+    followupProject=id;followupConfig=null;followupDisabled(true);followupFeedback.hidden=true;followupStatus.textContent=t('Loading…');
+    try{const value=await api(`/api/projects/${encodeURIComponent(id)}/proactive-followup`);if(version===followupVersion&&getProject()?.id===id)showFollowup(value);}
+    catch(error){if(version===followupVersion&&getProject()?.id===id){followupStatus.textContent=error.message;}}
+    finally{if(version===followupVersion&&getProject()?.id===id){followupDisabled(!followupConfig);document.querySelector('#refresh-followup').disabled=false;}}
+  }
+  followupForm.addEventListener('submit',async event=>{
+    event.preventDefault();const id=followupProject,version=followupVersion;if(!followupConfig||id!==getProject()?.id)return;
+    const input={enabled:followupForm.elements.enabled.checked,silenceMinutes:Number(followupForm.elements.silenceMinutes.value),revision:followupConfig.revision};followupDisabled(true);followupFeedback.hidden=true;
+    try{const value=await api(`/api/projects/${encodeURIComponent(id)}/proactive-followup`,{method:'POST',json:input});if(version!==followupVersion||getProject()?.id!==id)return;showFollowup(value);followupFeedback.textContent=t('Saved');followupFeedback.hidden=false;}
+    catch(error){if(version===followupVersion&&getProject()?.id===id){followupFeedback.textContent=error.message;followupFeedback.hidden=false;}}
+    finally{if(version===followupVersion&&getProject()?.id===id)followupDisabled(false);}
+  });
+  document.querySelector('#refresh-followup').addEventListener('click',()=>void loadFollowup());
+  viewFollowup.addEventListener('click',()=>{const execution=followupConfig?.execution;if(followupProject===getProject()?.id&&execution?.taskId)openTask?.(execution.taskId,execution.runId);});
   const option = (label, value) => { const o = create('option', '', label); o.value = value; return o; };
 
   function activeRoot(path) {
@@ -182,36 +208,39 @@ export function projectSettings({ api, getData, getProject, refreshState, create
     const p = getProject(); if (!p) return;
     busy = false;
     settingsId = p.id; savedUrl = p.repoUrl || '';
+    void loadFollowup();
     form.elements.name.value = p.name || '';
     form.elements.description.value = p.description || '';
     form.elements.repoUrl.value = savedUrl;
     feedback.hidden = true;
+    folderFeedback.hidden = true; deleteFeedback.hidden = true;
     const saveBtn = document.querySelector('#save-project-settings');
     const delBtn = document.querySelector('#delete-project');
     if (saveBtn) saveBtn.disabled = false;
     if (delBtn) delBtn.disabled = false;
-    try { fillWorkspaceFields(p.id); } catch (e) { feedback.textContent = e.message; feedback.hidden = false; }
+    try { fillWorkspaceFields(p.id); } catch (e) { folderFeedback.textContent = e.message; folderFeedback.hidden = false; }
     try { fillGitCheckNodes(p.id); } catch (e) { feedback.textContent = e.message; feedback.hidden = false; }
     return true;
   }
   document.querySelector('#show-project-settings').addEventListener('click', () => {
     if (prepareSettings()) openSettings('project');
   });
+  form.addEventListener('input', () => { feedback.hidden = true; });
 
   workspaceNode.addEventListener('change', () => {
     const binding = getData().workspaces.find(b => b.projectId === settingsId && b.nodeId === workspaceNode.value);
     localRoot.value = binding?.localRoot || '';
-    feedback.hidden = true;
+    folderFeedback.hidden = true;
   });
   pickSettingsFolder.addEventListener('click', () => {
     if (!workspaceNode.value) return setError('Please select the device to bind a folder to first');
-    openFolder(workspaceNode.value, localRoot.value, path => { localRoot.value = path; });
+    openFolder(workspaceNode.value, localRoot.value, path => { localRoot.value = path; folderFeedback.hidden = true; });
   });
   saveSettingsFolder.addEventListener('click', async () => {
     if (busy) return;
-    if (!workspaceNode.value) { feedback.textContent = 'Please select a device first.'; feedback.hidden = false; return; }
-    if (!localRoot.value) { feedback.textContent = 'Please select a local project folder first.'; feedback.hidden = false; return; }
-    busy = true; saveSettingsFolder.disabled = true; pickSettingsFolder.disabled = true; feedback.hidden = true;
+    if (!workspaceNode.value) { folderFeedback.textContent = 'Please select a device first.'; folderFeedback.hidden = false; return; }
+    if (!localRoot.value) { folderFeedback.textContent = 'Please select a local project folder first.'; folderFeedback.hidden = false; return; }
+    busy = true; saveSettingsFolder.disabled = true; pickSettingsFolder.disabled = true; folderFeedback.hidden = true;
     try {
       const binding = await api(
         `/api/projects/${encodeURIComponent(settingsId)}/workspaces/${encodeURIComponent(workspaceNode.value)}`,
@@ -219,12 +248,12 @@ export function projectSettings({ api, getData, getProject, refreshState, create
       );
       localRoot.value = binding.localRoot;
       const git = binding.git ? ` · Git ${binding.git.branch} @ ${String(binding.git.head || '').slice(0, 8)}` : '';
-      feedback.textContent = t('Local folder saved: {localRoot}{git}', { localRoot: binding.localRoot, git });
-      feedback.hidden = false;
+      folderFeedback.textContent = t('Local folder saved: {localRoot}{git}', { localRoot: binding.localRoot, git });
+      folderFeedback.hidden = false;
       await refreshState({ quiet: true });
       fillWorkspaceFields(settingsId, workspaceNode.value);
       fillGitCheckNodes(settingsId);
-    } catch (e) { feedback.textContent = e.message; feedback.hidden = false; }
+    } catch (e) { folderFeedback.textContent = e.message; folderFeedback.hidden = false; }
     finally { busy = false; saveSettingsFolder.disabled = false; pickSettingsFolder.disabled = false; }
   });
 
@@ -235,12 +264,12 @@ export function projectSettings({ api, getData, getProject, refreshState, create
     if (!confirm(t('Delete project "{name}"? This cannot be undone.', { name }))) return;
     busy = true;
     const del = document.querySelector('#delete-project'), save = document.querySelector('#save-project-settings');
-    del.disabled = true; if (save) save.disabled = true; feedback.hidden = true;
+    del.disabled = true; if (save) save.disabled = true; deleteFeedback.hidden = true;
     try {
       await api(`/api/projects/${encodeURIComponent(settingsId)}`, { method: 'DELETE' });
       closeSettings();
       await refreshState({ quiet: true });
-    } catch (e) { feedback.textContent = e.message; feedback.hidden = false; }
+    } catch (e) { deleteFeedback.textContent = e.message; deleteFeedback.hidden = false; }
     finally { busy = false; del.disabled = false; if (save) save.disabled = false; }
   });
   async function saveProjectSettings() {
@@ -268,7 +297,7 @@ export function projectSettings({ api, getData, getProject, refreshState, create
         }
       });
       savedUrl = p.repoUrl; form.elements.repoUrl.value = savedUrl;
-      feedback.textContent = 'Project settings saved. The repository connection check does not modify origin or push code.';
+      feedback.textContent = 'Basic information saved.';
       feedback.hidden = false;
       await refreshState({ quiet: true });
     } catch (e) {

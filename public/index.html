@@ -8,8 +8,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Agent Workbench">
     <title>Agent Collaboration Workbench</title>
-    <link rel="icon" type="image/png" href="/app-icon.png?v=terminals-solid-20261009">
-    <link rel="apple-touch-icon" href="/app-icon.png?v=terminals-solid-20261009">
+    <link rel="icon" type="image/png" href="/app-icon.png?v=terminals-balanced-20261012">
+    <link rel="apple-touch-icon" href="/app-icon.png?v=terminals-balanced-20261012">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="stylesheet" href="/styles.css">
   </head>
@@ -17,7 +17,7 @@
     <div class="app-shell">
       <aside class="project-sidebar" id="project-sidebar" aria-label="Project navigation">
         <div class="brand">
-          <button type="button" class="brand-mark" id="toggle-project-sidebar-collapse" aria-label="Collapse project menu" title="Collapse"><img class="brand-icon" src="/app-icon.png?v=terminals-solid-20261009" alt="" width="36" height="36"></button>
+          <button type="button" class="brand-mark" id="toggle-project-sidebar-collapse" aria-label="Collapse project menu" title="Collapse"><img class="brand-icon" src="/app-icon.png?v=terminals-balanced-20261012" alt="" width="36" height="36"></button>
           <div class="brand-copy">
             <strong>Agent Workbench</strong>
             <span>Collaboration Console</span>
@@ -122,7 +122,7 @@
             <div>
               <h2 id="settings-page-title">Settings</h2>
             </div>
-            <button class="secondary" id="close-settings-page" type="button">Back</button>
+            <button class="secondary" id="close-settings-page" type="button">Close</button>
           </div>
           <nav class="settings-tabs" role="tablist" aria-label="Settings categories">
             <button type="button" role="tab" data-settings-tab="general">Basic Settings</button>
@@ -135,7 +135,13 @@
             <section class="settings-panel" data-settings-panel="project" id="settings-project-panel" hidden>
               <div class="settings-panel-heading"><h3>Project Information</h3><p>Manage the current project's description, repositories, workspace and scheduling. To manage devices and CLIs, use Basic Settings at the bottom left.</p></div>
               <div class="project-settings-body">
-                <button type="button" class="secondary" id="configure-project-source-sync">Configure source sync</button>
+                <section class="settings-block project-sync-settings">
+                  <h3>Project file sync</h3>
+                  <p class="workspace-note">Sync saved code, documents and resources between participating devices.</p>
+                  <div class="form-actions"><button type="button" class="secondary" id="configure-project-source-sync">Configure project file sync</button></div>
+                </section>
+                <section class="settings-block project-basic-settings" aria-labelledby="project-basic-heading">
+                <h3 id="project-basic-heading">Basic information</h3>
                 <form id="project-settings-form" class="form-grid">
                   <label class="full-width">Project name<input name="name" required maxlength="80"></label>
                   <label class="full-width">Project description<textarea name="description" rows="3" maxlength="12000"></textarea></label>
@@ -143,17 +149,20 @@
                   <label class="full-width legacy-repository">Gitee repository URL<input name="repoUrl" placeholder="https://gitee.com/org/repo or git@gitee.com:org/repo.git"></label>
                   <p class="workspace-note full-width legacy-repository">Uses the node's existing SSH key or Git credentials; do not put an account password or Token in the URL. Saving the URL does not set origin, clone, pull or push.</p>
                   <label class="legacy-repository">Node to check<select name="nodeId"></select></label><div class="check-action legacy-repository"><button class="secondary" id="repository-check" type="button">Check saved repository</button></div>
+                  <div class="form-actions full-width"><button class="primary" id="save-project-settings" type="button" data-action-label>Save basic information</button></div>
                 </form>
-                <details class="project-settings-folder-block">
+                <p id="project-settings-feedback" class="form-feedback" role="status" hidden></p>
+                </section>
+                <details class="settings-block project-settings-folder-block">
                   <summary>Link an existing project folder (optional)</summary>
                   <div class="form-grid">
                   <label>Select the project folder on a registered device<select id="settings-workspace-node"></select></label>
-                  <div class="full-width"><label for="settings-local-root">Local project folder</label><div class="path-picker"><input id="settings-local-root" readonly placeholder="Browse folders after selecting a device"><button class="secondary" id="pick-settings-folder" type="button">Select folder</button></div></div>
+                  <div class="full-width"><label for="settings-local-root">Local project folder</label><div class="path-picker"><input id="settings-local-root" readonly placeholder="Browse folders after selecting a device"><button class="secondary" id="pick-settings-folder" type="button" data-action-label>Select folder</button></div></div>
                   <p class="workspace-note full-width">The folder must already exist and be within the device's allowed access scope. The node checks the path and no browser files are uploaded; changes affect later dispatches only.</p>
-                  <div class="form-actions full-width"><button class="secondary" id="save-settings-folder" type="button">Check and save folder</button></div>
+                  <div class="form-actions full-width"><button class="secondary" id="save-settings-folder" type="button" data-action-label>Check and save folder</button></div>
                   </div>
+                  <p id="project-folder-feedback" class="form-feedback" role="status" hidden></p>
                 </details>
-                <p id="project-settings-feedback" class="form-feedback" role="status" hidden></p>
                 <section id="project-repositories" class="settings-block"></section>
                 <section class="settings-block" id="project-space-management">
                   <h3>Project Folders and Repositories</h3>
@@ -161,8 +170,9 @@
                   <div id="project-space-status"></div>
                   <form id="project-prepare-form" class="form-grid">
                     <label>Participating device<select name="nodeId" required></select></label>
-                    <div class="form-actions"><button type="submit" class="secondary">Prepare / check project folder</button></div>
+                    <div class="form-actions"><button type="submit" class="secondary" data-action-label>Prepare / check project folder</button></div>
                   </form>
+                  <p id="project-prepare-feedback" class="form-feedback" role="status" hidden></p>
                   <form id="project-repository-form" class="form-grid">
                     <label>Repository folder name<input name="key" required pattern="[a-zA-Z0-9][a-zA-Z0-9_-]{0,39}" placeholder="code / web / api"></label>
                     <label>Repository mode<select name="mode"><option value="existing">Link an existing repository</option><option value="create">Create a new repository</option></select></label>
@@ -173,36 +183,28 @@
                     <label>Pinned starting commit (optional)<input name="baseCommit" placeholder="Enter a full SHA only when an older starting point is needed"></label>
                     <label class="checkbox-label"><input type="checkbox" name="publishBaseline" checked>Publish the project collaboration branch to the remote</label>
                     <div id="repository-node-options" class="full-width"></div>
-                    <div class="form-actions full-width"><button type="submit" class="secondary">Prepare repository</button></div>
+                    <div class="form-actions full-width"><button type="submit" class="secondary" data-action-label>Prepare repository</button></div>
                   </form>
                   <p id="project-space-feedback" class="form-feedback" hidden></p>
                 </section>
-                <section class="settings-block project-timer-link"><div><h3>Scheduled Jobs</h3><p class="workspace-note">View and adjust scheduled dispatches and progress checks for the current project.</p></div><button class="secondary" id="open-project-timers" type="button">Manage scheduled jobs</button></section>
-                <section id="supervisor-settings" class="settings-block" hidden>
-                  <h3>System Supervisor</h3>
-                  <p id="supervisor-responsibility" class="workspace-note"></p>
-                  <div class="settings-overview-card">
-                    <div class="artifact-section-heading"><h4>Default supervisor prompt</h4><button id="edit-project-supervisor-prompt" class="secondary compact" type="button" data-prompt-edit="supervisor-prompt" aria-label="Edit default supervisor prompt">Edit</button></div>
-                    <p class="workspace-note">Shared by all projects. Edit the default prompt without changing this project's device or model.</p>
-                    <p id="project-supervisor-prompt-preview" class="settings-overview-preview" translate="no"></p>
-                  </div>
-                  <p class="workspace-note">The supervisor can run locally or on a server. When there is no @, the supervisor handles the message; project folders and repositories can be configured on this page, or the supervisor can help.</p>
-                  <form id="supervisor-form" class="form-grid">
-                    <label>Supervisor run device<select name="nodeId" required></select></label>
-                    <label>Supervisor CLI<select name="runtime" required></select></label>
-                    <label>Supervisor model<select name="model" required></select></label>
-                    <label>Supervisor reasoning effort (optional)<select name="effort"><option value="">Use CLI default</option></select></label>
-                    <label class="checkbox-label"><input name="enabled" type="checkbox" checked>Enable this node's supervisor configuration</label>
-                    <div class="form-actions full-width"><button type="submit" class="secondary">Save node supervisor configuration</button></div>
+                <section class="settings-block" aria-labelledby="followup-heading">
+                  <h3 id="followup-heading">Supervisor proactive follow-up</h3>
+                  <p class="workspace-note">After chat silence, the supervisor checks once and decides whether to help. No new messages means no repeated wake-ups. Disabling does not stop work already started.</p>
+                  <form id="proactive-followup-form" class="form-grid">
+                    <label class="checkbox-label full-width"><input type="checkbox" name="enabled">Enable supervisor follow-up</label>
+                    <label>Silence duration (minutes)<input type="number" name="silenceMinutes" min="1" max="10080" step="1" value="10" required></label>
+                    <div class="form-actions full-width"><button type="submit" class="primary">Save follow-up settings</button><button type="button" class="secondary" id="refresh-followup">Refresh follow-up status</button><button type="button" class="secondary" id="view-followup" disabled>View latest follow-up</button></div>
                   </form>
-                  <p class="workspace-note">No planner role is pre-bound. The supervisor selects suitable collaborators for each task from current responsibilities and availability.</p>
-                  <p id="supervisor-feedback" class="form-feedback" role="status" hidden></p>
+                  <p class="workspace-note" id="followup-status" role="status"></p>
+                  <p id="followup-feedback" class="form-feedback" role="status" hidden></p>
                 </section>
+                <section class="settings-block project-timer-link"><div><h3>Scheduled Jobs</h3><p class="workspace-note">View and adjust scheduled dispatches and progress checks for the current project.</p></div><button class="secondary" id="open-project-timers" type="button" data-action-label>Manage scheduled jobs</button></section>
               </div>
-              <div class="form-actions project-settings-actions">
-                <button class="danger" id="delete-project" type="button">Delete project</button>
-                <button class="primary" id="save-project-settings" type="button">Save project settings</button>
-              </div>
+              <section class="settings-block project-danger-zone" aria-labelledby="project-danger-heading">
+                <div><h3 id="project-danger-heading">Danger zone</h3><p class="workspace-note">Deleting a project requires confirmation.</p></div>
+                <button class="danger" id="delete-project" type="button" data-action-label>Delete project</button>
+                <p id="project-delete-feedback" class="form-feedback full-width" role="status" hidden></p>
+              </section>
             </section>
 
             <section class="settings-panel" data-settings-panel="timers" id="settings-timers-panel" hidden>
@@ -386,13 +388,9 @@
         </section>
 
         <section class="chat-panel panel" id="content-grid" hidden>
-          <button id="show-setup-proposals" class="secondary compact setup-proposals-entry" type="button" aria-haspopup="dialog" aria-controls="setup-proposals-dialog" hidden>Supervisor setup suggestions</button>
-          <dialog id="setup-proposals-dialog" class="settings-edit-dialog" aria-labelledby="setup-proposals-title">
-            <div class="dialog-heading"><h3 id="setup-proposals-title">Supervisor setup suggestions</h3><button id="close-setup-proposals" class="icon-button" type="button" aria-label="Close">×</button></div>
-            <section id="setup-proposals" class="setup-proposals" aria-label="Supervisor setup suggestions" hidden></section>
-          </dialog>
           <div class="chat-scroll" id="chat-scroll">
           <button class="secondary compact" id="load-older" type="button" hidden>Load earlier messages</button>
+          <section id="setup-proposals" class="setup-proposals" aria-label="Supervisor setup suggestions" hidden></section>
           <div class="chat-feed" id="chat-feed" aria-label="Project chat"></div>
           </div>
           <div class="chat-composer-shell">
@@ -440,6 +438,7 @@
           <section class="inspector-devices" aria-label="Device Management"><div class="artifact-section-heading"><h3>Device Management</h3><div><button class="icon-button" id="manage-inspector-devices" type="button" aria-label="Manage devices" title="Manage devices"></button><button class="icon-button pause-button" id="pause-remote" type="button" disabled aria-label="Pause remote" title="Pause remote"></button></div></div><div class="sidebar-online-devices" id="sidebar-online-devices" aria-label="Quick access to online devices"></div><div id="inspector-device-list"></div></section>
           <section id="project-git-summary" class="project-git-summary" aria-label="Current project Git version" hidden></section>
           <section id="source-sync-panel" class="inspector-devices source-sync-panel" aria-label="Source sync" hidden></section>
+          <section class="inspector-devices" id="local-project-files"><h3>Local project files</h3><p class="workspace-note" id="local-project-files-note"></p><div id="local-project-files-list"></div></section>
         </section>
         <div class="inspector-tabs" role="tablist" aria-label="Right panel sections">
           <button id="inspector-tab-roles" type="button" role="tab" aria-label="Roles" title="Roles" aria-selected="true" aria-controls="inspector-roles"></button>
@@ -469,6 +468,30 @@
       </div>
     </dialog>
 
+
+    <dialog id="supervisor-settings" aria-labelledby="supervisor-dialog-title">
+      <div class="dialog-heading"><h2 id="supervisor-dialog-title">Role Details</h2><button class="icon-button" id="close-supervisor-dialog" type="button" aria-label="Close role settings">×</button></div>
+      <form id="supervisor-form" class="form-grid">
+        <div class="role-field-row full-width">
+          <label>Role name<input name="name" readonly></label>
+          <label>Select machine<select name="nodeId" required></select></label>
+        </div>
+        <div class="role-field-row full-width">
+          <label>Select Agent<select name="runtime" required></select></label>
+          <label>Select model<select name="model" required></select></label>
+          <label>Reasoning effort / effort<select name="effort"><option value="">Use CLI default</option></select></label>
+        </div>
+        <label class="full-width">Role responsibility<textarea id="supervisor-responsibility" name="responsibility" rows="3" readonly></textarea></label>
+        <div class="full-width">
+          <div class="artifact-section-heading"><label for="project-supervisor-prompt-preview">Role prompt</label><button id="edit-project-supervisor-prompt" class="secondary compact" type="button" data-prompt-edit="supervisor-prompt" aria-label="Edit default supervisor prompt">Edit</button></div>
+          <p class="workspace-note">Shared by all projects. Edit the default prompt without changing this project's device or model.</p>
+          <textarea id="project-supervisor-prompt-preview" rows="7" readonly translate="no"></textarea>
+        </div>
+        <label class="checkbox-label full-width"><input name="enabled" type="checkbox" checked>Enable role (disabling pauses this role's waiting assignments; a running execution must be stopped separately)</label>
+        <p id="supervisor-feedback" class="form-feedback full-width" role="status" hidden></p>
+        <div class="form-actions full-width"><button type="submit" class="primary">Save role</button></div>
+      </form>
+    </dialog>
 
     <dialog id="role-dialog" aria-labelledby="role-dialog-title">
       <div class="dialog-heading"><h2 id="role-dialog-title">Role Details</h2><button class="icon-button" id="close-role-dialog" type="button" aria-label="Close role settings">×</button></div>

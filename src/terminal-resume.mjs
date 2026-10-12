@@ -1,9 +1,9 @@
 import { userInfo, homedir } from 'node:os';
 import { readdir, stat, access, realpath } from 'node:fs/promises';
-import { constants } from 'node:fs';
+import { constants, readFileSync } from 'node:fs';
 import { join, resolve, delimiter } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { Store } from './store.mjs';
 import { tr } from './i18n.mjs';
 import {syncError} from './source-sync-manifest.mjs';
@@ -11,6 +11,7 @@ import {syncError} from './source-sync-manifest.mjs';
 const sessionPattern = /^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/;
 const quote = value => `'${String(value).replaceAll("'", "'\\''")}'`;
 const closed = new Set(['released', 'cancelled']);
+export const TERMINAL_PREPARATION_TTL_MS = 5 * 60 * 1000;
 
 /** Only accept the CLI's session fields; an arbitrary tool call id is never treated as a session. */
 export function nativeSessionId(raw, runtime) {
@@ -46,6 +47,79 @@ export function projectTerminalLock(db, projectId, nodeId) {
 export function processAlive(pid) {
   if (!Number.isInteger(pid) || pid < 1) return false;
   try { process.kill(pid, 0); return true; } catch (e) { return e.code !== 'ESRCH'; }
+}
+
+/** A PID alone can be reused; capture the owner and start identity without exposing process arguments. */
+export function terminalProcessIdentity(pid) {
+  if(!Number.isInteger(pid)||pid<1)return null;
+  try{
+    const line=execFileSync('ps',['-p',String(pid),'-o','pid=,ppid=,uid=,pgid=,lstart=,stat=,command='],{encoding:'utf8',timeout:3000,maxBuffer:128000,env:{...process.env,LC_ALL:'C'},stdio:['ignore','pipe','ignore']}).trim();
+    const m=line.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(\S+)\s+([\s\S]*)$/);
+    if(!m)throw new Error('ps');
+    let start=m[5];
+    if(process.platform==='linux'){const stat=readFileSync(`/proc/${pid}/stat`,'utf8');start=readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim()+':'+stat.slice(stat.lastIndexOf(')')+2).split(' ')[19];}
+    return {pid:Number(m[1]),ppid:Number(m[2]),uid:Number(m[3]),pgid:Number(m[4]),start,zombie:m[6].startsWith('Z'),command:m[7]};
+  }catch{return processAlive(pid)?{pid,unknown:true}:null;}
+}
+const processKey=p=>p&&!p.unknown?{pid:p.pid,uid:p.uid,start:p.start}:null;
+const sameProcess=(actual,expected)=>!!actual&&!actual.unknown&&actual.pid===expected?.pid&&actual.uid===expected.uid&&actual.start===expected.start;
+export {processKey as processIdentityKey,sameProcess as sameProcessIdentity};
+
+/** Old sessions are accepted only with a live, recognizable launcher or its direct child; uncertainty never authorizes a signal. */
+function terminalProcesses(session,dbPath) {
+  const wrapper=terminalProcessIdentity(session.pid),child=terminalProcessIdentity(session.childPid),owned=[];
+  let unknown=false;
+  const live=p=>p&&!p.zombie;
+  const wrapperOwned=live(wrapper)&&(session.wrapperIdentity?sameProcess(wrapper,session.wrapperIdentity):!wrapper.unknown&&wrapper.command.includes('terminal-resume.mjs')&&wrapper.command.includes(dbPath)&&wrapper.command.includes(session.id));
+  if(wrapperOwned)owned.push(processKey(wrapper));
+  else if(live(wrapper)&&(!session.wrapperIdentity||wrapper.unknown||wrapper.start===session.wrapperIdentity.start&&wrapper.uid!==session.wrapperIdentity.uid))unknown=true;
+  const childOwned=live(child)&&(session.childIdentity?sameProcess(child,session.childIdentity):!child.unknown&&wrapperOwned&&child.ppid===wrapper.pid&&child.uid===wrapper.uid);
+  if(childOwned)owned.push(processKey(child));
+  else if(live(child)&&(!session.childIdentity||child.unknown||child.start===session.childIdentity.start&&child.uid!==session.childIdentity.uid))unknown=true;
+  for(const expected of session.stopProcesses||[]){const actual=terminalProcessIdentity(expected.pid);if(live(actual)&&sameProcess(actual,expected))owned.push(expected);else if(actual?.unknown||live(actual)&&actual.start===expected.start&&actual.uid!==expected.uid)unknown=true;}
+  return {owned:[...new Map(owned.map(p=>[p.pid,p])).values()],unknown};
+}
+
+/** Revoke unused/dead links in the same transaction as native claiming; late preparation cannot resurrect the lease. */
+export function checkTerminalSession(db,binding,dbPath,{automatic=false}={}) {
+  return db.transaction(()=>{
+    const prior=db.get('terminalSessions',binding.id),checkedAt=new Date().toISOString();
+    if(prior&&(prior.projectId!==binding.projectId||prior.nodeId!==binding.nodeId))throw new Error(tr('worker.invalidTakeoverId'));
+    if(!prior||closed.has(prior.status)){db.put('terminalSessions',{...binding,...prior,status:'released',releasedAt:prior?.releasedAt||checkedAt});return {id:binding.id,status:'released',processState:'released',checkedAt};}
+    // Background checks allow time to open a new link; manual refresh remains an explicit revocation of unused links.
+    if(automatic&&prior.status==='prepared'&&!prior.pid&&!prior.childPid&&Date.now()-Date.parse(prior.createdAt)<TERMINAL_PREPARATION_TTL_MS) {
+      db.put('terminalSessions',{...prior,lastCheckedAt:checkedAt,processState:'prepared'});
+      return {id:prior.id,status:'prepared',processState:'prepared',checkedAt};
+    }
+    const proof=terminalProcesses(prior,dbPath),processState=proof.unknown?'unknown':proof.owned.length?'active':'released';
+    db.put('terminalSessions',{...prior,lastCheckedAt:checkedAt,processState,...(processState==='released'?{status:'released',releasedAt:checkedAt}:{})});
+    return {id:prior.id,status:processState==='released'?'released':prior.status,processState,checkedAt,...(proof.unknown?{reason:tr('terminalControl.identityUnknown')}:{})};
+  });
+}
+
+/** Stop only verified descendants of this launcher/CLI, rechecking every identity before signalling. */
+export async function stopTerminalSession(db,binding,dbPath,{graceMs=3000,killMs=3000}={}) {
+  const checked=checkTerminalSession(db,binding,dbPath);
+  if(checked.processState==='released')return {...checked,released:true,forced:false};
+  if(checked.processState==='unknown')throw new Error(tr('terminalControl.identityUnknown'));
+  const tracked=new Map();
+  const collect=()=>{
+    const prior=db.get('terminalSessions',binding.id),proof=terminalProcesses(prior,dbPath);
+    if(proof.unknown)throw new Error(tr('terminalControl.identityUnknown'));
+    for(const p of proof.owned)tracked.set(p.pid,p);
+    const parents=new Set(proof.owned.map(p=>p.pid));
+    const rows=execFileSync('ps',['-axo','pid=,ppid='],{encoding:'utf8',timeout:3000,maxBuffer:1024*1024}).trim().split('\n').map(s=>s.trim().split(/\s+/).map(Number));
+    let changed=true;while(changed){changed=false;for(const [pid,parent]of rows){if(tracked.has(pid)||!parents.has(parent))continue;if(!sameProcess(terminalProcessIdentity(parent),tracked.get(parent)))continue;const p=terminalProcessIdentity(pid);if(!p||p.zombie)continue;if(p.unknown||p.uid!==tracked.get(parent).uid)throw new Error(tr('terminalControl.identityUnknown'));tracked.set(pid,processKey(p));parents.add(pid);changed=true;}}
+    db.transaction(()=>{const current=db.get('terminalSessions',binding.id);if(!closed.has(current.status))db.put('terminalSessions',{...current,status:'stopping',stopProcesses:[...tracked.values()]});});
+  };
+  const alive=()=>[...tracked.values()].some(p=>{const actual=terminalProcessIdentity(p.pid);return actual?.unknown||sameProcess(actual,p)&&!actual.zombie;});
+  const signal=name=>{const launcherPid=db.get('terminalSessions',binding.id)?.pid;for(const expected of [...tracked.values()].reverse()){if(name==='SIGTERM'&&expected.pid===launcherPid&&tracked.size>1)continue;const current=terminalProcessIdentity(expected.pid);if(current?.unknown)throw new Error(tr('terminalControl.identityUnknown'));if(sameProcess(current,expected)&&!current.zombie){if(typeof process.getuid==='function'&&current.uid!==process.getuid())throw new Error(tr('terminalControl.identityUnknown'));try{process.kill(expected.pid,name);}catch(e){if(e.code!=='ESRCH')throw e;}}}};
+  collect();signal('SIGTERM');let forced=false;
+  const wait=async ms=>{const until=Date.now()+ms;while(alive()&&Date.now()<until){await new Promise(r=>setTimeout(r,100));collect();}return !alive();};
+  if(!await wait(graceMs)){forced=true;collect();signal('SIGKILL');if(!await wait(killMs))throw new Error(tr('terminalControl.stopPending'));}
+  const result=checkTerminalSession(db,binding,dbPath);
+  if(result.processState!=='released')throw new Error(tr('terminalControl.stopPending'));
+  return {...result,released:true,forced};
 }
 
 /** The native CLI environment is stored only in the Worker's private database; secrets are never passed to Home or in the launch link. */
@@ -117,7 +191,9 @@ export function claimTerminalSession(db, id, pid) {
     const s=db.get('terminalSessions',id);
     if(s?.status!=='prepared')throw new Error(tr('terminalResume.takeoverHasAlreadyStartedBeen'));
     if(db.get('sourceSyncReservations',s.projectId))throw syncError('sync_busy');
-    return db.put('terminalSessions',{...s,status:'active',pid,startedAt:new Date().toISOString()});
+    const wrapperIdentity=processKey(terminalProcessIdentity(pid));
+    if(!wrapperIdentity)throw new Error(tr('terminalControl.identityUnknown'));
+    return db.put('terminalSessions',{...s,status:'active',pid,wrapperIdentity,startedAt:new Date().toISOString()});
   });
 }
 
@@ -130,7 +206,7 @@ export function releaseTerminalSession(db,id) {
   });
 }
 
-/** Start the interactive CLI under the original Worker user; exiting does not make the platform automatically resume dispatching. */
+/** Native exit is recorded locally; manual refresh verifies it with the Worker before resuming platform dispatch. */
 async function runTerminal(dbPath,id) {
   const db=new Store(dbPath), before=db.get('terminalSessions',id);
   if(!before?.nativeSession || before.nativeSession.user!==userInfo().username)throw new Error(tr('terminalResume.runningUserDoesNotMatch'));
@@ -146,9 +222,9 @@ async function runTerminal(dbPath,id) {
   const child=spawn(session.nativeSession.binary,args,{cwd:session.workspace,env,stdio:'inherit'});
   // Ctrl-C is handed to the CLI; the wrapper process stays until the child process actually exits.
   const onSignal=()=>{};process.on('SIGINT',onSignal);process.on('SIGTERM',()=>child.kill('SIGTERM'));
-  db.put('terminalSessions',{...session,childPid:child.pid});
+  db.transaction(()=>{const current=db.get('terminalSessions',id);if(closed.has(current.status)){child.kill('SIGTERM');return;}db.put('terminalSessions',{...current,childPid:child.pid,childIdentity:processKey(terminalProcessIdentity(child.pid))});});
   const code=await new Promise(resolve=>{child.once('error',e=>{console.error(e.message);resolve(1);});child.once('exit',code=>resolve(code??1));});
-  db.put('terminalSessions',{...db.get('terminalSessions',id),status:'finished',finishedAt:new Date().toISOString()});
+  db.transaction(()=>{const current=db.get('terminalSessions',id);if(!closed.has(current.status))db.put('terminalSessions',{...current,status:'finished',finishedAt:new Date().toISOString()});});
   process.removeListener('SIGINT',onSignal);db.db.close();process.exitCode=code;
 }
 

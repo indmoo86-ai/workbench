@@ -1,4 +1,5 @@
 import { t, getLanguage } from './i18n.js';
+import {executionProgress} from './execution-progress.js';
 /** Product marks and CLI icons are all SVG so they stay crisp at small sizes. */
 /** Project marks differ in both shape and color, so they are recognizable in the collapsed sidebar without text or color alone. */
 export const PROJECT_ICONS = [
@@ -110,7 +111,7 @@ export function workerDisplayName(worker) {
   return `${kind} · ${worker?.name || worker?.id || t('Unnamed device')}`;
 }
 
-/** The role bar shows only states that need user judgment; Runtime details and logs are not spread across the list. */
+/** Active task progress and idle CLI availability are separate; a report verdict never becomes the role's execution status. */
 export function roleActivity(role, tasks = [], runs = [], {requests=[],warm=false,worker,check}={}) {
   const configured = role?.configured !== false && Boolean(role?.nodeId && role?.runtime && role?.model);
   if (!configured) return { tone: 'setup', label: 'Setup needed', detail: 'Select a device, CLI and model' };
@@ -118,27 +119,11 @@ export function roleActivity(role, tasks = [], runs = [], {requests=[],warm=fals
   const ownTasks=tasks.filter(item=>!item.switchOperationId && (item.roleId===role.id || item.roleSnapshot?.id===role.id));
   const queued=ownTasks.filter(t=>t.status==='ready');
   const discussionRun=runs.find(r=>r.roleId===role.id&&r.discussionDeliveryId&&['queued','starting','running','waiting_user','stopping','reconciling'].includes(r.status));
-  if(discussionRun)return {tone:discussionRun.status==='reconciling'?'blocked':'working',label:discussionRun.status==='reconciling'?'To reconcile':discussionRun.turnPurpose==='clarification'?'Clarifying':'Handling reply',detail:ownTasks.some(t=>t.discussionWait)?'Business task still waiting · this round only handles discussion':'This round only handles peer discussion and does not change business task status'};
+  if(discussionRun){const p=executionProgress({run:discussionRun,online:worker===undefined||Boolean(worker?.online)});return {...p,detail:p.reason||p.detail||'This round only handles peer discussion and does not change business task status'};}
   const task = ownTasks.find(t=>runs.some(r=>r.id===t.currentRunId&&['queued','starting','running','waiting_user','stopping','reconciling'].includes(r.status))) || queued[0] || ownTasks.at(-1);
   const run = task?.currentRunId ? runs.find(item => item.id === task.currentRunId) : null;
-  if (run?.status === 'waiting_user') return { tone: 'waiting', label: 'Awaiting approval', detail: task.title || 'Needs user action' };
-  if (run?.status === 'reconciling') return { tone: 'blocked', label: 'To reconcile', detail: task.title || 'Execution state needs reconciling' };
-  if (['queued', 'starting', 'running', 'stopping'].includes(run?.status)) {
-    return { tone: 'working', label: run.status === 'stopping' ? 'Stopping' : 'Working', detail: `${task.title || t('Running')}${queued.length?t(' · {v} queued', { v: queued.length }):''}` };
-  }
-  if (task?.status === 'ready') return { tone: 'waiting', label: 'Waiting', detail: t('{v} queued · {v2}', { v: queued.length, v2: task.waitingReason || t('Waiting to be scheduled') }) };
-  if(task?.status==='waiting_discussion')return {tone:'waiting',label:task.discussionWait?'Awaiting reply':'Awaiting continuation',detail:task.waitingReason||'Waiting for the current question to be handled'};
-  // A Task's blocked status is a legacy summary state; it must not override the real Run final state or reuse a pre-start lock wait reason.
-  if (run?.status === 'failed') return currentRuntimeActivity(role,worker,check,run.updatedAt||run.createdAt) || { tone: 'blocked', label: 'Execution failed', detail: run.error || 'This round failed; see the logs' };
-  if (run?.status === 'interrupted') return currentRuntimeActivity(role,worker,check,run.updatedAt||run.createdAt) || { tone: 'idle', label: 'Stopped', detail: 'This round was stopped' };
   const request=task?requests.find(r=>r.targetRoleId===role.id&&(r.taskId===task.id||(run&&r.currentRunId===run.id))):null;
-  if(request?.status==='waiting_call'&&!request.continuationRequestId)return {tone:'waiting',label:'Awaiting reply',detail:warm?'Awaiting reply · CLI ready':'Waiting for other roles to reply'};
-  if(request?.status==='cancelled'||task?.status==='cancelled')return {tone:'idle',label:'Stopped',detail:'This round was cancelled'};
-  if (run?.status === 'succeeded') {
-    const outcome=request?.outcome||run.report?.verdict;
-    if(['failed','blocked','needs_input'].includes(outcome))return {tone:'waiting',label:{failed:'Verdict: not passed',blocked:'Verdict: blocked',needs_input:'Awaiting answer'}[outcome],detail:(request?.reportSummary||'Execution finished; see this round\'s verdict').slice(0,160)};
-  // A start-up block with no Run may come from the workspace/scheduler; a CLI probe does not prove it is resolved, and the creation time is not the failure time.
-  } else if (task?.status === 'blocked') return { tone: 'blocked', label: 'Not started', detail: task.error || 'Task did not start; see the logs' };
+  if(task){const p=executionProgress({run,task,request,online:worker===undefined||Boolean(worker?.online)});return {...p,detail:p.reason||p.detail||task.title||'Execution finished; see the reply and report'};}
   const detected=currentRuntimeActivity(role,worker,check);
   if(detected)return detected;
   if(warm)return {tone:'idle',label:'Idle',detail:'CLI ready · conversation can continue'};
@@ -223,16 +208,19 @@ export const UI_ICON = {
   transfer: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M12 3v11m-4-4 4 4 4-4M16 17h1"/></svg>`,
   original: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><path d="M13 3H5v18h14V9zM13 3v6h6M8 13h8M8 17h6"/></svg>`,
   log: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><path d="M7 4h10v16H7z"/><path d="M10 8h4M10 12h4M10 16h2"/></svg>`,
+  live: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M5 11h3l2-4 4 8 2-4h3M8 21h8M12 18v3"/></svg>`,
   stop: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>`,
   pause: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><path d="M8 5v14M16 5v14"/></svg>`,
   play: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><path d="M8 5v14l12-7z"/></svg>`
 };
 
-/** Replaces only the button content, keeping submit type, disabled state and the original click handler; the name serves both hover and screen readers. */
+/** Keep handlers and button state intact; important settings actions opt into visible labels for touch users. */
 export function setActionIcon(button,name,label) {
   if(!button || !UI_ICON[name])return button;
   const title=label||button.getAttribute('aria-label')||button.textContent.trim();
-  button.classList.add('action-icon-button');button.innerHTML=UI_ICON[name];
+  const showLabel=button.hasAttribute('data-action-label');
+  button.classList.add(showLabel?'action-text-button':'action-icon-button');button.innerHTML=UI_ICON[name];
+  if(showLabel){const text=document.createElement('span');text.textContent=title;button.append(text);}
   button.title=title;button.setAttribute('aria-label',title);
   button.querySelector('svg').setAttribute('aria-hidden','true');
   return button;
@@ -269,20 +257,38 @@ function remainingPercent(bucket) {
 
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
 
-function parseQuotaResetDate(raw) {
-  const text = String(raw || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
-  const direct = new Date(text);
-  if (text && Number.isFinite(direct.getTime()) && /\d{4}/.test(text)) return direct;
-  const match = text.match(/^([A-Za-z]{3})\s+(\d{1,2})\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
-  if (!match) return null;
-  let hour = Number(match[3]);
-  const ap = match[5].toLowerCase();
-  if (ap === 'pm' && hour !== 12) hour += 12;
-  if (ap === 'am' && hour === 12) hour = 0;
-  const now = new Date();
-  const date = new Date(now.getFullYear(), MONTHS[match[1].toLowerCase()], Number(match[2]), hour, Number(match[4] || 0));
-  if (date.getTime() + 14 * 86400000 < now.getTime()) date.setFullYear(now.getFullYear() + 1);
-  return date;
+function parseQuotaResetDate(raw, now = Date.now()) {
+  const text = String(raw || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(text)) {
+    const date = new Date(text);
+    return Number.isFinite(date.getTime()) ? date : null;
+  }
+  const match = text.match(/^([A-Za-z]{3})\s+(\d{1,2})(?:\s+at\s+|,\s*)(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)$/i);
+  if (!match || MONTHS[match[1].toLowerCase()] === undefined || +match[3] < 1 || +match[3] > 12 || +(match[4] || 0) > 59) return null;
+  const month = MONTHS[match[1].toLowerCase()] + 1, day = +match[2];
+  const hour = +match[3] % 12 + (match[5].toLowerCase() === 'pm' ? 12 : 0), minute = +(match[4] || 0);
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {timeZone:match[6], year:'numeric', month:'numeric', day:'numeric', hour:'numeric', minute:'numeric', second:'numeric', hourCycle:'h23'});
+    const parts = time => Object.fromEntries(formatter.formatToParts(time).filter(p => p.type !== 'literal').map(p => [p.type, Number(p.value)]));
+    const year = parts(now).year, candidates = [];
+    // Resolve the vendor's wall clock in its own zone, including DST; nearest year handles December/January.
+    for (const y of [year - 1, year, year + 1]) {
+      const wall = Date.UTC(y, month - 1, day, hour, minute); let time = wall;
+      for (let i = 0; i < 3; i++) { const p = parts(time); time += wall - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second); }
+      const p = parts(time);
+      if (p.year === y && p.month === month && p.day === day && p.hour === hour && p.minute === minute) candidates.push(time);
+    }
+    candidates.sort((a,b) => Math.abs(a-now) - Math.abs(b-now));
+    return candidates.length ? new Date(candidates[0]) : null;
+  } catch { return null; }
+}
+
+/** Weekly windows use d/h; short windows use h/m. Unknown reset times stay unknown. */
+export function formatQuotaCountdown(raw, weekly = false, now = Date.now()) {
+  const date = parseQuotaResetDate(raw, now);
+  if (!date) return '';
+  const minutes = Math.max(0, Math.floor((date.getTime() - now) / 60000)), hours = Math.floor(minutes / 60);
+  return weekly ? `${Math.floor(hours / 24)}d ${hours % 24}h` : `${hours}h ${minutes % 60}m`;
 }
 
 /** Parses claude /usage output such as "Sep 17 at 5:40pm (America/Los_Angeles)" */
@@ -326,41 +332,46 @@ export function quotaForRole(roleRuntime, _worker, modelId = '') {
 let quotaTooltipId = 0;
 let activeQuotaHintCleanup = null;
 
-/** Preserve vendor timezone text, including Claude dates without a year; never guess a reset date when none was reported. */
+/** Use the same countdown in hover, accessible labels and the click dialog. */
 function quotaDetails(kind, pct, bucket) {
-  const reset = String(bucket.resetsAt || '').trim();
+  const reset = formatQuotaCountdown(bucket.resetsAt, kind === 'Week');
   return {
     remaining: t('{kind} {pct}% left', { kind: t(kind === 'Week' ? 'Weekly quota' : '5-hour quota'), pct }),
-    reset: t('Resets at: {time}', { time: reset || t('Reset time unavailable') })
+    reset: reset ? t('Reset in: {time}', { time: reset }) : t('Reset time unavailable')
   };
 }
 
 /** A tap or keyboard activation opens the same facts as hover, without entering the enclosing role editor. */
-function openQuotaDetails(details) {
+function openQuotaDetails(getDetails) {
   const dialog = el('dialog', 'quota-dialog');
   dialog.setAttribute('aria-label', t('Quota details'));
   const heading = el('div', 'dialog-heading');
   const close = el('button', 'secondary compact', t('Close'));
   close.type = 'button'; close.onclick = () => dialog.close();
   heading.append(el('h2', '', t('Quota details')), close);
-  dialog.append(heading, el('p', 'workspace-note', details.remaining), el('p', 'quota-reset-detail', details.reset));
-  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  const remaining = el('p', 'workspace-note'), reset = el('p', 'quota-reset-detail');
+  const update = () => { const details = getDetails(); remaining.textContent = details.remaining; reset.textContent = details.reset; };
+  update(); const timer = setInterval(update, 30000);
+  dialog.append(heading, remaining, reset);
+  dialog.addEventListener('close', () => { clearInterval(timer); dialog.remove(); }, { once: true });
   document.body.append(dialog); dialog.showModal();
 }
 
 /** A body-level hint escapes clipped quota shapes; remove it when a refreshed role card detaches its trigger. */
-function bindQuotaDetails(mark, details) {
-  let hint = null, observer = null;
+function bindQuotaDetails(mark, getDetails) {
+  let hint = null, observer = null, timer = null;
   const hide = () => {
     if (activeQuotaHintCleanup === hide) activeQuotaHintCleanup = null;
-    observer?.disconnect(); observer = null; hint?.remove(); hint = null;
+    observer?.disconnect(); observer = null; clearInterval(timer); timer = null; hint?.remove(); hint = null;
     mark.removeAttribute('aria-describedby');
     window.removeEventListener('scroll', hide, true); window.removeEventListener('resize', hide);
   };
   const show = () => {
     if (hint || !mark.isConnected) return;
     activeQuotaHintCleanup?.(); activeQuotaHintCleanup = hide;
-    hint = el('div', 'quota-tooltip', `${details.remaining}\n${details.reset}`);
+    hint = el('div', 'quota-tooltip');
+    const update = () => { const details = getDetails(); hint.textContent = `${details.remaining}\n${details.reset}`; mark.setAttribute('aria-label', `${details.remaining} · ${details.reset}`); };
+    update(); timer = setInterval(update, 30000);
     hint.id = `quota-tooltip-${++quotaTooltipId}`; hint.setAttribute('role', 'tooltip');
     document.body.append(hint); mark.setAttribute('aria-describedby', hint.id);
     const rect = mark.getBoundingClientRect();
@@ -372,7 +383,7 @@ function bindQuotaDetails(mark, details) {
   };
   mark.addEventListener('mouseenter', show); mark.addEventListener('mouseleave', hide);
   mark.addEventListener('focus', show); mark.addEventListener('blur', hide);
-  mark.addEventListener('click', event => { event.stopPropagation(); hide(); openQuotaDetails(details); });
+  mark.addEventListener('click', event => { event.stopPropagation(); hide(); openQuotaDetails(getDetails); });
 }
 
 /** Draw only quota windows actually returned by the vendor; unknown quota is not shown as green. */
@@ -384,10 +395,10 @@ export function roleNameQuota(quota) {
     const pct = Math.round(remainingPercent(bucket));
     const tone = quotaTone(pct, { weekly, resetsAt: bucket?.resetsAt });
     const windowClass = weekly ? 'is-weekly' : 'is-five-hour';
-    const mark = el('button', `role-quota-mark ${windowClass} is-${tone}`), details = quotaDetails(kind, pct, bucket);
+    const mark = el('button', `role-quota-mark ${windowClass} is-${tone}`), getDetails = () => quotaDetails(kind, pct, bucket), details = getDetails();
     mark.type = 'button'; mark.setAttribute('aria-haspopup', 'dialog');
     mark.setAttribute('aria-label', `${details.remaining} · ${details.reset}`);
-    bindQuotaDetails(mark, details);
+    bindQuotaDetails(mark, getDetails);
     mark.textContent = String(pct);
     wrap.append(mark);
   };

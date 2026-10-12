@@ -2,15 +2,27 @@ English | [简体中文](README.zh-CN.md)
 
 # Agent Collaboration Workbench
 
+CLI occupancy recovery reuses owned idle drivers, retires verified idle leftovers and asks before stopping busy or uncertain old work. The human-only dialog resumes the existing task and exact native session; unknown identities cannot be forcibly stopped. The five-minute warm cache remains unchanged. This development change is not deployed; see [recovery contract and acceptance](docs/design-cli-session-recovery.md).
+
+Project settings now offer opt-in **Supervisor proactive follow-up**, off by default with a ten-minute silence duration. Each new complete chat starts one silence period; logs, duplicates and follow-up descendants do not re-arm it. The existing scheduler queues a background supervisor turn, rechecks fresh messages before starting, and preserves normal capacity/session/approval rules. The supervisor can publish with `wb note` or finish without a group reply; user-confirmation reports remain visible. Existing scheduled jobs and patrol schedules are unchanged. Installing this feature does not enable it for any project.
+
+The independent **Live execution** button on role cards and messages opens a read-only scene of dispatched input, model output and recorded tool arguments/results. It reconnects by event sequence; closing never stops or takes over the CLI. This is a live event view, not the native interactive TUI. Old missing input and truncated results are labeled; only the content exposed by each CLI is available (for example, Agy file reads may expose a summary rather than file contents).
+
 Device details include a per-device **Maximum running CLIs** setting. Managed role runs, retained CLI processes and background organization share the limit; full devices queue work and resume the original native session when capacity becomes available. Offline settings apply after reconnect. Lowering the limit does not interrupt accepted work.
 
 Role Details includes a History tab. Clear history removes that role's old session associations and starts a new native CLI session on the next execution; project chat, code files and other roles are preserved.
 
-The role-card terminal button also offers a new interactive CLI session without requiring past execution records. It uses the role's saved device, model and project folder; past sessions can still be resumed explicitly. Return manual terminal control to the platform after closing the CLI.
+Reviewer presets describe task-scoped document, plan and code review, not an automatic handoff to an execution role. Independent findings go back as agreed for the current task; authorship is established from records, not role names. Factual consultation remains available. New role presets still leave execution prompts empty.
+
+Consultations are bounded by the root request budget and cycle checks, not by how many times a supervisor has resumed. Pausing dispatch still lets accepted work submit conclusions, read context and register waits; new work and mutation tools remain blocked. Obvious placeholder reports are rejected, and print-runtime tool receipts retain bounded diagnostic output.
+
+The role-card terminal button also offers a new interactive CLI session without requiring past execution records. It uses the role's saved device, model and project folder; past sessions can still be resumed explicitly. Home verifies terminal processes every 15 seconds and when a Worker becomes ready, including after restart or reconnect. Exited takeovers return automatically; unused terminal links expire after 5 minutes. Both status refresh buttons can also return unused or exited takeovers immediately, allowing the original queue to continue. The terminal dialog offers **Stop CLI and return**: it stops only verified processes for that takeover and waits for exit before releasing it. Background checks never stop live CLIs; offline, unsupported or unverified Workers retain their locks. Plan cards distinguish an active CLI from queued work and show the blocking reason.
 
 Terminal links preserve command spaces and literal `+` characters. Refreshing the page also corrects older prepared links without clearing history or replacing the terminal takeover.
 
 Role quota percentages show reset details on hover or keyboard focus, and open the same details on click or touch. Vendor timezone text is preserved; missing reset times are explicitly marked unavailable.
+
+Claude Code reasoning-effort choices in role and supervisor settings come from each device's native model metadata. The check sends no user/model turn, starts no hooks or MCP servers and saves no native session. CLI defaults and existing role configuration stay unchanged; older CLIs without capability metadata keep unspecified choices. Compatible provider launchers retain their actual model name rather than appearing as Opus.
 
 A self-hosted workbench that turns the AI coding CLIs and accounts you already have (Codex, Claude Code, Grok Build, Antigravity) into one collaborating team. You talk to a project group chat, `@mention` roles, and the workbench launches the real CLI on the right machine, streams the progress back, and keeps the results, reviews and hand-offs in one place.
 
@@ -18,7 +30,7 @@ A self-hosted workbench that turns the AI coding CLIs and accounts you already h
 
 ## Why this exists
 
-An opt-in **Source sync** card is available under Resources, with configuration also linked from project settings. After previewing repository/device bindings and explicitly enabling the project, **Sync now** or a managed `wb sync request` exchanges saved, uncommitted files. It is changed-file transfer, not continuous save-time uploading or Git publication. Conflicts preserve the original versions and notify evidenced modifiers; repair candidates require independent inspection and explicit acceptance before checked distribution. Physical macOS/Linux transfer and Codex modifier repair were verified, as were source-tool reads and native continuation for all four adapters. Existing projects stay disabled. See the [contract and current acceptance limits](docs/design-source-sync.md).
+The opt-in **Project file sync** card under Resources now supports automatic two-way synchronization of saved code, shared documents and necessary resources. Preview the project/repository scopes, select participating devices and a display Mac, then enable the reviewed scope. Workers continue observing and transferring while the page is closed; Resources and document links read the selected Mac's actual project files, not a Home-private copy. Conflicts retain both versions and use evidence-based owner notification, independent candidate acceptance and fresh receiving-file checks. Git commits, branches, review, merge and rollback remain separate; isolated outputs must be delivered to the project folder first. Existing policy-2 repository scopes retain their explicit-trigger semantics until migrated, and installing this version does not activate business projects. See the [contract and measured acceptance limits](docs/design-source-sync.md#13-unified-continuous-project-file-synchronization).
 
 The project started from a practical situation: one person, several AI subscriptions (different vendors and models), and several machines.
 
@@ -30,6 +42,8 @@ The workbench does not replace the CLIs and does not proxy model APIs. It drives
 
 ## Language
 
+Project Settings provides separate, clearly labeled saves for project information and folder binding, with results shown beside each action. Project file sync is available from Project Settings and Resources. Clicking the supervisor card opens a separate Role Details dialog with the same settings/history tabs and layout as other roles; project configuration remains in Project Settings.
+
 The **Basic Settings** tab groups language (English / 简体中文), browser API Token, WeChat notifications and the remote execution switch. The verified Home access token is saved in this browser and reused after closing and reopening it; edit it in Basic Settings when needed. Use a trusted browser profile: clearing site data, private browsing or switching to a different browser/address can require setup again. Language localizes the UI and displayed defaults, independently of model-facing instruction language. This README and the [operating guide](docs/OPERATING-GUIDE.md) are also available in Simplified Chinese: [README.zh-CN.md](README.zh-CN.md) and [docs/OPERATING-GUIDE.zh-CN.md](docs/OPERATING-GUIDE.zh-CN.md).
 
 Project names remain user-defined text in the sidebar, its accessible labels and the workspace heading; switching the interface language does not rename them.
@@ -38,15 +52,19 @@ Managed dialogue inputs for Codex, Claude Code, Grok and Antigravity use English
 
 ## Key features
 
+Task progress uses six labels: **Pending execution, In progress, Waiting, Completed, Stopped, Execution error**. A normally delivered review is completed even when its business verdict is negative; verdicts remain in the reply and delivery report. Waiting reasons and execution errors stay visible, and process stop must be confirmed. Existing plan policies and acceptance actions are unchanged; old records are not rewritten or automatically retried.
+
+CLI prose is displayed in Simplified Chinese in chat, live/fullscreen replies and execution output. This browser-only conversion uses a bundled OpenCC dictionary without a model or CDN request. User messages, quoted input, code, commands, paths, original-text views, copies and stored records retain their original content.
+
 All items below exist in the current code. Items that are only designed are listed separately under [Limitations and roadmap](#limitations-and-roadmap).
 
 **Collaboration**
 
 - Project group chat with `@role` dispatch. Messages without an `@` are stored but do not start a model; messages from agents never trigger other agents implicitly.
-- Per-project roles with their own device, CLI, model, reasoning effort and Markdown prompt. Built-in templates (reviewer, planner, developer, tester) are only starting points.
+- Per-project roles with their own device, CLI, model, reasoning effort and Markdown prompt. Optional responsibility templates cover planning, execution, review, testing, architecture, debugging, deployment and documentation. All new template execution prompts start empty; existing roles are unchanged.
 - Same-device Codex/Grok changes use **Handoff and switch** in either role editor: retain identity/history, drain accepted work, verify a new native session and commit only after process settlement. Cancel before commit keeps the original binding. Requires a compatible Worker; other adapters are explicitly unverified. See [CLI switch design](docs/design-role-cli-switch.md) for current acceptance status.
 - Role names are mention identifiers (letters, digits, underscores or hyphens, without spaces); `all` and `everyone` are reserved for broadcasts. Existing role names are kept verbatim. Default intake follows the configured supervisor ID, not an English display name, and mentions support both ASCII and full-width punctuation.
-- A fixed per-project *supervisor* that receives requests without an `@`, proposes repository/role configuration cards (applied only after you confirm) and can schedule multi-stage work (`wb schedule`) with parallel independent reviews and sequential or merge stages. Its card is pinned above the work roles; click it to configure its device, CLI, model and reasoning effort in Project Settings.
+- A fixed per-project *supervisor* that receives requests without an `@`, proposes repository/role configuration cards (applied only after you confirm) and can schedule multi-stage work (`wb schedule`) with parallel independent reviews and sequential or merge stages. Its card is pinned above the work roles; click it to configure its device, CLI, model and reasoning effort in Role Details.
 - Structured role-to-role tools exposed to every managed CLI through one `wb` command: consult another role (`wb call` / `wb wait`), report a business verdict (`wb report`), write a hand-off note (`wb handoff`), and request a Git delivery (`wb deliver`). An `@` inside model output never dispatches work.
 - Queueing, per-role and per-node concurrency limits, cancel, "steer now" for queued human messages, pause for remote dispatch, and explicit stop with confirmation from the Worker.
 - Native session resume: each role keeps its vendor session across turns, with a background conversation organizer that keeps a shared project summary.
@@ -68,6 +86,7 @@ All items below exist in the current code. Items that are only designed are list
 - Token usage statistics per device, collected with `ccusage`.
 - GitHub and Gitee account storage and optional repository creation (private by default).
 - Installable PWA shell, desktop three-column layout and a mobile drawer layout.
+- State reads time out after 20 seconds and recover automatically without replaying task submissions. Returning to the page or reconnecting refreshes state while preserving drafts; connection details show the last successful update.
 - Optional confirmation channel over WeChat, disabled by default. It depends on an external confirmation hub that you must provide.
 
 ## Architecture overview
@@ -135,7 +154,7 @@ Role editing separates **responsibility** (used by other roles to choose collabo
 
 The development Home/Worker contract supports minimal execution context and on-demand team discovery. Saved prompt changes apply at actual next-turn admission, not halfway through running work. The four adapters apply complete changed/revoked component events while retaining the native session; unchanged delivered versions are not repeated. Codex separately reloads a retained thread's current Run/tool environment. Explicit dependency waits can time out, resume and wait for the original request without dispatching it again. Isolated four-CLI native and cross-device acceptance passed for the documented combinations; local Agy is unavailable under the provider's location policy. This is not a production rollout. See [actual coverage and selective release gates](docs/design-minimal-injection.md#11-observed-acceptance-boundary).
 
-Bilingual defaults cover a supervisor who can complete simple work, a planner who maintains plans and answers questions, an implementer who owns follow-up fixes, sequential reviewers, and a tester who checks the deployed test version through realistic operations. Prompts guide existing tools, not override authorization or collaboration limits. Safe automatic CLI handoff has [an approved design](docs/design-role-cli-switch.md) and an implementation plan awaiting review; it is not a released feature.
+Bilingual responsibility templates help collaborators choose planners, implementers, reviewers, testers and optional specialist roles. They describe the role's purpose and deliverables, not a mandatory execution sequence; template execution prompts are empty and the supervisor defaults remain separate. Existing custom role prompts and responsibilities are not rewritten. Safe automatic CLI handoff has [an approved design](docs/design-role-cli-switch.md) and an implementation plan awaiting review; it is not a released feature.
 
 Everything is configured through environment variables. Copy [`.env.example`](.env.example) as a reference; the app does not load `.env` files by itself, so export the variables in your shell or service manager. Values below are placeholders.
 

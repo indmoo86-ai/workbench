@@ -12,12 +12,13 @@ import { executionConflict } from './execution-workspace.mjs';
 import { steeringWaitReason } from './role-steering.mjs';
 import { ConversationContext } from './conversation-context.mjs';
 import {RoleDiscussions} from './role-discussions.mjs';
+import {ProactiveFollowup,followupFor,privateFollowup} from './proactive-followup.mjs';
 
 const now = () => new Date().toISOString();
 
 /** Give a result continuation priority once at a turn boundary; after that, ordinary messages go first in their original FIFO order. */
 export function orderRoleQueue(tasks,priorityUsed,discussionUsed=()=>false) {
-  const rank=t=>t.steering ? -1 : (t.discussionDeliveryId||t.discussionIntentId) ? (discussionUsed(t.roleSnapshot?.nodeId)?1:0) : t.continuationRunId && !priorityUsed(t.roleId) ? 0 : t.scheduledJobId ? 2 : 1;
+  const rank=t=>t.steering ? -1 : (t.discussionDeliveryId||t.discussionIntentId) ? (discussionUsed(t.roleSnapshot?.nodeId)?1:0) : t.continuationRunId && !priorityUsed(t.roleId) ? 0 : t.scheduledJobId||t.proactiveInitial ? 2 : 1;
   return [...tasks].sort((a,b)=>rank(a)-rank(b)||(Date.parse(a.createdAt)||0)-(Date.parse(b.createdAt)||0));
 }
 export function mentionNames(text) {
@@ -71,15 +72,17 @@ export class Rooms {
     return this.db.transaction(()=>{
       const role=this.db.get('roles',roleId);
       if(role?.projectId!==projectId||role.archivedAt||!role.enabled||!isRoleConfigured(role))throw new Error(tr('rooms.roleDisabled2'));
-      if(!['repair','peer','assignment'].includes(source?.kind))throw new Error(tr('rooms.projectNotFound'));
+      if(!['repair','peer','assignment','proactive_followup'].includes(source?.kind))throw new Error(tr('rooms.projectNotFound'));
       const fingerprint=JSON.stringify({projectId,roleId,text,source,sourceInputs,execution}),prior=this.db.get('roomMessages',id);
       if(prior){if(prior.fingerprint!==fingerprint)throw new Error(tr('rooms.projectNotFound'));return prior;}
       const task=this.db.createTask({projectId,title:text.slice(0,80),prompt:text,model:role.model,mode:role.mode});
       this.db.put('tasks',{...task,origin:'chat',roleId,roleSnapshot:role,sourceMessageId:id,contextPrepared:true,reportRequired:true,sourceInputs,execution,
+        ...(source.kind==='proactive_followup'?{proactiveFollowup:source.context,proactiveInitial:true,backgroundFollowup:true,reportRequired:false}:{}),
         ...(source.kind==='repair'?{sourceConflictId:source.conflictId,sourceConflictGeneration:source.generation,sourceConflictAssignmentId:source.assignmentId}:{}),
         ...(source.kind==='peer'?{sourceConflictPeerId:source.conflictId}:{}),
         ...(source.kind==='assignment'?{sourceConflictAssignmentRequestId:source.conflictId}:{})});
-      const message=this.db.put('roomMessages',{id,projectId,sender:'system',senderName:tr('sourceSync.systemName'),kind:'source_conflict',text,taskIds:[task.id],source,fingerprint,createdAt:now()});
+      const message=this.db.put('roomMessages',{id,projectId,sender:'system',senderName:source.kind==='proactive_followup'?'Workbench':tr('sourceSync.systemName'),kind:source.kind==='proactive_followup'?'proactive_followup':'source_conflict',text,taskIds:[task.id],source,fingerprint,createdAt:now(),
+        ...(source.kind==='proactive_followup'?{visibility:'internal',proactiveFollowup:source.context}:{} )});
       this.touch(projectId);return message;
     });
   }
@@ -244,7 +247,7 @@ export class Rooms {
   /** Paginate recent messages; the cursor must belong to the same project so that switching projects cannot leak history. */
   messages(projectId, before) {
     if (!this.db.get('projects', projectId)) throw new Error(tr('rooms.projectNotFound3'));
-    const all = this.db.list('roomMessages').filter(m => m.projectId === projectId);
+    const all = this.db.list('roomMessages').filter(m => m.projectId === projectId&&m.visibility!=='internal');
     const end = before ? all.findIndex(m => m.id === before) : all.length;
     if (end < 0) throw new Error(tr('rooms.historyCursorNotFound'));
     const start = Math.max(0, end - 60), messages = all.slice(start, end);
@@ -262,10 +265,12 @@ export class Rooms {
     const nodes = new Set(); let changed = false;
     const discussions=new RoleDiscussions(this.db,{online:isReady});changed=discussions.recover().changed;
     const candidates=[...this.db.list('tasks').filter(t=>t.origin==='chat'&&t.status==='ready'&&!t.switchOperationId),...discussions.candidates()];
-    for (const task of orderRoleQueue(candidates,id=>this.db.get('roleQueueTurns',id)?.priorityUsed,id=>this.db.get('discussionQueueTurns',id)?.priorityUsed)) {
+    for (let task of orderRoleQueue(candidates,id=>this.db.get('roleQueueTurns',id)?.priorityUsed,id=>this.db.get('discussionQueueTurns',id)?.priorityUsed)) {
+      if(!task.discussionDeliveryId&&!task.discussionIntentId&&followupFor(this.db,task)){task=new ProactiveFollowup(this.db).prepareStart(task.id);if(!task){changed=true;continue;}}
       const discussion=Boolean(task.discussionDeliveryId||task.discussionIntentId);
       const kind=task.discussionDeliveryId?'discussionDeliveries':'discussionIntents',recordId=task.discussionDeliveryId||task.discussionIntentId;
       const role = effectiveExecutionRole(this.db,task), worker = this.db.get('workers', role.nodeId);
+      const recoveryReason=discussion?null:this.nativeRecoveryReason?.(task);
       const active = this.db.list('runs').filter(r => !terminal.has(r.status));
       const reason = this.db.get('settings', 'main')?.paused ? tr('rooms.remoteExecutionPaused')
         : roleSwitchWaitReason(this.db,task) ? roleSwitchWaitReason(this.db,task)
@@ -284,6 +289,7 @@ export class Rooms {
         : task.execution && worker.capabilities.executionScheduling !== 1 ? tr('rooms.upgradeWorkerRunSupervisorSchedules')
         : task.requiresCoordination && worker?.capabilities?.coordinationVersion !== 1 ? tr('rooms.upgradeWorkerSupportCrossDevice')
         : runtimeIssue(worker, role.runtime, role.model) ? runtimeIssue(worker, role.runtime, role.model)
+        : recoveryReason ? recoveryReason
         : active.some(r => r.roleId === role.id) ? tr('rooms.waitingForRoleFinishIts')
         : executionConflict({...task,nodeId:role.nodeId},active) ? (task.execution?.exclusive ? tr('rooms.waitingForExclusiveOperationWindow') : tr('rooms.waitingForProjectWorkspaceExclusive'))
         : active.some(r => r.nodeId === role.nodeId && r.status === 'reconciling') ? tr('rooms.nodeHasRunsAwaitingReconciliation')
@@ -296,7 +302,7 @@ export class Rooms {
       try {
         if(task.discussionDeliveryId){const delivery=this.db.get('discussionDeliveries',task.discussionDeliveryId);this.db.startDiscussionRun({deliveryId:delivery.id,commandId:`discussion:${delivery.id}:${delivery.recoveryCount}`,nodeId:role.nodeId},{online:isReady});}
         else if(task.discussionIntentId)this.db.resumeDiscussionTask({intentId:task.discussionIntentId,commandId:`resume:${task.discussionIntentId}`,nodeId:role.nodeId},{online:isReady});
-        else this.db.startTask(task.id, { commandId: `chat-${task.id}`, nodeId: role.nodeId });
+        else if(!this.db.startTask(task.id, { commandId: `chat-${task.id}`, nodeId: role.nodeId })){changed=true;continue;}
         this.db.put('roleQueueTurns',{id:role.id,priorityUsed:Boolean(task.continuationRunId)});
         this.db.put('discussionQueueTurns',{id:role.nodeId,priorityUsed:discussion});
         nodes.add(role.nodeId); changed = true;
@@ -338,7 +344,9 @@ export class Rooms {
     this.db.transaction(() => {
       const report = this.db.get('runReports', run.id);
       const question = report?.verdict === 'needs_input' ? tr('rooms.yourConfirmationNeededReplyBy', { summary: report.summary }) : '';
-      const text = run.status === 'succeeded' ? (run.result || question || tr('rooms.runHasEndedRuntimeReturned'))
+      const quiet=privateFollowup(this.db,run);
+      if(quiet&&!question)return;
+      const text = quiet?question:run.status === 'succeeded' ? (run.result || question || tr('rooms.runHasEndedRuntimeReturned'))
         : tr('rooms.text', { p1: run.status === 'interrupted' ? tr('rooms.runStopped') : tr('rooms.runFailed'), p2: run.error || tr('rooms.seeRunDetails'), p3: run.result ? tr('rooms.existingOutput', { result: run.result }) : '' });
       const handoff=this.db.get('roomMessages',`call:${run.requestId}`);
       this.db.put('roomMessages', { id, projectId: run.projectId, sender: 'agent', senderName: run.roleSnapshot.name,

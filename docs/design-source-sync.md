@@ -1,7 +1,7 @@
 # Incremental source synchronization and modifier-owned conflict resolution
 
 Status: implemented and independently audited for controlled, opt-in use. Two-device physical synchronization and managed modifier repair have passed; acceptance limits are listed in section 12. Existing projects remain disabled until their scopes are selected explicitly.
-Updated: 2026-10-10.
+Updated: 2026-10-10. Sections 1-12 record the current release. Section 13 proposes the unified continuous project-file upgrade and is not yet implemented.
 
 ## 1. Approved intent and implementation boundary
 
@@ -153,3 +153,70 @@ Codex, Claude Code, Grok Build and Agy each read the actual synchronized marker 
 Attribution is limited to successful native write events whose before/after bytes can be verified. Shell-only edits, external editors and ambiguous overlapping writers remain unknown and route to the supervisor. Recorded successful shell execution is necessary candidate evidence, not proof that the command actually tests every requirement or binds the tested content. Until a trusted candidate-bound verification contract exists, every repair proposal requires independent human inspection and acceptance before distribution. Automatic notification/repair-task creation remains available, but fully automatic conflict acceptance is not implemented. The UI exposes the exact proposed bytes as a separate file version.
 
 Recovery tests cover process interruption, not arbitrary power-loss durability or an OS-wide file compare-and-swap guarantee. Scanning large committed trees currently invokes Git per file; performance at the configured limits is not benchmarked. Private recovery files and content staging are retained, and interrupted upload reservations can conservatively consume quota until inspected. No automatic garbage collection is claimed.
+
+## 13. Unified continuous project-file synchronization
+
+Status: implemented and tested in isolated local and physical Mac/Linux environments. Sections 1-12 describe the legacy repository-based release and its measured limits. This section is the authority for continuous project-folder synchronization; [Mac-local file viewing](design-shared-documents.md) consumes it without defining another synchronizer. Deployment and activation remain separate operations.
+
+### 13.1 One engine, one owner per file
+
+Source code, documentation and required resources share configuration, manifests, per-device baselines, transfer, apply journals, receipts, conflict records and modifier repair. File type affects inclusion and preview, not the synchronization algorithm.
+
+Manual Sync now, filesystem notifications and authorized agent/handoff requests enter the same persisted queue. Coalesce equivalent pending changes and serialize incompatible applies. Receiving an already acknowledged hash does not create a new originating edit.
+
+Every physical file has exactly one active scope. A project-folder scanner excludes subtrees owned by explicitly bound repository scopes. Reject overlapping roots during preview and again on the Worker; legacy source sync and a new folder/document scope cannot independently write the same file.
+
+Evolve the existing source-sync configuration and records to support stable scope IDs, preserving legacy repository scope identities. Do not add document-only baseline/conflict/apply tables or a second writer. Home may keep transfer/recovery bytes; the page reads the selected Mac's actual file.
+
+### 13.2 Scope and baseline compatibility
+
+Add explicit project-folder scopes beside existing repository scopes. Include source files, documentation and required ordinary/binary resources. Permit the selected project's `.workbench/docs/` subtree as a narrow exception even when its parent is Git-ignored; exclude the rest of `.workbench/`. Enforce the versioned policy, mandatory exclusions and current bounded transfer limits on both endpoints.
+
+The current capture requires a Git root and committed-tree baseline. Relaxing only the path filter is insufficient. Add saved-content initialization within the same engine: identical captures establish equality; one-sided new files can be offered to absent peers; different existing same-path contents create a conflict before writes. The first capture is not automatically authoritative.
+
+After initialization, code and documents use the same base/local/incoming hash comparison and deletion semantics. A verified Git tree may seed an eligible scope's initial base, but a document extension does not choose another algorithm. Git HEAD/index/history remain independent; file equality does not imply Git-history equality.
+
+Legacy scopes retain their old policy until migrated. Migration fences the old generation, settles or preserves its pending receipts/conflicts, recaptures actual endpoints and establishes the new generation. Unresolved conflicts survive migration or block its completion. Only the new generation may then write that scope. Old Workers cannot accept new capture/apply/watch payloads, and late old-generation commands cannot write after migration.
+
+Preview actual included/excluded files and repository-specific read-only/writable bindings. Installing the software alone does not activate other projects or broaden receiving paths. Filename exclusions do not prove ordinary files contain no embedded secrets.
+
+### 13.3 Background operation
+
+Workers watch eligible paths independently of browser pages and model sessions. Notifications, including editor atomic saves, are hints for stable capture. Proposed coalescing defaults are a 500 ms quiet window and a 2 s maximum scheduling delay; measure normal latency rather than promise every transfer finishes within that time.
+
+Persist dirty paths and reconciliation progress. Bounded periodic, startup and reconnect scans recover missed notifications and changed directories. Watcher failures report degraded scanning. Ordinary saves update affected manifest entries rather than capturing every Git object again.
+
+Reuse durable transfer, guarded apply and recovery journals. Offline Workers retain local changes. Reconnect compares current endpoint contents with baselines before writes. Suppress receiving echoes only after reading bytes that match the receipt, never by ignoring all changes during a time window.
+
+Known active/unknown writers and terminal takeover keep unsafe applies pending without interrupting the CLI. Discovery may continue. Global pause stops transfer/apply while retaining dirty changes. Scope disable/rebind/deletion fences watchers and pending work. Home unavailability does not start a second peer control plane.
+
+### 13.4 Deletions, renames and conflicts
+
+Reuse versioned tombstones. Absence caused by an offline node, failed/partial scan, changed ignore policy or missing binding never means deletion. Delete only against the expected receiving version; delete-versus-edit preserves the modified file as a conflict.
+
+Represent renames as linked add/delete operations in one journaled change set. Prepare both paths, preserve originals and record per-path effects; expose partial/pending state until all receipts settle. This extends the current unlinked add/delete representation and does not promise a multi-path atomic filesystem transaction.
+
+Apply the existing modifier-evidence and repair flow to code, documents and resources. Verified authors receive one correctly attributed repair request; unknown authors go to the supervisor. Repeated scans cannot duplicate owners. Further edits invalidate old resolutions, and distribution uses the existing independently accepted, hash-bound candidate path.
+
+### 13.5 Unified acceptance
+
+Extend current regression gates with real Mac/Linux checks:
+
+1. With no page open, saved code, shared documents and required resources reach the other actual project directory. Repeat in both directions and measure ordinary-save latency.
+2. Manual requests and watcher events for the same version cannot duplicate writes, conflicts or repair tasks.
+3. Reject overlapping scopes. Migrate with one baseline/owner and fence old commands; unsupported Workers cannot accept new policy semantics.
+4. Different initial contents, concurrent edits, delete/edit, rename/edit, transfer-time writes and name collisions preserve versions and receiving data.
+5. Offline saves, missing watcher events, process restart, dropped receipts and reconnect retain changes without stale overwrite or endless echo.
+6. Enforce project boundaries and exclusions for Git metadata, credentials, dependencies and isolated worktrees; verify the exact shared-document exception at both endpoints.
+7. Paused/busy/unknown endpoints remain accurately pending. Ordinary synchronization preserves Git HEAD/index, roles, native sessions and terminal leases.
+8. After the Mac receipt, the page reads that actual Mac file. Moving Home does not change the display node; remote-only files remain waiting until physically present there.
+
+Implementation, physical/background tests, browser tests, commit/push and deployment are reported separately. Existing section 12 results do not establish acceptance of this upgrade.
+
+### 13.6 Observed implementation boundary
+
+The directory implementation passed 87 focused local regressions, including the existing Git-mode suite, and the 13-test maintained suite. A real Linux Home, Linux Worker and Mac Worker exchanged saved source, shared documents and a binary resource without a browser or model calls; observed ordinary-save times were approximately 2.7-3.7 seconds across two runs, not a latency guarantee. Physical rename/delete, Worker restart/offline saves and conflicting edits preserved the intended versions. Real browser Resources and document pages displayed the actual Mac path/content while Home ran on Linux. Lost-receipt recovery also has local multi-process coverage. A third physical device was unavailable; no three-physical-device or new four-CLI repair acceptance is claimed by these tests.
+
+Release `dc43c14` was installed on the local Home/Worker and one remote Worker. Only the explicitly reviewed Workbench project was activated; other business projects were unchanged. Its two remote shared documents and one local repository document synchronized with matching receiving hashes, no conflicts and no automatic Git commit changes. Live browser verification covered Resources, the original Run document URL, local inline-path display and English/Chinese switching. Existing roles, native-session mappings and terminal leases were retained. Runtime backups and detailed verification evidence are kept in ignored local release artifacts, not the public repository. Historical isolated-Run metadata and read-only preview rebinding have dedicated regressions; `.migration` archives and `.DS_Store` are excluded.
+
+Review regressions cover policy-2 conflict preservation before migration, explicit nested document-scope ownership and isolated relative-document links. Filename/parent collisions block preparation explicitly before writes. The existing modifier/candidate workflow has directory contract tests; arbitrary external shell edits remain unknown-author changes and escalate to the supervisor. Directory sync cannot be used as a pinned Git delivery receipt. Observers currently recapture bounded eligible file hashes on a change hint or reconciliation; only missing changed content is transferred. Hashing is not a block-level delta or a second version-control system. Scope disable is blocked while unresolved conflicts remain; use global pause to stop work without discarding them.

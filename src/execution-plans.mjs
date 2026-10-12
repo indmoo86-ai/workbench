@@ -126,6 +126,8 @@ export class ExecutionPlans {
               this.db.put('executionPlans',{...plan,updatedAt:now()});changed=true;continue;
             }
           } else if(requests.some(r=>['failed','cancelled'].includes(r.status))) throw new Error(tr('executionPlans.stageHasFailedCancelledRuns'));
+          // Preserve the existing stop-policy admission after call completion is separated from business verdicts; this does not add a new gate.
+          if(!collect&&requests.some(r=>r.status==='succeeded'&&['failed','blocked','needs_input'].includes(r.outcome)))throw new Error(tr('executionPlans.stageHasNoPassingConclusion'));
           if(!collect && requests.every(r=>r.status==='succeeded')) {
             if(plan.requiresReports && requests.some(r=>r.outcome!=='passed')) throw new Error(tr('executionPlans.stageHasNoPassingConclusion'));
             const stageRuns=requests.map((request,index)=>{
