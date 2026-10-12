@@ -20,7 +20,8 @@ export class ProjectFiles {
   readBindings(projectId,nodeId){
     const repositories=this.db.list('repositoryWorkspaces').filter(b=>b.projectId===projectId&&b.nodeId===nodeId&&b.localRoot&&this.db.get('repositories',b.repositoryId)?.projectId===projectId);
     const project=this.db.get('workspaces',`${projectId}:${nodeId}`),scopes=[...(project?.localRoot?[{...project,repositoryId:projectFileScopeId(projectId)}]:[]),...repositories];
-    return scopes.filter(b=>!this.db.listProject('runs',projectId).some(r=>r.nodeId===nodeId&&r.execution?.isolated&&r.workspace&&r.workspace!==r.projectRoot&&beneath(resolve(r.workspace),resolve(b.localRoot))!==null)).map(b=>{
+    const isolated=this.db.listProject('runs',projectId).filter(r=>r.nodeId===nodeId&&r.execution?.isolated&&r.workspace&&r.workspace!==r.projectRoot);
+    return scopes.filter(b=>!isolated.some(r=>beneath(resolve(r.workspace),resolve(b.localRoot))!==null)).map(b=>{
       const root=resolve(b.localRoot),sharedDocs=isProjectFileScope(projectId,b.repositoryId);
       const excludeRoots=scopes.filter(other=>other.repositoryId!==b.repositoryId).map(other=>beneath(root,resolve(other.localRoot))).filter(p=>p!==null);
       if(!sharedDocs&&excludeRoots.includes(''))throw syncError('overlapping_scope');
