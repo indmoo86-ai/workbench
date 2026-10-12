@@ -2,6 +2,8 @@
 
 # Agent 协作工作台
 
+可选会话协作将讨论收集在 CLI 外部，当前回合结束后才投递角色绑定的批次。队列协议 2 区分进程启动与原生输入接收，继承传播预算，保留原请求、等待和迟到回复。批次仅通过 `wb note` / `wb chat post` 公开，原生流式与最终正文留在执行详情；独立审核的查询和受控文档入口在解除隔离前持续保护。本次修复已隔离验证，未部署、未启用真实项目，见 [V3 契约](docs/design/session-queue-v3.md) 与 [实测验收](docs/design/session-queue-v3-acceptance.md)。
+
 基础设置的标题、tab 和正文左右对齐；滚动时仅 tab 吸顶，窄屏仍可横向切换。此布局改动尚未部署。
 
 CLI 占用恢复优先复用空闲驱动，已核实的空闲残留自动回收；忙碌或无法确认空闲的旧工作，由用户点击“停止旧 CLI 并继续”确认后恢复已有任务及同一原生会话。身份未知不能强制停止，五分钟空闲复用机制不变。此开发改动尚未部署，见 [恢复契约与验收](docs/design-cli-session-recovery.md)。
@@ -133,6 +135,10 @@ npm start        # Home
 npm run worker   # Worker（在另一个终端中）
 ```
 
+### 项目记忆：`AGENTS.md`
+
+每个受管项目只在项目根目录保留一个权威记忆文件 `AGENTS.md`。Workbench 创建项目文件夹或关联已有 Git 仓库时，仅在文件不存在时生成 `AGENTS.md` 模板（项目目标、规则和约定、构建和测试命令、关键决策；只写结论，约 200 行以内）和一行内容为 `@AGENTS.md` 的 `CLAUDE.md`。已有文件绝不覆盖。在 Git 仓库根目录中，只把新建的这两个文件在本地提交（`chore: add AGENTS.md project memory`），不暂存其他内容，也不推送。提交失败（例如未配置 Git 身份或被 hook 拒绝）时，文件保留为未提交状态并报告错误。Codex、Grok 和 Agy 原生读取 `AGENTS.md`；Claude Code 需要 2.1.281 及以上版本才支持 `AGENTS.md`，而 `CLAUDE.md` 指针覆盖了它的默认模式（只要存在 `CLAUDE.md` 就不读 `AGENTS.md`）。规则或关键决策变化时，任何角色都可以更新 `AGENTS.md`；保持简洁、只写结论，并提交修改。Workbench 不再保存自己的记忆（已移除 `wb memory` 以及 `.workbench/MEMORY.md` / `INDEX.md`；磁盘上的旧文件不会被删除）。过程历史用 `wb history search` 查询。
+
 ### 数据存放位置
 
 | 路径 | 内容 |
@@ -140,6 +146,7 @@ npm run worker   # Worker（在另一个终端中）
 | `.data/home/`（可用 `DATA_DIR` 覆盖） | Home 的 SQLite 数据库、附件、自动生成的 `worker-token`（权限 0600）、托管账号密钥 |
 | `.data/worker/`（可用 `WORKER_DATA_DIR` 覆盖） | Worker 的 SQLite 数据库、节点身份、发件箱、运行环境 |
 | `<项目文件夹>/.worktrees/` | 每次运行及项目基线的 Git worktree |
+| `<项目文件夹>/AGENTS.md`、`CLAUDE.md` | 所有 CLI 共用的项目规则和关键决策（不存在时创建一次） |
 | `<项目文件夹>/.workbench/` | 交接记录、临时附件，以及工作区内的其他平台文件 |
 | `.local/` | 本地验证用的临时空间；永不发布 |
 

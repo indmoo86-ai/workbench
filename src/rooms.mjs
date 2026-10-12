@@ -332,6 +332,7 @@ export class Rooms {
       id: randomUUID(), projectId: run.projectId, sender: 'agent', senderName: run.roleSnapshot.name,
       roleId: run.roleId, text: body, replyToId: run.sourceMessageId || null, runId: run.id, taskIds: [], createdAt: now()
     });
+    if (run.collaborationBatchId||run.continuationBatchId) new SessionQueue(this.db).recordReply(run, message.id);
     this.touch(run.projectId);
     return message;
   }
@@ -339,6 +340,8 @@ export class Rooms {
   /** Post only a run's final state back to the group; text streams and tool logs stay in the run details. */
   complete(run) {
     if (!run?.roleId || !terminal.has(run.status)||run.discussionDeliveryId||run.switchOperationId) return;
+    // Discussion bodies stay private even on failure. Only a distinct technical notice may be public.
+    if (run.explicitPublish && run.status === 'succeeded' && this.db.get('runReports',run.id)?.verdict!=='needs_input') return;
     const id = `result-${run.id}`;
     if (this.db.get('roomMessages', id)) return;
     this.db.transaction(() => {
@@ -346,10 +349,11 @@ export class Rooms {
       const question = report?.verdict === 'needs_input' ? tr('rooms.yourConfirmationNeededReplyBy', { summary: report.summary }) : '';
       const quiet=privateFollowup(this.db,run);
       if(quiet&&!question)return;
-      const text = quiet?question:run.status === 'succeeded' ? (run.result || question || tr('rooms.runHasEndedRuntimeReturned'))
-        : tr('rooms.text', { p1: run.status === 'interrupted' ? tr('rooms.runStopped') : tr('rooms.runFailed'), p2: run.error || tr('rooms.seeRunDetails'), p3: run.result ? tr('rooms.existingOutput', { result: run.result }) : '' });
+      const text = quiet||run.explicitPublish&&run.status==='succeeded'?question:run.status === 'succeeded' ? (run.result || question || tr('rooms.runHasEndedRuntimeReturned'))
+        : tr('rooms.text', { p1: run.status === 'interrupted' ? tr('rooms.runStopped') : tr('rooms.runFailed'), p2: run.error || tr('rooms.seeRunDetails'), p3: !run.explicitPublish && run.result ? tr('rooms.existingOutput', { result: run.result }) : '' });
       const handoff=this.db.get('roomMessages',`call:${run.requestId}`);
       this.db.put('roomMessages', { id, projectId: run.projectId, sender: 'agent', senderName: run.roleSnapshot.name,
+        ...(run.explicitPublish?{kind:question?'user_question':'technical_notice'}:{}),
         roleId: run.roleId, text, replyToId: handoff?.projectId===run.projectId?handoff.id:run.sourceMessageId,
         runId: run.id, taskIds: [], createdAt: now() });
       this.touch(run.projectId);
@@ -357,3 +361,4 @@ export class Rooms {
   }
 }
 import { projectTerminalLock } from './terminal-resume.mjs';
+import { SessionQueue } from './session-queue.mjs';

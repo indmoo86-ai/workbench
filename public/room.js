@@ -1,3 +1,4 @@
+import {renderSessionQueue} from './session-queue.js';
 import { t, dateLocale } from './i18n.js';
 import { agentIconEl, UI_ICON, workerDisplayName } from './role-icons.js';
 import { renderMarkdown, linkRunDocuments, localizeDocumentLinks } from './markdown.js';
@@ -649,7 +650,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     const progress=taskProgress(task,run),label=t(progress.label);
     col.append(create('div', 'chat-name', `@${role.name || t('Role')} · ${label}`));
     const bubble = create('div', 'chat-bubble');
-    const preview = run ? liveText(run.id) : '';
+    const preview = run && !run.explicitPublish ? liveText(run.id) : '';
     if (preview) bubble.append(replyPreview(preview,true,run?.id));
     else {
       const typing = create('div', 'chat-typing');
@@ -787,6 +788,8 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     for(const run of (data.runs||[]).filter(r=>r.projectId===projectId&&r.discussionDeliveryId&&['queued','starting','running','waiting_user','stopping','reconciling'].includes(r.status))) {
       const live=renderLiveBubble({id:run.taskId,currentRunId:run.id,roleSnapshot:run.roleSnapshot},messages);if(live)feed.append(live);
     }
+    const queueStrip=renderSessionQueue(data.sessionQueues?.[projectId],{create,api,refreshState,projectId,roleName:id=>(data.roles||[]).find(r=>r.id===id)?.name||id});
+    if(queueStrip)feed.append(queueStrip);
     scroller.scrollTop = atBottom ? scroller.scrollHeight : scrollTop;
     updateLiveFullscreen();
   }

@@ -57,7 +57,8 @@ async function gitMetadataRoots(roots) {
 
 /** A managed role may briefly reuse the App Server, rebinding instructions and events every turn; stdio exposes no control port. */
 export class CodexSession {
-  constructor({ cwd, writableRoots = [], attachments = [], model, mode, emit, roleInstructions = '', roleName = '', effort = 'low', autoApprove = true, env = process.env, resumeSessionId = null, keepAlive = false, maintenance = false,minimalInstructions=false,configurationUpdate='' }) {
+  constructor({ cwd, writableRoots = [], attachments = [], model, mode, emit, roleInstructions = '', roleName = '', effort = 'low', autoApprove = true, env = process.env, resumeSessionId = null, keepAlive = false, maintenance = false,minimalInstructions=false,configurationUpdate='',beforeInput,onProcess }) {
+    this.beforeInput=beforeInput;this.onProcess=onProcess;this.inputAttempted=false;
     this.minimalInstructions=minimalInstructions;
     this.configurationUpdate=configurationUpdate;
     this.keepAlive=keepAlive;
@@ -80,8 +81,11 @@ export class CodexSession {
     this.toolOutputBuffers.clear();this.textBuffer='';
   }
   async start(prompt) {
+    this.inputAttempted=false;
+    if(this.proc)this.onProcess?.(this.proc);
     if(!this.proc) {
     this.proc = spawn(process.env.CODEX_BIN || 'codex', this.launchArgs(), { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], env: this.env,detached:process.platform!=='win32' });
+    this.onProcess?.(this.proc);
     this.proc.on('error', e => this.transportError(e));
     this.proc.stdin.on('error', e => this.transportError(e));
     this.proc.on('exit', (code, signal) => {
@@ -103,6 +107,8 @@ export class CodexSession {
     if (this.stopping) return this.shutdown();
     let result;
     try {
+      await this.beforeInput?.();
+      this.inputAttempted=true;
       result = await this.request('turn/start', { threadId: this.threadId, input: [{ type: 'text', text: prompt }, ...this.attachments.filter(a => a.mime.startsWith('image/')).map(a => ({type:'localImage',path:a.path}))], ...(this.effort ? { effort: this.effort } : {}) });
     } catch(error) {
       // turn/started may arrive before the RPC reply; a tool state that is already out of control must not be overwritten by an ordinary Worker start failure.
@@ -113,6 +119,7 @@ export class CodexSession {
       throw error;
     }
     this.turnId = result.turn.id;
+    this.emit('status',{inputDeliveryState:'accepted'});
     if (this.stopping) await this.stop();
   }
   /** Append the operator-approved update at developer authority; an RPC acknowledgement is delivery, not a model verification round. */
@@ -212,7 +219,7 @@ export class CodexSession {
       this.emit('tool',{text:p.item.tool||p.item.type,item:completedToolSnapshot(p.item)});
     }
     if (m.method === 'thread/tokenUsage/updated') this.emit('usage', { ...(p.tokenUsage?.total || p.tokenUsage || p), source: 'runtime', modelContextWindow: p.tokenUsage?.modelContextWindow });
-    if (m.method === 'turn/started') this.turnId = p.turn?.id;
+    if (m.method === 'turn/started') {this.turnId = p.turn?.id;this.emit('status',{inputDeliveryState:'accepted'});}
     if (m.method === 'turn/completed') {
       const status = p.turn?.status;
       this.finish(status === 'completed' ? 'succeeded' : status === 'interrupted' ? 'interrupted' : 'failed', p.turn?.error?.message);

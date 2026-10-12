@@ -1,5 +1,5 @@
 import { WebSocket } from 'ws';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import { WarmSessions, warmSessionFingerprint } from './warm-sessions.mjs';
 import {RoleSwitchWorker,recordSwitchOutput} from './role-switch-worker.mjs';
 import {discussionPolicy,validatedDiscussionConfigurations,supportsDiscussion} from './discussion-policy.mjs';
@@ -31,6 +31,8 @@ import { composeAgentInstructions, englishExecutionRules } from './platform-prom
 import { runtimeGuidance } from './runtime-guidance.mjs';
 import { prepareSupervisorDirectory, setupRepository } from './setup-workspace.mjs';
 import { startAgentBridge, agentProcessEnv, canSendAgentOperation } from './agent-bridge.mjs';
+import { QueueSlots,terminalDeliveryFacts } from './session-queue-worker.mjs';
+import { TurnStates } from './session-queue-adapters.mjs';
 import { outboxBatch } from './worker-outbox.mjs';
 import { prepareProjectSpace } from './project-space.mjs';
 import { publishProjectDelivery, receiveProjectDelivery, fetchExecutionDeliveries } from './project-delivery.mjs';
@@ -73,6 +75,8 @@ const lock = openSync(lockFile, 'wx', 0o600); writeFileSync(lock, String(process
 process.on('exit', () => { try { if (Number(readFileSync(lockFile, 'utf8')) === process.pid) unlinkSync(lockFile); } catch {} });
 const db = new Store(join(data, 'worker.sqlite'));
 const identity = db.get('identity', 'node') || db.put('identity', { id: 'node', nodeId: process.env.NODE_ID || randomUUID() });
+// External session queue: turn facts per role session and short-lived reservations; nothing here writes to a CLI.
+const turnStates = new TurnStates({ nodeId: identity.nodeId }), queueSlots = new QueueSlots();
 const roots = await Promise.all((process.env.WORKER_ROOTS || base).split(delimiter).map(p => realpath(p)));
 let defaultRoot = db.get('settings','workspace')?.localRoot || process.env.WORKSPACE_ROOT || roots[0];
 const homeUrl = process.env.HOME_URL || 'ws://127.0.0.1:4317/worker';
@@ -146,16 +150,23 @@ const sourceSync=new SourceSyncClient({db,data,home:homeUrl.replace(/^ws/i,'http
   }});
 
 /** The local outbox is written to disk first and deleted only after Home confirms, so "sent" is never treated as "received". */
+function queueState(q, excludeRunId) {
+  const state=turnStates.state(q.key,{ownerNodeId:q.ownerNodeId,runtime:q.runtime,excludeRunId});
+  const active=db.list('runs').some(r=>r.id!==excludeRunId && r.projectId===q.projectId && r.roleId===q.roleId && !terminal.has(r.status));
+  return state&&{...state,turnActive:state.turnActive||active,manualTakeover:state.manualTakeover||Boolean(projectTerminalLock(db,q.projectId,identity.nodeId))};
+}
 function emit(runId, type, payload) {
   recordSwitchOutput(db,runId,type,payload);
   const r = db.get('runs', runId);
   if (!r) return;
+  if(type==='status')payload=terminalDeliveryFacts(r,payload);
   const seq = (r.seq || 0) + 1;
   if (type === 'approval') payload = { ...payload, rpcId: payload.id, id: `${runId}:${payload.id}`, runId, status: 'pending' };
   if (type === 'approval_resolved') payload = { ...payload, id: `${runId}:${payload.id}` };
   if(type==='status'&&payload.nativeSession?.id&&r.processIdentity)payload={...payload,processIdentity:{...r.processIdentity,nativeSessionId:payload.nativeSession.id,runtime:payload.nativeSession.runtime}};
   const next = { ...r, seq, ...(type === 'status' ? payload : {}) };
   const event = { id: randomUUID(), runId, seq, type, payload, createdAt: new Date().toISOString() };
+  turnStates.observe(runId,type,payload);
   db.transaction(() => { db.put('runs', next); db.put('outbox', event); });
   flushOutbox();
   return event;
@@ -217,6 +228,8 @@ async function command(m) {
     const deferred=db.get('runs',c.runId);
     if (deferred&&!deferred.cliRecoveryWait) { send({ type: 'command_ack', id: c.id }); return; }
     db.put('runs', { ...deferred,id: c.runId, projectId: m.run.projectId, nodeId:identity.nodeId,execution:m.run.execution||null,roleId: m.run.roleId,roleSessionId:m.run.roleSessionId, status: 'starting', seq: deferred?.seq||0,cliRecoveryWait:false,error:null,
+      collaborationBatchId:m.run.collaborationBatchId||null,collaborationBatch:m.run.collaborationBatch||null,
+      collaborationCycleId:m.run.collaborationCycleId||null,propagationBudget:m.run.propagationBudget||null,
       switchOperationId:m.run.switchOperationId,switchPhase:m.run.switchPhase,switchHandoffHash:m.run.switchHandoffHash });
     send({ type: 'command_ack', id: c.id });
     let bridge, ending=false,provenance;
@@ -230,6 +243,7 @@ async function command(m) {
       if (paused || m.paused) throw new Error(tr('worker.remoteCommandsPaused'));
       if(!sourceSync.worker.canStart(m.run.projectId))throw syncError('sync_busy');
       if (projectTerminalLock(db,m.run.projectId,identity.nodeId)) throw new Error(tr('worker.projectUnderManualTerminalTakeover'));
+      turnStates.begin({...m.run,runtime:m.run.roleSnapshot?.runtime});
       if (m.run.nodeId !== identity.nodeId) throw new Error(tr('worker.assignmentDoesNotBelongMachine'));
       if (m.run.requestId) validateLaunch({ request: m.request, roleSnapshot: m.run.roleSnapshot, delivery: m.delivery, currentPlanVersion: m.run.planVersion });
       const issue = runtimeIssue({ capabilities: { runtimeDiscovery: true }, runtimes }, m.run.roleSnapshot?.runtime || 'codex', m.task.model);
@@ -315,6 +329,9 @@ async function command(m) {
         WB_HOP: String(m.run.hop || m.task?.hop || 0),
         WB_HOME: homeHttp,
         WB_MODE: m.task.mode,
+        WB_REVIEW_PRIVATE: m.run.reviewGuarded ? m.run.roleId : '',
+        WB_DOCUMENT_VIEWS: m.run.documentViews===1?'1':'0',
+        WB_QUEUE_BATCH: m.run.collaborationBatchId||m.run.continuationBatchId?'1':'0',
         WB_LANGUAGE: getLanguage()
       });
       wbEnv.WB_REPOSITORIES = JSON.stringify(executionRepositories);
@@ -352,6 +369,12 @@ async function command(m) {
       const fingerprint=warmSessionFingerprint({folder,runtimeType,model:m.task.model,effort,roleName:m.run.roleSnapshot?.name,roleInstructions,env:resumeEnvironment(wbEnv)});
       let session;
       const options={ cwd: folder, writableRoots:repositoryRoots, attachments: inputFiles, model: m.task.model, mode: m.task.mode, effort, runtime: runtimeType, autoApprove: m.run.roleSnapshot?.autoApprove !== false,keepAlive,maintenance:Boolean(m.run.switchOperationId),
+        onProcess:proc=>{if(proc?.pid)emit(c.runId,'status',{pid:proc.pid,processIdentity:driverIdentity({...db.get('runs',c.runId),runtime:runtimeType},proc.pid)});},
+        beforeInput:async()=>{
+          if(m.run.collaborationBatch){const q={...m.run.collaborationBatch,roleId:m.run.roleId};try{await queueSlots.deliver(q.key,q.reservation,queueState(q,c.runId),()=>true);}catch(error){error.queueRetryable=true;throw error;}}
+          if(paused||quitting||ws?.readyState!==1||db.get('runs',c.runId)?.stopRequested)throw new Error(tr('worker.interruptedByStopDisconnectBefore'));
+          emit(c.runId,'status',{inputDeliveryState:'attempted'});
+        },
         resumeSessionId:m.run.resumeNativeSessionId || null,
         inheritInstructions:Boolean(instructions.inheritedFrom),
         minimalInstructions:Boolean(executionConfiguration),instructionMessage:instructions.instructions,configurationUpdate:instructions.configurationUpdate||'',
@@ -414,8 +437,6 @@ async function command(m) {
       if(db.get('runs',c.runId)?.stopRequested||session.stopping||paused||quitting||ws?.readyState!==1){session.shutdown();await afterProcessExit(session.proc,()=>{});await provenance?.finish();sessions.delete(c.runId);emit(c.runId,'status',{status:'interrupted',cliRecoveryWait:false,processSettled:true,error:tr('worker.interruptedByStopDisconnectBefore2')});return;}
       emit(c.runId, 'input', input);
       const result = session.start(input.prompt);
-      const processIdentity=driverIdentity({...db.get('runs',c.runId),runtime:runtimeType},session.proc?.pid);
-      emit(c.runId,'status',{pid:session.proc?.pid,processIdentity});
       await result;
       await ended;
       await provenance?.finish();
@@ -429,6 +450,7 @@ async function command(m) {
           blocked: rec.status === 'succeeded' ? tr('worker.none') : (rec.error || rec.status || tr('worker.unsuccessful'))
         }, {
           knowledge,
+          reviewPrivate:m.run.reviewGuarded?m.run.roleId:'',
           projectRoot: root,
           workspace: folder,
           runId: c.runId,
@@ -454,7 +476,10 @@ async function command(m) {
       }
       if (typeof s?.finish === 'function') { s.finish('failed', e.message); s.shutdown(); await afterProcessExit(s.proc, () => sessions.delete(c.runId)); }
       await bridge?.stop();bridge=null;
-      emit(c.runId, 'status', { status: 'failed', error: e.message,...(m.run.minimalInstructions===1?{configurationState:'failed',configurationError:e.message}:{}) }); sessions.delete(c.runId);
+      if(s){s.shutdown();await afterProcessExit(s.proc,()=>{});}
+      emit(c.runId, 'status', { status: 'failed', error: e.message,processSettled:true,
+        ...(!s?.inputAttempted?{inputDeliveryState:'not_delivered',queueRejected:true,queueRetryable:e.queueRetryable===true}:{}),
+        ...(m.run.minimalInstructions===1?{configurationState:'failed',configurationError:e.message}:{}) }); sessions.delete(c.runId);
     } finally { await bridge?.stop(); if (sessions.get(c.runId)?.preparing) sessions.delete(c.runId);reportCapacity(); }
     return;
   }
@@ -510,6 +535,36 @@ async function query(m) {
   }
   const modifies=['repository_setup','execution_receive','execution_baseline_advance','terminal_prepare','terminal_new'].includes(m.action);
   try {
+    if(m.action==='queue_verification'){
+      const input=m.path,r=db.get('runs',input?.runId||'');
+      if(!r||r.projectId!==input.projectId||r.roleId!==input.roleId||r.collaborationBatchId!==input.batchId)throw new Error(tr('sessionQueue.reservationMismatch'));
+      const started=r.inputDeliveryState==='accepted'?true:r.inputDeliveryState==='not_delivered'&&r.processSettled===true?false:null;
+      send({type:'reply',id:m.id,result:{started,runId:r.id,processSettled:r.processSettled===true,nativeSessionId:r.nativeSession?.id||null}});return;
+    }
+    if(m.action==='collaboration_documents'){
+      const input=m.path,root=await projectRoot(input?.root),knowledge=join(root,'.workbench');
+      const read=async path=>{
+        if(typeof path!=='string'||isAbsolute(path)||!['docs/','handoffs/'].some(prefix=>path.startsWith(prefix)))throw new Error(tr('wbTools.onlyFilesInsideWorkbenchCan'));
+        const target=await realpath(resolve(knowledge,path));
+        if(!inside(root,target)||!inside(knowledge,target))throw new Error(tr('wbTools.onlyFilesInsideWorkbenchCan'));
+        const info=await stat(target);if(!info.isFile()||info.size>200000)throw new Error(tr('wbTools.fileExceeds200kbUseShorter'));
+        const bytes=await readFile(target);return {path:relative(knowledge,target),text:bytes.toString('utf8'),hash:createHash('sha256').update(bytes).digest('hex')};
+      };
+      if(input.action==='read'){send({type:'reply',id:m.id,result:await read(input.path)});return;}
+      if(!['list','snapshot'].includes(input.action))throw new Error(tr('collabSessions.invalidAction'));
+      const files=[];let partial=false;
+      const walk=async path=>{
+        const target=await realpath(join(knowledge,path)).catch(()=>null);if(!target||!inside(root,target)||!inside(knowledge,target))return;
+        for(const entry of await readdir(target,{withFileTypes:true})){
+          if(files.length>=2000){partial=true;return;}
+          if(entry.name.startsWith('.')||entry.isSymbolicLink())continue;
+          const next=`${path}/${entry.name}`;
+          if(entry.isDirectory())await walk(next);
+          else if(entry.isFile()){try{const {text,...file}=await read(next);files.push(file);}catch{partial=true;}}
+        }
+      };
+      await walk('docs');await walk('handoffs');send({type:'reply',id:m.id,result:{files,partial}});return;
+    }
     if(m.action==='cli_session_check'||m.action==='cli_session_stop'){
       if(!cliRecoveryEnabled)throw Error(tr('cliRecovery.bindingChanged'));
       if(m.path?.nodeId!==identity.nodeId)throw Error(tr('cliRecovery.bindingChanged'));
@@ -818,7 +873,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {
@@ -850,6 +905,12 @@ function connect() {
       if (m.type === 'ack') {db.remove('outbox', m.id);eventSent.delete(m.id);flushOutbox();}
       // Each command/query runs under the language Home put on the message, so prompts and errors built on this Worker match it.
       if (m.type === 'command') void runWithLanguage(m.language, () => command(m)).catch(e => console.error(tr('worker.commandRejected'), e.message));
+      if (m.type === 'queue_reserve') {
+        turnStates.prune();
+        const result=queueSlots.reserve(m.key,queueState(m));
+        send({type:'queue_reservation',id:m.id,projectId:m.projectId,roleId:m.roleId,key:m.key,...result});return;
+      }
+      if (m.type === 'queue_cancel') {queueSlots.cancel(m.key,{id:m.reservationId});return;}
       if (m.type === 'query') void runWithLanguage(m.language, () => query(m));
       if (m.type === 'error') console.error(tr('worker.rejectedByHome'), m.error);
     } catch (e) { console.error(tr('worker.protocolError'), e.message); }

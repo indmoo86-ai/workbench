@@ -63,7 +63,7 @@ export class ExecutionPlans {
     return this.db.transaction(()=>{
       for(const stage of stages) for(const [i,m] of stage.members.entries()) {
         const r=this.calls.create({id:`${id}:${stage.index}:${i}`,projectId:run.projectId,targetRoleId:m.roleId,parentRequestId:parent.id,
-          kind:'consult',summary:m.text,sourceMessageId:run.sourceMessageId,planId:id,planVersion:1,stepId:String(stage.index)});
+          kind:'consult',summary:m.text,sourceRunId:run.id,sourceMessageId:run.sourceMessageId,planId:id,planVersion:1,stepId:String(stage.index)});
         m.requestId=r.id;
         this.db.put('coordinationRequests',{...r,status:'waiting_dependencies',attachments:run.attachments||[]});
       }

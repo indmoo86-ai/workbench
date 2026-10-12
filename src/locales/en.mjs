@@ -1174,7 +1174,7 @@ Attachments: {p1} (the body does not include the attachments' full text)`,
   'runtimeGuidance.whenGrokCallsWbUse': ' When Grok calls wb, use one standalone command and do not chain it with other shell commands.',
   'runtimeGuidance.collaborationToolsConfiguredCurrentSession': `Collaboration tools are configured. Current session: wb session current; roles' sessions in the same project: wb session list; role summary: wb session summary SESSION_ID; visible full text: wb session read SESSION_ID --offset 0 --limit 4000; group chat digest: wb chat summary.
 When you need history: wb history search KEYWORD; original text: wb history read MESSAGE_ID; full report: wb result read RUN_OR_CALL_ID. Continue reading long text with nextOffset and version; do not pretend you read the whole text.
-Memory/docs as needed: wb memory search, wb docs read; do not read all history end to end. Pass only short summaries and source IDs.
+Project rules and decisions live in AGENTS.md at the project root (loaded natively by your CLI); search history with wb history search. Do not read all history end to end. Pass only short summaries and source IDs.
 Consult with wb call --role ROLE --kind consult --request-id STABLE_ID --text DESCRIPTION; a same-project cross-device call is also delivered directly, with no supervisor relay needed. Ask one clear question at a time, attach the necessary background, file versions, and the expected answer; retry the same question with the same ID.
 Output your own analysis as a normal reply; put a targeted question in the text of the communication tool selected for this turn, and the platform separately shows the question record "sender role → @recipient role" and its linked reply. When discuss is open, prefer ask for clarifying the current task's rules; call is for independent analysis/review/output, or for targets that do not have discuss open. Do not copy a whole analysis into a consultation, and do not send the same group-chat note repeatedly.
 When you need several opinions, first wb call each of them, then wb wait with a short resume note and end the turn; the platform returns to the original session once the results are collected. Do not poll, sleep, or send keep-alive messages; the execution slot and the five-minute idle keep-alive are managed by the Worker.
@@ -1392,22 +1392,32 @@ wb schedule '<JSON>'  Supervisor submits a lightweight execution schedule that a
   'wbCli.unknownCommand': `Unknown command {cmd}
 
 {HELP}`,
+  // src/agents-md.mjs
+  'agentsMd.template': `# AGENTS.md
+
+Project rules and key decisions shared by every CLI (Codex, Claude Code, Grok, Agy). Keep it short (under about 200 lines).
+Any role may update this file when a rule or key decision changes; keep it concise, conclusions only, and commit the change.
+
+## Project goal
+
+-
+
+## Rules and conventions
+
+-
+
+## Build and test commands
+
+-
+
+## Key decisions
+
+Conclusions only; no process logs (history is available via \`wb history search\`).
+
+-
+`,
   // src/wb-tools.mjs
   'wbTools.wbKnowledgeWbProjectRoot': 'WB_KNOWLEDGE / WB_PROJECT_ROOT is not set',
-  'wbTools.projectKnowledgeIndexMemoryMd': `# Project Knowledge Index
-
-- MEMORY.md — decisions already made
-- docs/ — long documents, read on demand, never read end to end
-- handoffs/LATEST.md — the most recent written handoff (done items / files / commit / next step)
-
-Start with \`wb boot\` and always finish with \`wb handoff\`.
-`,
-  'wbTools.projectMemoryRecordConfirmedFacts': `# Project Memory
-
-Record confirmed facts only. When appending, include the time and role name, and do not delete other people's entries.
-
-`,
-  'wbTools.memoryWriteNeedsContent': 'memory write needs content',
   'wbTools.searchTermRequired': 'A search term is required',
   'wbTools.onlyFilesInsideWorkbenchCan': 'Only files inside .workbench can be read',
   'wbTools.notFile': 'Not a file',
@@ -1458,7 +1468,7 @@ Record confirmed facts only. When appending, include the time and role name, and
 wb capabilities      Current collaboration tools and protocol version
 wb setup catalog     Read-only current-project roster, peer responsibilities, CLIs, models and configuration; own responsibility omitted
 wb discuss peers     Query, for all valid role sessions, the current tasks, working directories, and recent notes of peers
-wb boot              Read INDEX + the latest handoff on demand; not needed every turn
+wb boot              Read the latest handoff on demand; not needed every turn
 wb history search TERM  Search messages and reports of the current project; returns source IDs
 wb session current     Show this turn's role session ID and status
 wb session list --limit 20 [--cursor ID]  List the project's role sessions
@@ -1468,9 +1478,6 @@ wb chat summary       Show the conversation digest of the current project
 wb history read ID [offset] [version]  Read the original message text in segments
 wb result read ID [offset] [version]   Read a full run/call report in segments
 wb report JSON       Submit the verdict/summary/evidence/next business conclusion
-wb memory            Read MEMORY.md
-wb memory write TEXT  Append a memory entry (with role and time)
-wb memory search TERM   Search memory and docs
 wb docs              List documents
 wb docs read PATH     Read a file inside .workbench
 wb git               Show repository status and origin (read-only)
@@ -1672,7 +1679,8 @@ wb stands for this full prefix; every call uses this turn's prefix, and historic
   'worker.protocolError': 'Protocol error',
   'worker.connectionError': 'Connection error',
   'minimal.teamHelp': 'wb discuss peers: query the complete current project team, responsibilities and availability across devices. Optional JSON {"view":"detail","includeArchived":true} returns details. Use wb call to contact a role; sending does not require waiting. wb wait registers dependencies only when their answers are needed.',
-  'minimal.platformDefault': 'Execute autonomously through Workbench. Use available collaboration tools when the task needs them; explicit user requirements still apply.',
+  'minimal.platformDefault': 'Execute autonomously through Workbench. Use available collaboration tools when the task needs them; explicit user requirements still apply. Project rules and decisions live in AGENTS.md (loaded natively by your CLI); history is available via wb history search. Any role may update AGENTS.md when a rule or key decision changes; keep it concise, conclusions only, and commit the change.',
+  'minimal.platformDefaultLegacy1': 'Execute autonomously through Workbench. Use available collaboration tools when the task needs them; explicit user requirements still apply.',
   'minimal.supervisorDefault': 'Understand the goal and choose an effective execution approach. Complete work directly or collaborate as the task needs.',
   'minimal.identity': 'You are executing through Workbench as {name} (role ID: {roleId}). Collaboration tools are available as needed; discover them with wb help.',
   'minimal.workerProtocolMismatch': 'This queued turn uses the newer instruction contract. Upgrade the Worker before resuming; its saved input has not been downgraded.',
@@ -1692,4 +1700,49 @@ wb stands for this full prefix; every call uses this turn's prefix, and historic
   'cliRecovery.oldProcessStopped': 'The verified old CLI was stopped; session history is preserved.',
   'cliRecovery.waiting': 'Waiting for the original CLI; stop it and continue only after confirmation.',
   'cliRecovery.checking': 'Checking original CLI session occupancy.',
+  'collabSessions.enabledMustBeBoolean': "enabled must be true or false.",
+  'collabSessions.projectNotFound': "Project not found.",
+  'collabSessions.invalidText': "{label} must be 1-{max} characters.",
+  'collabSessions.sessionNotFound': "Collaboration session not found.",
+  'collabSessions.participantNotInProject': "Participant must be a role in this project.",
+  'collabSessions.featureDisabled': "Collaboration sessions are not enabled for this project.",
+  'collabSessions.invalidType': "Session type must be open or independent-review.",
+  'collabSessions.participantsRequired': "Provide 1-50 participant roles.",
+  'collabSessions.linkNotInProject': "Linked record does not belong to this project.",
+  'collabSessions.alreadyLinked': "This record already belongs to another collaboration session.",
+  'collabSessions.sessionClosed': "This collaboration session is closed.",
+  'collabSessions.notIndependentReview': "Only an independent review can be released.",
+  'collabSessions.invalidAncestry': "Session ancestry is missing, cyclic or belongs to another project; its budget cannot be reset.",
+  'collabSessions.supervisorOnly': "Only this project's current supervisor Run may manage collaboration sessions.",
+  'collabSessions.invalidAction': "Unknown collaboration-session action.",
+  'collabSessions.documentNotReleased': "This document changed after independent review began, or its original version could not be verified. Use the original task attachments; unreleased opinions remain private.",
+  'collabSessions.toolHelp': "Supervisor: wb collaboration list; wb collaboration create|link|add-member|remove-member|release|close JSON. Create includes goal, delivery, background, participants, type and sourceMessageId; link attaches existing taskId or requestId. No automatic broadcast or approval grant.",
+  'collabSessions.readOnlyView': "Review-filtered view is read-only.",
+  'sessionQueue.secondsMustBeInteger': "Merge times must be integers from 0 to 3600 seconds.",
+  'sessionQueue.maxBelowQuiet': "Maximum collection time cannot be shorter than the merge wait.",
+  'sessionQueue.configChanged': "Queue settings changed; reload the latest version before saving.",
+  'store.reviewWorkerUpgradeRequired': "Upgrade this Worker before starting a protected independent review; legacy document tools cannot enforce its isolation.",
+  'sessionQueue.reservationMismatch': "Reservation does not match this batch.",
+  'sessionQueue.invalidOutcome': "Batch outcome must be replied, passed or blocked.",
+  'sessionQueue.batchNotFound': "Batch not found.",
+  'sessionQueue.reservationInvalid': "Reservation is no longer valid; the batch stays queued.",
+  'sessionQueue.reservationExpired': "Reservation expired; the batch stays queued.",
+  'sessionQueue.passNoBatch': "wb pass only applies to the discussion batch this run is processing.",
+  'sessionQueue.passExplicitRequest': "This batch contains a request addressed to you; reply with a result, a blocker or a wait instead of passing.",
+  'sessionQueue.passAfterReply': "You already replied publicly in this batch; passing would contradict it.",
+  'sessionQueue.broadcastNeedsAcknowledgement': "Broadcast for a session is acceptance-only: set enabled, a batch limit of 1-50 and acknowledgeNoBudget:true.",
+  'sessionQueue.verifyAlertRange': "Verification alert time must be an integer from 60 to 86400 seconds.",
+  'sessionQueue.budgetRange': "Batch budget must be an integer from 1 to 1000.",
+  'sessionQueue.grantHumanOnly': "Only the user can grant more broadcast budget.",
+  'sessionQueue.broadcastTestOnly': "The acceptance broadcast switch is only available on projects marked as test projects.",
+  'sessionQueue.alertTitle': "Session queue needs coordination",
+  'sessionQueue.alertIntro': "Session queue alert. The platform has paused or kept these items; nothing was rerun or cancelled. Decide whether to coordinate or ask the user:",
+  'sessionQueue.alert.budget_exhausted': "- Session {sessionId}: automatic discussion paused after {used} of {limit} batches. Summarise or ask the user to grant more.",
+  'sessionQueue.alert.unresolved': "- Session {sessionId}: batch {batchId} for role {roleId} ended without a reply, pass or blocker (run {runId}). It was not retried.",
+  'sessionQueue.alert.pending_verification': "- Session {sessionId}: batch {batchId} for role {roleId} has waited {minutes} minutes for verification (run {runId}); start confirmation was lost, so it will not be rerun.",
+  'sessionQueue.backlogRange': "Backlog thresholds: messages 1-10000, wait 60-86400 seconds.",
+  'sessionQueue.requestNotFound': "Request not found in this project.",
+  'sessionQueue.reassignStarted': "This request has already started; it cannot be reassigned. Stop it explicitly first.",
+  'sessionQueue.alert.backlog': "- Session {sessionId}: role {roleId} has {count} queued messages, oldest waiting {minutes} minutes. Consider adjusting participants or reassigning explicit work.",
+  'sessionQueue.passRule': "This turn is a collaboration discussion batch. Reply publicly only with wb chat post. If you have nothing substantive to add, run wb pass. For requests addressed to you, reply with a result, a blocker or a wait instead.",
 });

@@ -6,6 +6,7 @@ import { buildTeamContext } from './team-context.mjs';
 import { tr } from './i18n.mjs';
 import { isSupervisorName, isBroadcastName } from './default-roles.mjs';
 import { normalizeResponsibility, roleForAgent } from './role-definition.mjs';
+import {reviewView} from './collaboration-sessions.mjs';
 
 /** The supervisor may be on any device, but the CLI, model, and login state must be confirmed by the target Worker. */
 export function validateLocalSupervisor(worker, input, online) {
@@ -59,7 +60,7 @@ export class ProjectSetup {
         ...c, result: p.actions[c.index]?.type === 'role' ? roleForAgent(c.result, run) : c.result
       }))
     }));
-    return { project, team:buildTeamContext(this.db,run,{online:this.online,inherit:false}), repositories: this.db.list('repositories').filter(r => r.projectId === project.id),
+    return { project, team:buildTeamContext(reviewView(this.db,{projectId:run.projectId,roleId:run.roleId}),run,{online:this.online,inherit:false}), repositories: this.db.list('repositories').filter(r => r.projectId === project.id),
       workspaces: this.db.list('repositoryWorkspaces').filter(r => r.projectId === project.id),
       roles: roles.filter(r => !r.archivedAt).map(r => roleForAgent(r, run)),
       proposals,

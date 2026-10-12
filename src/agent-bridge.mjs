@@ -6,12 +6,16 @@ import { tr } from './i18n.mjs';
 const allowed = new Set(['/api/agent/setup/catalog', '/api/agent/setup/propose', '/api/agent/roles/prompt', '/api/agent/schedule', '/api/agent/timers', '/api/agent/note', '/api/agent/calls', '/api/agent/ask', '/api/agent/wait', '/api/agent/deliveries', '/api/agent/report', '/api/agent/history/search', '/api/agent/history/read', '/api/agent/sessions/current', '/api/agent/sessions/list', '/api/agent/sessions/summary', '/api/agent/sessions/read', '/api/agent/conversation/summary']);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 allowed.add('/api/agent/discussions');
+allowed.add('/api/agent/pass');
+allowed.add('/api/agent/collaboration-sessions');
+allowed.add('/api/agent/documents');
 allowed.add('/api/agent/source-sync');
 
 /** Dispatch pause must not swallow accepted work's conclusions; new work and write operations remain blocked. */
 export function allowsPausedAgentOperation(pathname,input={}) {
   return new Set(['/api/agent/report','/api/agent/wait','/api/agent/note','/api/agent/setup/catalog','/api/agent/history/search','/api/agent/history/read','/api/agent/sessions/current','/api/agent/sessions/list','/api/agent/sessions/summary','/api/agent/sessions/read','/api/agent/conversation/summary']).has(pathname)
-    ||pathname==='/api/agent/discussions'&&['peers','read','reply','resolve'].includes(input.action);
+    ||pathname==='/api/agent/discussions'&&['peers','read','reply','resolve'].includes(input.action)
+    ||pathname==='/api/agent/pass'||pathname==='/api/agent/documents'||pathname==='/api/agent/collaboration-sessions'&&input.action==='list';
 }
 
 /** Pause is not cancellation: retained identity, connection and live process checks still apply to every tool call. */
@@ -20,9 +24,16 @@ export function canSendAgentOperation({paused,quitting,connected,status},pathnam
 }
 
 /** Sender identity belongs to the persisted Run; target role/session identifiers remain valid tool input. */
+const identityKeys=['sender','senderId','senderName','senderRoleId','fromRoleId','sourceRoleId','ownerRoleId','author','authorId','authorRoleId','authorName','speaker','speakerRoleId','collaborationSessionId','batchId','runtimeIdentity'];
+/** Project, role, Run and (later) batch come from the trusted runtime; identity-looking fields are rejected at any nesting depth. */
 export function assertAgentSender(input) {
-  if (['sender','senderId','senderName','senderRoleId','fromRoleId','sourceRoleId','ownerRoleId','projectId','nodeId'].some(key=>Object.hasOwn(input||{},key)))
+  if (['projectId','nodeId'].some(key=>Object.hasOwn(input||{},key)) || hasIdentityKey(input,0))
     throw new Error(tr('agentBridge.toolRequestCannotImpersonateAnother'));
+}
+function hasIdentityKey(value,depth) {
+  if(!value||typeof value!=='object'||depth>6)return false;
+  if(Array.isArray(value))return value.some(item=>hasIdentityKey(item,depth+1));
+  return Object.keys(value).some(key=>identityKeys.includes(key)||hasIdentityKey(value[key],depth+1));
 }
 
 /** A managed CLI may be bridged through the current Run, but must not inherit the Worker's control-plane token. */

@@ -17,6 +17,9 @@ import { ConversationContext } from './conversation-context.mjs';
 import { renderRunPrompt } from './run-context.mjs';
 import { buildTeamContext, renderTeamContext } from './team-context.mjs';
 import { Rooms } from './rooms.mjs';
+import { CollaborationSessions, reviewView, reviewDocumentAllowed, setCollaborationSessionsEnabled } from './collaboration-sessions.mjs';
+import { SessionQueue, QueuePump, queueConfig, setQueueConfig, setSessionBroadcast, setTestProject, grantBudget, reassignRequest } from './session-queue.mjs';
+import { renderBatch } from './session-queue-worker.mjs';
 import { defaultRoleTemplates, isSupervisorName } from './default-roles.mjs';
 import { Coordinator } from './coordinator.mjs';
 import { RoleCalls } from './role-calls.mjs';
@@ -97,6 +100,24 @@ const discussions=new RoleDiscussions(db,{online:id=>online(id)});
 const steering = new RoleSteering(db,calls);
 const history = new History(db);
 const sessionTools = new SessionTools(db);
+const collaborationSessions = new CollaborationSessions(db);
+
+/** Freeze shared document versions before independent reviewers run; a child cannot rebase onto already protected opinions. */
+async function reviewDocumentBaselines(projectId,input) {
+  if(input.type!=='independent-review')return [];
+  const prior=input.id?db.get('collaborationSessions',input.id):null;
+  if(prior?.projectId===projectId)return prior.documentBaselines||[];
+  const parent=input.parentSessionId?db.get('collaborationSessions',input.parentSessionId):null;
+  if(parent?.projectId===projectId&&parent.type==='independent-review'&&!parent.reviewReleasedAt)return parent.documentBaselines||[];
+  const nodes=[...new Set((input.participants||[]).map(item=>db.get('roles',typeof item==='string'?item:item.roleId)).filter(role=>role?.projectId===projectId).map(role=>role.nodeId).filter(Boolean))];
+  const snapshots=await Promise.all(nodes.map(async nodeId=>{
+    const root=db.get('workspaces',`${projectId}:${nodeId}`)?.localRoot;
+    if(!root)return [];
+    try{const result=await workerQuery({nodeId},'collaboration_documents',{root,action:'snapshot'},15000);return result.files.map(file=>({...file,nodeId}));}
+    catch{return [];}// Unavailable baselines deny unknown documents later; they never grant access to new opinions.
+  }));
+  return snapshots.flat();
+}
 const conversationContext = new ConversationContext(db);
 conversationContext.recover();
 for(const task of db.list('tasks').filter(task=>task.origin==='chat'&&task.status==='ready'&&task.contextState==='pending'))db.put('tasks',{...task,contextState:null});
@@ -176,6 +197,8 @@ function prepareChatContext(task) {
 }
 
 /** Only unacknowledged commands are resent; the Worker returns the original result based on the stable command ID. */
+const queuePump=new QueuePump(db,{send:(nodeId,payload)=>send(sockets.get(nodeId),payload),online:id=>online(id)&&sockets.get(id).workerReady,render:renderBatch,
+  verify:b=>workerQuery({nodeId:b.workerId},'queue_verification',{batchId:b.id,runId:b.runId,projectId:b.projectId,roleId:b.roleId},10000)});
 const dispatching=new Set();
 async function dispatch(nodeId) {
   if(!online(nodeId)||!sockets.get(nodeId).workerReady||dispatching.has(nodeId))return;
@@ -204,7 +227,7 @@ async function dispatch(nodeId) {
     }
     const minimal=run.minimalInstructions===1;
     if(c.type==='launch'&&!minimal&&run.roleSessionId&&!run.teamContext) {
-      run={...run,teamContext:buildTeamContext(db,run,{online,forExecution:true})};
+      run={...run,teamContext:buildTeamContext(reviewView(db,{projectId:run.projectId,roleId:run.roleId}),run,{online,forExecution:true})};
       db.put('runs',run);
     }
     const storedTask = run.inputTask||db.get('tasks', run.taskId);
@@ -263,6 +286,7 @@ function snapshot() {
     supervisorRoles:db.list('roles').filter(r=>supervisorIds.get(r.projectId)===r.id&&r.systemSupervisor&&!r.platformAssistant&&!r.archivedAt).map(({instructions,...r})=>({...r,responsibility:roleResponsibility(r)})),
     discussionThreads:db.list('discussionThreads'),discussionDeliveries:db.list('discussionDeliveries'),
     roleSwitches:db.list('roleSwitches').map(roleSwitchView),
+    sessionQueues:Object.fromEntries(db.list('projects').filter(p=>p.features?.collaborationSessions===true).map(p=>[p.id,new SessionQueue(db).status(p.id)])),
     cliRecoveries:db.list('cliRecoveries').filter(r=>!['ready','resolved'].includes(r.state)).map(({binding,fingerprint,...record})=>record),
     sourceSyncSummaries:db.list('projects').map(p=>({id:p.id,projectId:p.id,enabled:sourceSync.sync.config(p.id).enabled,conflicts:db.listProject('sourceSyncConflicts',p.id).filter(c=>!['resolved','cancelled'].includes(c.status)).length})),
     terminalSessions: db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)).map(s=>terminalLaunchView({...s,roleId:s.roleId||(s.runId?db.get('runs',s.runId)?.roleId:null)})),
@@ -509,17 +533,20 @@ const server = http.createServer(async (req, res) => {
           // Read/reply/resolve for an already started turn still finish under the frozen identity; a probe withdrawal only blocks new questions and does not swallow in-flight answers.
           if(b.action!=='peers'&&(run.discussionProtocol!==2||(b.action==='ask'&&!supportsDiscussion(db.get('workers',run.nodeId),run.roleSnapshot?.runtime,run.roleSnapshot?.model))))throw new Error(tr('home.discussionProtocolV2NotEnabled'));
           if(!['peers','ask','reply','read','resolve','budget_extend'].includes(b.action))throw new Error(tr('home.unknownDiscussionAction'));
-          const result=b.action==='budget_extend'?discussions.extendBudget({kind:'agent',runId:run.id},b.input):discussions[b.action](run,b.input||{});
+          const reader=['peers','read'].includes(b.action)?new RoleDiscussions(reviewView(db,{projectId:run.projectId,roleId:run.roleId}),{online:id=>online(id)}):discussions;
+          const result=b.action==='budget_extend'?discussions.extendBudget({kind:'agent',runId:run.id},b.input):reader[b.action](run,b.input||{});
           scheduleChat();change();return json(res,result);
         }
         if (pathname === '/api/agent/report') { const result=saveRunReport(db,run,b);change();return json(res,result); }
-        if (pathname === '/api/agent/history/search') return json(res,history.search(run.projectId,b));
-        if (pathname === '/api/agent/history/read') return json(res,history.read(run.projectId,b));
+        // Independent-review isolation is applied to the data the read tools see, before search, pagination or summaries.
+        const readView=reviewView(db,{projectId:run.projectId,roleId:run.roleId});
+        if (pathname === '/api/agent/history/search') return json(res,new History(readView).search(run.projectId,b));
+        if (pathname === '/api/agent/history/read') return json(res,new History(readView).read(run.projectId,b));
         if (pathname === '/api/agent/sessions/current') return json(res,sessionTools.current(run));
-        if (pathname === '/api/agent/sessions/list') return json(res,sessionTools.list(run,b));
-        if (pathname === '/api/agent/sessions/summary') return json(res,sessionTools.summary(run,b.roleSessionId));
-        if (pathname === '/api/agent/sessions/read') return json(res,sessionTools.read(run,b.roleSessionId,b));
-        if (pathname === '/api/agent/conversation/summary') return json(res,sessionTools.chatSummary(run,b));
+        if (pathname === '/api/agent/sessions/list') return json(res,new SessionTools(readView).list(run,b));
+        if (pathname === '/api/agent/sessions/summary') return json(res,new SessionTools(readView).summary(run,b.roleSessionId));
+        if (pathname === '/api/agent/sessions/read') return json(res,new SessionTools(readView).read(run,b.roleSessionId,b));
+        if (pathname === '/api/agent/conversation/summary') return json(res,new SessionTools(readView).chatSummary(run,b));
         if (pathname === '/api/agent/setup/catalog') return json(res, run.roleSnapshot?.platformAssistant ? assistant.catalog(run) : { ...setup.catalog(run), roleTemplates: defaultRoleTemplates() });
         if (pathname === '/api/agent/schedule') { const p=executionPlans.submit(run,b);change();return json(res,{planId:p.id,status:p.status,note:tr('home.waitScheduledEndCurrentTurn')},201); }
         if (pathname === '/api/agent/timers') {
@@ -530,10 +557,26 @@ const server = http.createServer(async (req, res) => {
         }
         if (pathname === '/api/agent/setup/propose') return json(res, run.roleSnapshot?.platformAssistant ? assistant.propose(run,b) : setup.propose(run, b));
         if (pathname === '/api/agent/roles/prompt') return json(res, setup.updateRolePrompt(run, b));
+        if (pathname === '/api/agent/pass') { const result=new SessionQueue(db).pass(run);change();return json(res,result); }
+        if (pathname === '/api/agent/collaboration-sessions') {
+          if(b.action==='create'&&db.get('projects',run.projectId)?.supervisorRoleId!==run.roleId)throw new Error(tr('collabSessions.supervisorOnly'));
+          const baselines=b.action==='create'?await reviewDocumentBaselines(run.projectId,b.input||{}):[];
+          const result=new CollaborationSessions(db).agent(run,b.action,b.input,baselines);change();return json(res,result);
+        }
+        if(pathname==='/api/agent/documents'){
+          const root=db.get('workspaces',`${run.projectId}:${run.nodeId}`)?.localRoot;
+          if(!root)throw new Error(tr('store.bindProjectWorkspaceOnNode'));
+          const privatePath=readView.reviewGuarded?`handoffs/private/${run.roleId}/LATEST.md`:'handoffs/LATEST.md';
+          const result=await workerQuery(run,'collaboration_documents',{root,action:b.action==='last'?'read':b.action,path:b.action==='last'?privatePath:b.path});
+          if(b.action==='list')return json(res,{docs:result.files.filter(file=>reviewDocumentAllowed(db,run,file)&&file.path.startsWith('docs/')).map(file=>file.path.slice(5)),partial:result.partial});
+          if(!reviewDocumentAllowed(db,run,result))throw new Error(tr('collabSessions.documentNotReleased'));
+          return json(res,{path:result.path,text:result.text});
+        }
         if (pathname === '/api/agent/note') {
           const r = rooms.agentNote(run, b.text); change(); return json(res, r, 201);
         }
         if (pathname === '/api/agent/calls' || pathname === '/api/agent/ask') {
+          if(!['consult','direct','handoff'].includes(b.kind||'consult'))throw new Error(tr('roleCalls.invalidCallType'));
           const target = String(b.role || '').replace(/^@/, '');
           const projectRoles = db.list('roles').filter(r => r.projectId === run.projectId);
           let role = projectRoles.find(r => r.id === target) || projectRoles.find(r => r.name === target) || (isSupervisorName(target) ? projectRoles.find(r => r.systemSupervisor && !r.platformAssistant) : undefined);
@@ -549,7 +592,7 @@ const server = http.createServer(async (req, res) => {
             summary=tr('home.crossDeviceRequestFromTarget', { name: run.roleSnapshot.name, name2: target.name, text: b.text });
           }
           const request = calls.create({ id: b.requestId || (pathname.endsWith('/ask') ? `ask:${run.id}:${role.id}` : ''),
-            projectId: run.projectId, targetRoleId: role.id, parentRequestId: parent.id, originNodeId: run.nodeId,
+            projectId: run.projectId, targetRoleId: role.id, parentRequestId: parent.id, sourceRunId:run.id,originNodeId: run.nodeId,
             sourceMessageId: run.sourceMessageId, kind: b.kind || 'consult', summary, deliveryId: b.deliveryId,sourceSyncBatchId:b.sourceSyncBatchId, attachments:run.attachments||[],
             // A consultation uses the receiving role's own workspace; it must not inherit the asker's deployment permissions or device version snapshot.
             ...((b.kind||'consult')==='consult'?{}:{planId:run.planId,planVersion:run.planVersion,stepId:run.stepId,execution:run.execution}) });
@@ -575,6 +618,29 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });
         res.write('event: change\ndata: {}\n\n'); viewers.add(res);
         req.on('close', () => viewers.delete(res)); return;
+      }
+      const collabFlagRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/feature$/);
+      if(collabFlagRoute&&req.method==='POST'){const p=setCollaborationSessionsEnabled(db,collabFlagRoute[1],(await body(req)).enabled);change();return json(res,{enabled:p.features.collaborationSessions});}
+      const queueRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/(queue|queue-config)$/);
+      if(queueRoute&&req.method==='GET')return json(res,queueRoute[2]==='queue'?new SessionQueue(db).status(queueRoute[1]):queueConfig(db,queueRoute[1]));
+      if(queueRoute&&queueRoute[2]==='queue-config'&&req.method==='POST'){const c=setQueueConfig(db,queueRoute[1],await body(req));change();return json(res,c);}
+      const collabListRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions$/);
+      if(collabListRoute&&req.method==='GET')return json(res,{items:collaborationSessions.list(collabListRoute[1])});
+      if(collabListRoute&&req.method==='POST'){const input=await body(req),baselines=await reviewDocumentBaselines(collabListRoute[1],input);const s=collaborationSessions.create(collabListRoute[1],input,{kind:'human'},baselines);change();return json(res,s,201);}
+      const reassignRoute=pathname.match(/^\/api\/projects\/([^/]+)\/requests\/([^/]+)\/reassign$/);
+      if(reassignRoute&&req.method==='POST'){const r=reassignRequest(db,calls,reassignRoute[1],decodeURIComponent(reassignRoute[2]),(await body(req)).roleId);scheduleChat();change();return json(res,r);}
+      const testProjectRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/test-project$/);
+      if(testProjectRoute&&req.method==='POST'){const p=setTestProject(db,testProjectRoute[1],(await body(req)).enabled);change();return json(res,{testProject:p.testProject});}
+      const grantRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/([^/]+)\/budget$/);
+      if(grantRoute&&req.method==='POST'){const c=grantBudget(db,grantRoute[1],grantRoute[2],await body(req),{kind:'human'});change();return json(res,c);}
+      const broadcastRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/([^/]+)\/broadcast$/);
+      if(broadcastRoute&&req.method==='POST'){const r=setSessionBroadcast(db,broadcastRoute[1],broadcastRoute[2],await body(req));change();return json(res,r);}
+      const collabActionRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/([^/]+)\/(members\/add|members\/remove|link|release|close)$/);
+      if(collabActionRoute&&req.method==='POST'){
+        const [,projectId,id,action]=collabActionRoute,input=await body(req);
+        const s=action==='members/add'?collaborationSessions.addMember(projectId,id,input):action==='members/remove'?collaborationSessions.removeMember(projectId,id,input)
+          :action==='link'?collaborationSessions.link(projectId,id,input):collaborationSessions[action](projectId,id);
+        change();return json(res,s);
       }
       const discussionBudgetRoute=pathname.match(/^\/api\/projects\/([^/]+)\/discussions\/budget$/);
       if(discussionBudgetRoute&&req.method==='POST') {
@@ -947,6 +1013,7 @@ const server = http.createServer(async (req, res) => {
     files['/execution-progress.js']='execution-progress.js';
     files['/live-scene.js']='live-scene.js';
     files['/cli-recovery.js']='cli-recovery.js';
+    files['/session-queue.js']='session-queue.js';
     files['/browser-token.js']='browser-token.js';
     files['/role-switch.js']='role-switch.js';
     files['/role-history.js']='role-history.js';
@@ -985,6 +1052,7 @@ wss.on('connection', ws => {
         void sourceSync.message(nodeId,m).catch(e=>send(ws,{type:'error',error:e.message}));return;
       }
       if (m.type === 'ready') { ws.workerReady = true; void reconcileTerminals(nodeId); dispatch(nodeId); scheduleChat(); collectUsage(nodeId); }
+      if (m.type === 'queue_reservation') { if(queuePump.onReservation(nodeId,m)){change();dispatch(nodeId);} return; }
       if (m.type === 'heartbeat') db.put('workers', { ...db.get('workers', nodeId), lastSeen: new Date().toISOString() });
       if(m.type==='launch_deferred') {
         const c=db.get('commands',m.id);
@@ -1065,6 +1133,7 @@ const heartbeat = setInterval(() => {
   for (const r of viewers) r.write(': keepalive\n\n');
 }, 15000);
 const chatScheduler = setInterval(scheduleChat, 1000);
+const sessionQueueTimer=setInterval(()=>{try{queuePump.tick();void queuePump.reconcileVerifications().then(changed=>{if(changed)change();}).catch(e=>console.error(e.message));}catch(e){console.error(e.message);}},2000);sessionQueueTimer.unref();
 const terminalMonitor=setInterval(()=>{void reconcileTerminals();},15000);terminalMonitor.unref();
 const sourceSyncTimer=setInterval(()=>{void sourceSync.tick().catch(e=>console.error(e.message));},1000);sourceSyncTimer.unref();
 const wechatPoll = setInterval(() => { void wechat.tick().catch(error => { console.error(tr('home.wechatChannelCheckFailed'), error.message); }); }, 4000);

@@ -19,10 +19,12 @@ export function executionRules(run,{minimal=false}={}) {
   const discussion=discussionInstructions(run);
   if(discussion&&run.turnPurpose&&run.turnPurpose!=='task')return discussion;
   const purpose=run.execution?.purpose;
-  if(minimal)return [purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):'',
+  // wb pass guidance only for collaboration batch runs, which exist only when the project flag is on.
+  const passRule=run.collaborationBatchId||run.continuationBatchId?tr('sessionQueue.passRule'):'';
+  if(minimal)return [passRule,purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):'',
     ['deploy','migration','production'].includes(purpose)?tr('platformPrompts.exclusiveStageOnlyTargetsOperations'):'',
     run.planId&&run.reportRequired?tr('platformPrompts.beforeBusinessDeliveryRunWb',{p1:''}):''].filter(Boolean).join('\n');
-  return tr('platformPrompts.handleOnlyAssignmentDoNot', { discussion, p2: run.discussionProtocol===2?tr('platformPrompts.useWbDiscussForShort'):tr('platformPrompts.useWbCallForRole'), p3: run.roleSnapshot?.systemSupervisor?tr('platformPrompts.workingRolesMayConsultDiscuss'):'', p4: purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):tr('platformPrompts.unlessMergeStageScheduledDo'), p5: ['deploy','migration','production'].includes(purpose)?tr('platformPrompts.exclusiveStageOnlyTargetsOperations'):tr('platformPrompts.doNotReleaseOperateProduction'), p6: run.reportRequired?tr('platformPrompts.beforeBusinessDeliveryRunWb', { p1: run.discussionProtocol===2?tr('platformPrompts.wbDiscussAsk'):'' }):'' });
+  return tr('platformPrompts.handleOnlyAssignmentDoNot', { discussion, p2: run.discussionProtocol===2?tr('platformPrompts.useWbDiscussForShort'):tr('platformPrompts.useWbCallForRole'), p3: run.roleSnapshot?.systemSupervisor?tr('platformPrompts.workingRolesMayConsultDiscuss'):'', p4: purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):tr('platformPrompts.unlessMergeStageScheduledDo'), p5: ['deploy','migration','production'].includes(purpose)?tr('platformPrompts.exclusiveStageOnlyTargetsOperations'):tr('platformPrompts.doNotReleaseOperateProduction'), p6: run.reportRequired?tr('platformPrompts.beforeBusinessDeliveryRunWb', { p1: run.discussionProtocol===2?tr('platformPrompts.wbDiscussAsk'):'' }):''  })+(passRule?`\n${passRule}`:'');
 }
 const DEFAULT_FIELD_LIMIT = 128;
 // Match only exact previous EN/ZH defaults; custom edits must survive prompt upgrades.
@@ -40,13 +42,14 @@ function promptOrDefault(value, key, fallback) {
   const legacyDefault = key === 'platformPrompts.youFixedProjectSupervisorYou'
     && LEGACY_SUPERVISOR_DEFAULTS.has(createHash('sha256').update(text).digest('hex'));
   const currentKey = key === 'platformPrompts.youFixedProjectSupervisorYou' ? 'collaboration.supervisor' : 'collaboration.platform';
-  return isMessage(text, key) || isMessage(text, currentKey) || isMessage(text,key==='platformPrompts.youFixedProjectSupervisorYou'?'minimal.supervisorDefault':'minimal.platformDefault') || legacyDefault ? fallback() : value;
+  return isMessage(text, key) || isMessage(text, currentKey) || isMessage(text,key==='platformPrompts.youFixedProjectSupervisorYou'?'minimal.supervisorDefault':'minimal.platformDefault') || (key!=='platformPrompts.youFixedProjectSupervisorYou'&&isMessage(text,'minimal.platformDefaultLegacy1')) || legacyDefault ? fallback() : value;
 }
 
 /** Only maintained exact defaults are replaced; saved custom text remains original execution input. */
 export function customExecutionPrompt(value,kind='platform') {
   const text=typeof value==='string'?value:'';
   return isMessage(text.trim(),kind==='supervisor'?'minimal.supervisorDefault':'minimal.platformDefault')
+    ||kind!=='supervisor'&&isMessage(text.trim(),'minimal.platformDefaultLegacy1')
     ||isMessage(text.trim(),kind==='supervisor'?'collaboration.supervisor':'collaboration.platform')?'':text;
 }
 

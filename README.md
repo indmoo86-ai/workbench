@@ -2,6 +2,8 @@ English | [简体中文](README.zh-CN.md)
 
 # Agent Collaboration Workbench
 
+Opt-in collaboration sessions collect discussion outside busy native CLIs and deliver a role-bound batch after the current turn ends. Queue protocol 2 separates native acceptance from process start, inherits a bounded propagation cycle and preserves original waits. Only explicit `wb note` / `wb chat post` publishes batch output; native streams and final answers stay in execution details. Independent-review reads and managed document access remain protected until release. This repair is isolated-tested, not deployed or enabled on business projects; see [V3 contract](docs/design/session-queue-v3.md) and [measured acceptance](docs/design/session-queue-v3-acceptance.md).
+
 Basic Settings aligns its heading, tabs and content edges; the tab bar stays at the top while scrolling, including on narrow screens. This layout change is not deployed yet.
 
 CLI occupancy recovery reuses owned idle drivers, retires verified idle leftovers and asks before stopping busy or uncertain old work. The human-only dialog resumes the existing task and exact native session; unknown identities cannot be forcibly stopped. The five-minute warm cache remains unchanged. This development change is not deployed; see [recovery contract and acceptance](docs/design-cli-session-recovery.md).
@@ -64,7 +66,7 @@ All items below exist in the current code. Items that are only designed are list
 
 **Collaboration**
 
-- Project group chat with `@role` dispatch. Messages without an `@` are stored but do not start a model; messages from agents never trigger other agents implicitly.
+- Project group chat with `@role` dispatch. Ordinary agent messages do not implicitly dispatch work. Explicitly enabled collaboration-session broadcast can queue a discussion batch; it never appends to a busy CLI or changes task ownership.
 - Per-project roles with their own device, CLI, model, reasoning effort and Markdown prompt. Optional responsibility templates cover planning, execution, review, testing, architecture, debugging, deployment and documentation. All new template execution prompts start empty; existing roles are unchanged.
 - Same-device Codex/Grok changes use **Handoff and switch** in either role editor: retain identity/history, drain accepted work, verify a new native session and commit only after process settlement. Cancel before commit keeps the original binding. Requires a compatible Worker; other adapters are explicitly unverified. See [CLI switch design](docs/design-role-cli-switch.md) for current acceptance status.
 - Role names are mention identifiers (letters, digits, underscores or hyphens, without spaces); `all` and `everyone` are reserved for broadcasts. Existing role names are kept verbatim. Default intake follows the configured supervisor ID, not an English display name, and mentions support both ASCII and full-width punctuation.
@@ -140,6 +142,10 @@ npm start        # Home
 npm run worker   # Worker (in another terminal)
 ```
 
+### Project memory: `AGENTS.md`
+
+Each managed project keeps one authoritative memory file, `AGENTS.md`, at the project root. When Workbench creates a project folder or links an existing Git repository it writes, only if absent, an `AGENTS.md` template (project goal, rules and conventions, build and test commands, key decisions; conclusions only, under about 200 lines) and a one-line `CLAUDE.md` containing `@AGENTS.md`. Existing files are never overwritten. In a Git repository root the new files alone are committed locally (`chore: add AGENTS.md project memory`); nothing else is staged and nothing is pushed. If the commit fails (for example, no Git identity or a rejecting hook) the files are left uncommitted and the error is reported. Codex, Grok and Agy read `AGENTS.md` natively; Claude Code needs version 2.1.281 or later for `AGENTS.md`, and the `CLAUDE.md` pointer covers its default mode, which skips `AGENTS.md` whenever a `CLAUDE.md` exists. Any role may update `AGENTS.md` when a rule or key decision changes; keep it concise, conclusions only, and commit the change. Workbench no longer keeps its own memory (`wb memory` and `.workbench/MEMORY.md` / `INDEX.md` were removed; old files on disk are left untouched). Process history is available with `wb history search`.
+
 ### Where data lives
 
 | Path | Content |
@@ -147,6 +153,7 @@ npm run worker   # Worker (in another terminal)
 | `.data/home/` (override with `DATA_DIR`) | Home SQLite database, attachments, generated `worker-token` (mode 0600), hosting account secrets |
 | `.data/worker/` (override with `WORKER_DATA_DIR`) | Worker SQLite database, node identity, outbox, runtime environments |
 | `<project folder>/.worktrees/` | Per-run and project-baseline Git worktrees |
+| `<project folder>/AGENTS.md`, `CLAUDE.md` | Project rules and key decisions shared by every CLI (created once if absent) |
 | `<project folder>/.workbench/` | Handoff notes, temporary attachments and other platform files inside a workspace |
 | `.local/` | Scratch space for local validation; never published |
 

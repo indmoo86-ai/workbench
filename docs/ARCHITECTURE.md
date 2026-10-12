@@ -323,6 +323,18 @@ Each execution inherits the node's native CLI login and user configuration, and 
 
 ## Current limitations
 
+### Opt-in collaboration session queue
+
+`collaboration-sessions.mjs` owns membership and review visibility; `session-queue.mjs` keeps receipts, collectors, batches and cycles in the existing Home store. Explicit requests reuse their formal Task without a second driver. Runnable collectors rotate without allowing paused or protected work to starve others. Project settings save collection times, backlog thresholds and future-cycle budget atomically. The feature defaults off; the twenty-batch seed applies only to test projects, not business projects.
+
+Home reserves capacity and budget. Worker protocol 2 rechecks the actual native-input boundary, and native acceptance charges once. Verified non-delivery refunds; unknown delivery stays linked to the original Worker/Run for verification, without redispatch. Known startup failures block repeated attempts until relevant facts change. Old Workers cannot consume new batches or protected-review inputs.
+
+New automatic consultations and clarifications inherit the same cycle. Answers and necessary resumption of accepted work do not charge again. The original batch survives call/wait and discussion/reply/resolve through `continuationBatchId` and its effective Run binding. Native output remains private; pass and explicit publication are validated separately, and a generic note cannot satisfy pending addressed requests.
+
+The review-bound store filters before paging, summaries and input assembly, traversing request/Run/Task provenance and child topics. Removed reviewers remain protected until release. Managed documents compare server-captured hashes to actual Worker files and use role-private handoffs with canonical paths. This does not sandbox arbitrary native shell reads, detect unlinked paraphrases or erase previously seen content. See [V3 acceptance](design/session-queue-v3-acceptance.md) for measured scope and remaining drill limits.
+
+### General limitations
+
 - The current state is a development-grade managed execution. Multi-user permissions, per-device revocation, Project Epoch and manual primary/standby switching are not implemented. The default listener stays on loopback.
 - Not implemented: automatic AI supervisor decomposition and forwarding beyond the lightweight stage scheduling, multi-user identities, other ACP runtimes, Feishu. Automatic recovery of native sessions has not been verified for every CLI on two devices; Grok, Antigravity and Claude Code have no native per-step approval comparable to Codex.
 - Data is persisted on a single Home with no cross-host replication.

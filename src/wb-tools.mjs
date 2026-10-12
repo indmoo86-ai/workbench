@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, readdir, stat, appendFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
 import { agentRequest } from './agent-bridge.mjs';
 import { join, resolve, relative, isAbsolute, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -24,7 +24,7 @@ export function context() {
     hop: Number(env('WB_HOP') || 0),
     home: env('WB_HOME'),
     token: env('WB_TOKEN'),
-    mode: env('WB_MODE')
+    mode: env('WB_MODE'),reviewPrivate:env('WB_REVIEW_PRIVATE'),documentViews:env('WB_DOCUMENT_VIEWS')==='1'
   };
 }
 
@@ -37,76 +37,34 @@ async function ensureKnowledge(dir) {
   if (!dir) throw new Error(tr('wbTools.wbKnowledgeWbProjectRoot'));
   await mkdir(join(dir, 'docs'), { recursive: true });
   await mkdir(join(dir, 'handoffs'), { recursive: true });
-  const index = join(dir, 'INDEX.md');
-  const memory = join(dir, 'MEMORY.md');
-  try { await stat(index); } catch {
-    await writeFile(index, tr('wbTools.projectKnowledgeIndexMemoryMd'), 'utf8');
-  }
-  try { await stat(memory); } catch {
-    await writeFile(memory, tr('wbTools.projectMemoryRecordConfirmedFacts'), 'utf8');
-  }
   return dir;
 }
 
 export async function boot() {
   const ctx = context();
   const knowledge = await ensureKnowledge(ctx.knowledge);
-  const index = await readFile(join(knowledge, 'INDEX.md'), 'utf8').catch(() => '');
-  const last = await readFile(join(knowledge, 'handoffs', 'LATEST.md'), 'utf8').catch(() => '');
+  const last = ctx.documentViews&&ctx.home&&ctx.runId?(await homeFetch('/api/agent/documents',{runId:ctx.runId,action:'last'}).catch(()=>null))?.text||'':await readFile(join(knowledge, 'handoffs', 'LATEST.md'), 'utf8').catch(() => '');
   return {
     ok: true,
     role: ctx.role || null,
     hop: ctx.hop,
     knowledge,
     projectRoot: ctx.projectRoot,
-    indexPreview: index.slice(0, 800),
     lastHandoff: last.slice(0, 2000) || null
   };
 }
 
-export async function memoryRead() {
-  const dir = await ensureKnowledge(context().knowledge);
-  return { path: join(dir, 'MEMORY.md'), text: await readFile(join(dir, 'MEMORY.md'), 'utf8') };
-}
-
-export async function memoryWrite(text) {
-  if (!text || !String(text).trim()) throw new Error(tr('wbTools.memoryWriteNeedsContent'));
-  const ctx = context();
-  const dir = await ensureKnowledge(ctx.knowledge);
-  const line = `\n## ${now()} · ${ctx.role || 'unknown'}\n${String(text).trim()}\n`;
-  await appendFile(join(dir, 'MEMORY.md'), line, 'utf8');
-  return { ok: true, path: join(dir, 'MEMORY.md') };
-}
-
-export async function memorySearch(query) {
-  if (!query) throw new Error(tr('wbTools.searchTermRequired'));
-  const dir = await ensureKnowledge(context().knowledge);
-  const q = String(query).toLowerCase();
-  const files = ['MEMORY.md', 'INDEX.md'];
-  const docs = join(dir, 'docs');
-  try {
-    for (const name of await readdir(docs)) {
-      if (name.endsWith('.md')) files.push(join('docs', name));
-    }
-  } catch { /* With no docs directory, search memory only */ }
-  const hits = [];
-  for (const rel of files) {
-    const text = await readFile(join(dir, rel), 'utf8').catch(() => '');
-    const lines = text.split('\n').map((line, i) => ({ n: i + 1, line })).filter(x => x.line.toLowerCase().includes(q));
-    if (lines.length) hits.push({ file: rel, matches: lines.slice(0, 20) });
-  }
-  return { query, hits };
-}
-
 export async function docsList() {
+  const ctx=context();if(ctx.documentViews&&ctx.home&&ctx.runId)return homeFetch('/api/agent/documents',{runId:ctx.runId,action:'list'});
   const dir = await ensureKnowledge(context().knowledge);
   const docs = join(dir, 'docs');
   let names = [];
   try { names = (await readdir(docs)).filter(n => !n.startsWith('.')); } catch { names = []; }
-  return { index: 'INDEX.md', memory: 'MEMORY.md', docs: names };
+  return { docs: names };
 }
 
 export async function docsRead(rel) {
+  const ctx=context();if(ctx.documentViews&&ctx.home&&ctx.runId)return homeFetch('/api/agent/documents',{runId:ctx.runId,action:'read',path:String(rel||'')});
   const dir = await ensureKnowledge(context().knowledge);
   const target = resolve(dir, String(rel || ''));
   if (!inside(dir, target)) throw new Error(tr('wbTools.onlyFilesInsideWorkbenchCan'));
@@ -206,6 +164,7 @@ function renderHandoff({ ctx, git, done, files, verify, next, blocked, auto }) {
 }
 
 export async function handoffLast() {
+  const ctx=context();if(ctx.documentViews&&ctx.home&&ctx.runId){const result=await homeFetch('/api/agent/documents',{runId:ctx.runId,action:'last'});return {ok:true,...result};}
   const dir = await ensureKnowledge(context().knowledge);
   const text = await readFile(join(dir, 'handoffs', 'LATEST.md'), 'utf8').catch(() => '');
   if (!text) return { ok: false, error: tr('wbTools.noWrittenHandoffYet') };
@@ -223,7 +182,8 @@ export async function handoffHasRun(runId, knowledge) {
 export async function writeHandoff(fields = {}, override = {}) {
   const ctx = { ...context(), ...override };
   const dir = await ensureKnowledge(ctx.knowledge);
-  if (fields.auto && ctx.runId && await handoffHasRun(ctx.runId, dir)) {
+  const handoffs=ctx.reviewPrivate?join(dir,'handoffs','private',ctx.reviewPrivate):join(dir,'handoffs');
+  if (fields.auto && ctx.runId && (await readdir(handoffs).catch(()=>[])).some(name=>name.includes(ctx.runId))) {
     return { ok: true, skipped: true, reason: tr('wbTools.turnAlreadyHasWrittenHandoff') };
   }
   const git = await gitSnapshot(ctx.workspace || ctx.projectRoot);
@@ -237,11 +197,11 @@ export async function writeHandoff(fields = {}, override = {}) {
     auto: !!fields.auto
   });
   const stamp = now().replace(/[:.]/g, '-');
-  const file = join(dir, 'handoffs', `${stamp}-${ctx.role || 'role'}-${ctx.runId || 'norun'}.md`);
+  const file = join(handoffs, `${stamp}-${ctx.role || 'role'}-${ctx.runId || 'norun'}.md`);
   await mkdir(dirname(file), { recursive: true });
   await writeFile(file, body, 'utf8');
-  await writeFile(join(dir, 'handoffs', 'LATEST.md'), body, 'utf8');
-  return { ok: true, path: file, latest: join(dir, 'handoffs', 'LATEST.md') };
+  await writeFile(join(handoffs, 'LATEST.md'), body, 'utf8');
+  return { ok: true, path: file, latest: join(handoffs, 'LATEST.md') };
 }
 
-export const helpText = () => [tr('minimal.teamHelp'),tr('minimal.waitHelp'),tr('wbTools.builtInCollaborationToolsWorkbench'),process.env.WB_SOURCE_SYNC==='1'?tr('sourceSync.toolGuide'):''].filter(Boolean).join('\n\n');
+export const helpText = () => [tr('minimal.teamHelp'),tr('minimal.waitHelp'),tr('wbTools.builtInCollaborationToolsWorkbench'),process.env.WB_QUEUE_BATCH==='1'?tr('sessionQueue.passRule'):'',process.env.WB_SYSTEM_SUPERVISOR==='1'?tr('collabSessions.toolHelp'):'',process.env.WB_SOURCE_SYNC==='1'?tr('sourceSync.toolGuide'):''].filter(Boolean).join('\n\n');
