@@ -1174,7 +1174,7 @@ Attachments: {p1} (the body does not include the attachments' full text)`,
   'runtimeGuidance.whenGrokCallsWbUse': ' When Grok calls wb, use one standalone command and do not chain it with other shell commands.',
   'runtimeGuidance.collaborationToolsConfiguredCurrentSession': `Collaboration tools are configured. Current session: wb session current; roles' sessions in the same project: wb session list; role summary: wb session summary SESSION_ID; visible full text: wb session read SESSION_ID --offset 0 --limit 4000; group chat digest: wb chat summary.
 When you need history: wb history search KEYWORD; original text: wb history read MESSAGE_ID; full report: wb result read RUN_OR_CALL_ID. Continue reading long text with nextOffset and version; do not pretend you read the whole text.
-Memory/docs as needed: wb memory search, wb docs read; do not read all history end to end. Pass only short summaries and source IDs.
+Project rules and decisions live in AGENTS.md at the project root (loaded natively by your CLI); search history with wb history search. Do not read all history end to end. Pass only short summaries and source IDs.
 Consult with wb call --role ROLE --kind consult --request-id STABLE_ID --text DESCRIPTION; a same-project cross-device call is also delivered directly, with no supervisor relay needed. Ask one clear question at a time, attach the necessary background, file versions, and the expected answer; retry the same question with the same ID.
 Output your own analysis as a normal reply; put a targeted question in the text of the communication tool selected for this turn, and the platform separately shows the question record "sender role → @recipient role" and its linked reply. When discuss is open, prefer ask for clarifying the current task's rules; call is for independent analysis/review/output, or for targets that do not have discuss open. Do not copy a whole analysis into a consultation, and do not send the same group-chat note repeatedly.
 When you need several opinions, first wb call each of them, then wb wait with a short resume note and end the turn; the platform returns to the original session once the results are collected. Do not poll, sleep, or send keep-alive messages; the execution slot and the five-minute idle keep-alive are managed by the Worker.
@@ -1392,22 +1392,32 @@ wb schedule '<JSON>'  Supervisor submits a lightweight execution schedule that a
   'wbCli.unknownCommand': `Unknown command {cmd}
 
 {HELP}`,
+  // src/agents-md.mjs
+  'agentsMd.template': `# AGENTS.md
+
+Project rules and key decisions shared by every CLI (Codex, Claude Code, Grok, Agy). Keep it short (under about 200 lines).
+Any role may update this file when a rule or key decision changes; keep it concise, conclusions only, and commit the change.
+
+## Project goal
+
+-
+
+## Rules and conventions
+
+-
+
+## Build and test commands
+
+-
+
+## Key decisions
+
+Conclusions only; no process logs (history is available via \`wb history search\`).
+
+-
+`,
   // src/wb-tools.mjs
   'wbTools.wbKnowledgeWbProjectRoot': 'WB_KNOWLEDGE / WB_PROJECT_ROOT is not set',
-  'wbTools.projectKnowledgeIndexMemoryMd': `# Project Knowledge Index
-
-- MEMORY.md — decisions already made
-- docs/ — long documents, read on demand, never read end to end
-- handoffs/LATEST.md — the most recent written handoff (done items / files / commit / next step)
-
-Start with \`wb boot\` and always finish with \`wb handoff\`.
-`,
-  'wbTools.projectMemoryRecordConfirmedFacts': `# Project Memory
-
-Record confirmed facts only. When appending, include the time and role name, and do not delete other people's entries.
-
-`,
-  'wbTools.memoryWriteNeedsContent': 'memory write needs content',
   'wbTools.searchTermRequired': 'A search term is required',
   'wbTools.onlyFilesInsideWorkbenchCan': 'Only files inside .workbench can be read',
   'wbTools.notFile': 'Not a file',
@@ -1458,7 +1468,7 @@ Record confirmed facts only. When appending, include the time and role name, and
 wb capabilities      Current collaboration tools and protocol version
 wb setup catalog     Read-only current-project roster, peer responsibilities, CLIs, models and configuration; own responsibility omitted
 wb discuss peers     Query, for all valid role sessions, the current tasks, working directories, and recent notes of peers
-wb boot              Read INDEX + the latest handoff on demand; not needed every turn
+wb boot              Read the latest handoff on demand; not needed every turn
 wb history search TERM  Search messages and reports of the current project; returns source IDs
 wb session current     Show this turn's role session ID and status
 wb session list --limit 20 [--cursor ID]  List the project's role sessions
@@ -1468,9 +1478,6 @@ wb chat summary       Show the conversation digest of the current project
 wb history read ID [offset] [version]  Read the original message text in segments
 wb result read ID [offset] [version]   Read a full run/call report in segments
 wb report JSON       Submit the verdict/summary/evidence/next business conclusion
-wb memory            Read MEMORY.md
-wb memory write TEXT  Append a memory entry (with role and time)
-wb memory search TERM   Search memory and docs
 wb docs              List documents
 wb docs read PATH     Read a file inside .workbench
 wb git               Show repository status and origin (read-only)
@@ -1672,7 +1679,8 @@ wb stands for this full prefix; every call uses this turn's prefix, and historic
   'worker.protocolError': 'Protocol error',
   'worker.connectionError': 'Connection error',
   'minimal.teamHelp': 'wb discuss peers: query the complete current project team, responsibilities and availability across devices. Optional JSON {"view":"detail","includeArchived":true} returns details. Use wb call to contact a role; sending does not require waiting. wb wait registers dependencies only when their answers are needed.',
-  'minimal.platformDefault': 'Execute autonomously through Workbench. Use available collaboration tools when the task needs them; explicit user requirements still apply.',
+  'minimal.platformDefault': 'Execute autonomously through Workbench. Use available collaboration tools when the task needs them; explicit user requirements still apply. Project rules and decisions live in AGENTS.md (loaded natively by your CLI); history is available via wb history search. Any role may update AGENTS.md when a rule or key decision changes; keep it concise, conclusions only, and commit the change.',
+  'minimal.platformDefaultLegacy1': 'Execute autonomously through Workbench. Use available collaboration tools when the task needs them; explicit user requirements still apply.',
   'minimal.supervisorDefault': 'Understand the goal and choose an effective execution approach. Complete work directly or collaborate as the task needs.',
   'minimal.identity': 'You are executing through Workbench as {name} (role ID: {roleId}). Collaboration tools are available as needed; discover them with wb help.',
   'minimal.workerProtocolMismatch': 'This queued turn uses the newer instruction contract. Upgrade the Worker before resuming; its saved input has not been downgraded.',
