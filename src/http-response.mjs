@@ -9,7 +9,7 @@ function acceptsGzip(value) {
     const [name, ...parameters] = item.trim().toLowerCase().split(';');
     const quality = parameters.find(parameter => parameter.trim().startsWith('q='));
     const weight = quality === undefined ? 1 : Number(quality.trim().slice(2));
-    return { name, allowed: Number.isFinite(weight) && weight > 0 && weight <= 1 };
+    return { name: name.trim(), allowed: Number.isFinite(weight) && weight > 0 && weight <= 1 };
   });
   return (encodings.find(item => item.name === 'gzip') || encodings.find(item => item.name === '*'))?.allowed === true;
 }
