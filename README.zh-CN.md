@@ -131,7 +131,7 @@ npm run worker   # Worker（在另一个终端中）
 
 ### 项目记忆：`AGENTS.md`
 
-每个受管项目只在项目根目录保留一个权威记忆文件 `AGENTS.md`。Workbench 创建项目文件夹时，仅在文件不存在时生成 `AGENTS.md` 模板（项目目标、规则和约定、构建和测试命令、关键决策；只写结论，约 200 行以内）和一行内容为 `@AGENTS.md` 的 `CLAUDE.md`。已有文件绝不覆盖，也不会自动提交。Codex、Grok 和 Agy 原生读取 `AGENTS.md`；Claude Code 需要 2.1.281 及以上版本才支持 `AGENTS.md`，而 `CLAUDE.md` 指针覆盖了它的默认模式（只要存在 `CLAUDE.md` 就不读 `AGENTS.md`）。只有项目主管修改 `AGENTS.md`；其他角色在会话中提出修改建议，重要修改需用户确认。Workbench 不再保存自己的记忆（已移除 `wb memory` 以及 `.workbench/MEMORY.md` / `INDEX.md`；磁盘上的旧文件不会被删除）。过程历史用 `wb history search` 查询。
+每个受管项目只在项目根目录保留一个权威记忆文件 `AGENTS.md`。Workbench 创建项目文件夹或关联已有 Git 仓库时，仅在文件不存在时生成 `AGENTS.md` 模板（项目目标、规则和约定、构建和测试命令、关键决策；只写结论，约 200 行以内）和一行内容为 `@AGENTS.md` 的 `CLAUDE.md`。已有文件绝不覆盖。在 Git 仓库根目录中，只把新建的这两个文件在本地提交（`chore: add AGENTS.md project memory`），不暂存其他内容，也不推送。提交失败（例如未配置 Git 身份或被 hook 拒绝）时，文件保留为未提交状态并报告错误。Codex、Grok 和 Agy 原生读取 `AGENTS.md`；Claude Code 需要 2.1.281 及以上版本才支持 `AGENTS.md`，而 `CLAUDE.md` 指针覆盖了它的默认模式（只要存在 `CLAUDE.md` 就不读 `AGENTS.md`）。规则或关键决策变化时，任何角色都可以更新 `AGENTS.md`；保持简洁、只写结论，并提交修改。Workbench 不再保存自己的记忆（已移除 `wb memory` 以及 `.workbench/MEMORY.md` / `INDEX.md`；磁盘上的旧文件不会被删除）。过程历史用 `wb history search` 查询。
 
 ### 数据存放位置
 

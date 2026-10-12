@@ -106,7 +106,7 @@ Use different `PORT`, `DATA_DIR` and `WORKER_DATA_DIR` values to run a second, i
 
 6. In the base settings, confirm the devices are online and their CLIs detected. Alternatively, use the device onboarding helper (SSH check, remote Worker install and reverse tunnel); it requires Node.js >= 22.16, npm and Git on the remote machine and does not install a boot service.
 7. In project settings, bind a project directory on every device that should take part. Cross-device code moves through explicit Git deliveries of fixed commits; there is no shared writable directory.
-8. Project memory is the project's own `AGENTS.md` (created once from a template, with a `CLAUDE.md` pointer, if absent; never overwritten or auto-committed). Keep Claude Code at 2.1.281 or later on every device so it reads `AGENTS.md`; the `CLAUDE.md` pointer covers its default mode. Workbench has no separate memory store; `wb memory` was removed.
+8. Project memory is the project's own `AGENTS.md` (created once from a template, with a `CLAUDE.md` pointer, if absent, for new folders and newly linked repositories; never overwritten; in a Git repository only those two files are committed locally, never pushed). Any role may update it when a rule or key decision changes. Keep Claude Code at 2.1.281 or later on every device so it reads `AGENTS.md`; the `CLAUDE.md` pointer covers its default mode. Workbench has no separate memory store; `wb memory` was removed.
 
 Run one Worker per machine. Restarting a Worker keeps its identity, so do not wipe its data directory. Set `NODE_KIND=local` or `cloud` if the automatic choice (Linux means cloud) is wrong for your machine.
 

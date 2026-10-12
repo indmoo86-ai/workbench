@@ -86,7 +86,7 @@ export default Object.freeze({
   'roleDefinition.invalidResponsibility': '角色职能必须是文本，最多 1000 个字符',
   'roleDefinition.onlyDefinitionFields': '此接口只能修改角色职能和角色提示词',
   'roleDefinition.coordinationConvention': '求助或委派前先查询当前团队目录，根据同伴职能、相关上下文、设备可用性和任务状态选择对象，不凭熟悉的名称或模型品牌派工。职能为空表示未指定，不能自行猜测；必要时询问或解释一次性跨职能选择。跨职能派单要说明原因、临时范围和交付物，不能为了本次派单改写永久职能。你自己执行时只依据本轮任务和执行提示词，不查询自己的职能作为执行约束。用户明确指派在既有授权和工作区边界内优先。',
-  'roleDefinition.supervisorConvention': '只有你修改 AGENTS.md（项目规则和关键决策，只写结论）；其他角色在会话中提出修改建议，重要修改需用户确认。先区分配置、仓库维护、开发、审核和测试，再根据当前目录和实际工具选择执行路径；需要独立验证时，实施者和验收者应分开。记录真实选择原因，不能编造额度或能力依据。仓库同步先核对请求涉及的每台设备、仓库、实际目录、分支及固定版本，不能将各端请求默默缩成单端，也不能把隔离 worktree 当作用户指定的工作目录。先检查平台现有操作；没有合适维护入口时继续评估已授权的终端、同伴或工具接入路径，仅将实际无法解除的条件报告为阻塞。fetch 获取远端对象不等于更新工作目录，未核对目标目录和版本不能报告更新成功。 Git 托管端的远端分支不等于某台设备工作目录的版本。必须查询实际目标设备和绑定目录；设备离线时明确说明当前版本未核实。',
+  'roleDefinition.supervisorConvention': '先区分配置、仓库维护、开发、审核和测试，再根据当前目录和实际工具选择执行路径；需要独立验证时，实施者和验收者应分开。记录真实选择原因，不能编造额度或能力依据。仓库同步先核对请求涉及的每台设备、仓库、实际目录、分支及固定版本，不能将各端请求默默缩成单端，也不能把隔离 worktree 当作用户指定的工作目录。先检查平台现有操作；没有合适维护入口时继续评估已授权的终端、同伴或工具接入路径，仅将实际无法解除的条件报告为阻塞。fetch 获取远端对象不等于更新工作目录，未核对目标目录和版本不能报告更新成功。 Git 托管端的远端分支不等于某台设备工作目录的版本。必须查询实际目标设备和绑定目录；设备离线时明确说明当前版本未核实。',
   'roleDefinition.supervisorResponsibility': '负责项目任务分解、协调分派、跟进阻塞与汇总验收；根据同伴职能和设备能力选择执行者。',
   'roleDefinition.reviewerResponsibility': '独立审查方案与代码，发现需求遗漏、缺陷和风险，提出有证据的修改建议并复审。',
   'roleDefinition.plannerResponsibility': '分析需求、制定方案、拆分任务与验收条件，澄清接口和未决问题。',
@@ -1396,7 +1396,7 @@ wb schedule '<JSON>'  主管提交轻量执行安排，自动推进，不等待�
   'agentsMd.template': `# AGENTS.md
 
 所有 CLI（Codex、Claude Code、Grok、Agy）共用的项目规则和关键决策。保持简短（约 200 行以内）。
-只有项目主管修改本文件；其他角色在会话中提出修改建议，重要修改需用户确认。
+规则或关键决策变化时，任何角色都可以更新本文件；保持简洁、只写结论，并提交修改。
 
 ## 项目目标
 
@@ -1679,7 +1679,7 @@ wb 表示这个完整前缀；每次调用都使用本轮前缀，不复用历�
   'worker.protocolError': '协议错误',
   'worker.connectionError': '连接错误',
   'minimal.teamHelp': 'wb discuss peers：查询当前项目完整团队、职能和跨设备可用状态。可选 JSON {"view":"detail","includeArchived":true} 返回详情。通过 wb call 联系角色，发送不意味着必须等待；只有依赖回复时才用 wb wait 登记等待。',
-  'minimal.platformDefault': '通过 Workbench 自主执行。按任务需要使用协作工具，仍须落实用户的明确要求。项目规则和决策见 AGENTS.md（各 CLI 原生加载）；历史用 wb history search 查询。只有主管修改 AGENTS.md；其他角色在会话中提出修改建议，重要修改需用户确认。',
+  'minimal.platformDefault': '通过 Workbench 自主执行。按任务需要使用协作工具，仍须落实用户的明确要求。项目规则和决策见 AGENTS.md（各 CLI 原生加载）；历史用 wb history search 查询。规则或关键决策变化时，任何角色都可以更新 AGENTS.md；保持简洁、只写结论，并提交修改。',
   'minimal.platformDefaultLegacy1': '通过 Workbench 自主执行。按任务需要使用协作工具，仍须落实用户的明确要求。',
   'minimal.supervisorDefault': '理解目标，自主选择有效的执行方式。按任务需要直接完成工作或与同伴协作。',
   'minimal.identity': '当前通过 Workbench 执行，角色为 {name}（角色 ID：{roleId}）。可按需使用协作工具，通过 wb help 发现入口。',
