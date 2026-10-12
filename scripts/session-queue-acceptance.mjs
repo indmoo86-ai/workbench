@@ -25,11 +25,13 @@ const state = () => api('/api/state');
 
 // 1. Enable the flag and create an isolated open session with broadcast limited for acceptance.
 await api(`${base}/collaboration-sessions/feature`, { method: 'POST', json: { enabled: true } });
+await api(`${base}/collaboration-sessions/test-project`, { method: 'POST', json: { enabled: true } });
+await api(`${base}/collaboration-sessions/queue-config`, { method: 'POST', json: { budgetBatches: 2 } });
 await api(`${base}/collaboration-sessions/queue-config`, { method: 'POST', json: { quietSeconds: 5, maxSeconds: 15 } });
 const rootId = randomUUID();
 await api(`${base}/messages`, { method: 'POST', json: { clientMessageId: rootId, text: `Acceptance root ${new Date().toISOString()}` } });
 const session = await api(`${base}/collaboration-sessions`, { method: 'POST', json: { goal: 'session queue acceptance', participants: [busy, peer], sourceMessageId: rootId } });
-await api(`${base}/collaboration-sessions/${session.id}/broadcast`, { method: 'POST', json: { enabled: true, batchLimit: 2, acknowledgeNoBudget: true } });
+await api(`${base}/collaboration-sessions/${session.id}/broadcast`, { method: 'POST', json: { enabled: true, acknowledgeNoBudget: true } });
 
 // 2. Make the busy role run an observable long turn (normal user dispatch, not part of the session).
 const busyMessage = randomUUID();

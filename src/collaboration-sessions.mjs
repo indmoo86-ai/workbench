@@ -88,11 +88,13 @@ export class CollaborationSessions {
         if (participants.some(p => p.roleId === roleId)) continue;
         participants.push({ roleId, reviewer: type === 'independent-review' ? item?.reviewer !== false : false, joinedAt: at });
       }
+      const parent = input.parentSessionId ? this.db.get(KIND, input.parentSessionId) : null;
+      if (input.parentSessionId && parent?.projectId !== projectId) throw new Error(tr('collabSessions.sessionNotFound'));
       const source = input.sourceMessageId ? this.db.get('roomMessages', input.sourceMessageId) : null;
       if (input.sourceMessageId && source?.projectId !== projectId) throw new Error(tr('collabSessions.linkNotInProject'));
       const s = { id: input.id || randomUUID(), projectId, goal: text(input.goal, 'goal', 4000),
         delivery: input.delivery ? text(input.delivery, 'delivery', 4000) : '', type, participants,
-        linkedTaskIds: [], linkedRequestIds: [], sourceMessageId: source?.id || null, state: 'open', reviewReleasedAt: null,
+        linkedTaskIds: [], linkedRequestIds: [], sourceMessageId: source?.id || null, parentSessionId: parent?.id || null, state: 'open', reviewReleasedAt: null,
         membershipLog: participants.map(p => ({ action: 'add', roleId: p.roleId, reviewer: p.reviewer, actor, at })),
         createdBy: actor, createdAt: at, updatedAt: at };
       this.db.put(KIND, s);

@@ -18,7 +18,7 @@ import { renderRunPrompt } from './run-context.mjs';
 import { buildTeamContext, renderTeamContext } from './team-context.mjs';
 import { Rooms } from './rooms.mjs';
 import { CollaborationSessions, reviewView, setCollaborationSessionsEnabled } from './collaboration-sessions.mjs';
-import { SessionQueue, QueuePump, queueConfig, setQueueConfig, setSessionBroadcast } from './session-queue.mjs';
+import { SessionQueue, QueuePump, queueConfig, setQueueConfig, setSessionBroadcast, setTestProject, grantBudget } from './session-queue.mjs';
 import { renderBatch } from './session-queue-worker.mjs';
 import { defaultRoleTemplates, isSupervisorName } from './default-roles.mjs';
 import { Coordinator } from './coordinator.mjs';
@@ -594,6 +594,10 @@ const server = http.createServer(async (req, res) => {
       const collabListRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions$/);
       if(collabListRoute&&req.method==='GET')return json(res,{items:collaborationSessions.list(collabListRoute[1])});
       if(collabListRoute&&req.method==='POST'){const s=collaborationSessions.create(collabListRoute[1],await body(req));change();return json(res,s,201);}
+      const testProjectRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/test-project$/);
+      if(testProjectRoute&&req.method==='POST'){const p=setTestProject(db,testProjectRoute[1],(await body(req)).enabled);change();return json(res,{testProject:p.testProject});}
+      const grantRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/([^/]+)\/budget$/);
+      if(grantRoute&&req.method==='POST'){const c=grantBudget(db,grantRoute[1],grantRoute[2],await body(req),{kind:'human'});change();return json(res,c);}
       const broadcastRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/([^/]+)\/broadcast$/);
       if(broadcastRoute&&req.method==='POST'){const r=setSessionBroadcast(db,broadcastRoute[1],broadcastRoute[2],await body(req));change();return json(res,r);}
       const collabActionRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/([^/]+)\/(members\/add|members\/remove|link|release|close)$/);

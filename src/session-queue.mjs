@@ -7,8 +7,8 @@ import { collaborationSessionsEnabled, sessionOf } from './collaboration-session
  * after its Worker reported a true idle state and a still-valid reservation. Nothing here writes to a CLI.
  */
 export const QUEUE_CAPABILITY = 'sessionQueue';
-export const DEFAULT_QUEUE_CONFIG = Object.freeze({ quietSeconds: 10, maxSeconds: 30, leaseSeconds: 30, maxBatchMessages: 50, verifyAlertSeconds: 600 });
-const RECEIPT = 'sessionReceipts', COLLECTOR = 'sessionCollectors', BATCH = 'sessionBatches', ROTATION = 'sessionRotations';
+export const DEFAULT_QUEUE_CONFIG = Object.freeze({ quietSeconds: 10, maxSeconds: 30, leaseSeconds: 30, maxBatchMessages: 50, verifyAlertSeconds: 600, budgetBatches: 20 });
+const CYCLE = 'sessionCycles', ALERT = 'sessionQueueAlerts', RECEIPT = 'sessionReceipts', COLLECTOR = 'sessionCollectors', BATCH = 'sessionBatches', ROTATION = 'sessionRotations';
 const iso = ms => new Date(ms).toISOString();
 const ms = value => Date.parse(value);
 
@@ -25,6 +25,9 @@ export function setQueueConfig(db, projectId, input = {}) {
     const verifyAlertSeconds = input.verifyAlertSeconds ?? current.verifyAlertSeconds;
     if (!Number.isSafeInteger(verifyAlertSeconds) || verifyAlertSeconds < 60 || verifyAlertSeconds > 86400) throw new Error(tr('sessionQueue.verifyAlertRange'));
     next.verifyAlertSeconds = verifyAlertSeconds;
+    const budgetBatches = input.budgetBatches ?? current.budgetBatches;
+    if (!Number.isSafeInteger(budgetBatches) || budgetBatches < 1 || budgetBatches > 1000) throw new Error(tr('sessionQueue.budgetRange'));
+    next.budgetBatches = budgetBatches;
     for (const value of [next.quietSeconds, next.maxSeconds]) if (!Number.isSafeInteger(value) || value < 0 || value > 3600) throw new Error(tr('sessionQueue.secondsMustBeInteger'));
     if (next.maxSeconds < next.quietSeconds) throw new Error(tr('sessionQueue.maxBelowQuiet'));
     const sessionQueue = { ...(project.sessionQueue || {}), ...next, version: current.version + 1 };
@@ -107,10 +110,19 @@ export class SessionQueue {
       }
       if (this.db.list(BATCH).some(b => b.roleId === roleId && b.projectId === projectId && ['reserved', 'pending_verification', 'processing'].includes(b.status)))
         { this.db.put(COLLECTOR, { ...collector, waitingReason: 'role_busy' }); return null; }
-      // Interim hard stop until phase 4 budgets: a broadcast session seals at most broadcastBatchLimit batches.
+      // Automatic propagation consumes the session's cycle budget; reserve atomically before sealing.
       const session = this.db.get('collaborationSessions', collector.sessionId);
-      if (session?.broadcast === true && this.db.listProject(BATCH, projectId).filter(b => b.sessionId === session.id && b.status !== 'released').length >= (session.broadcastBatchLimit || 6))
-        { this.db.put(COLLECTOR, { ...collector, waitingReason: 'broadcast_paused' }); return null; }
+      let cycle = null;
+      if (session?.broadcast === true) {
+        cycle = ensureCycle(this.db, session, this.now());
+        if (cycle.paused || cycle.used + cycle.reserved >= cycle.limit) {
+          this.db.put(COLLECTOR, { ...collector, waitingReason: 'broadcast_paused' });
+          if (!cycle.paused) { cycle = this.db.put(CYCLE, { ...cycle, paused: true, pausedAt: iso(this.now()), pauseReason: 'budget_exhausted' });
+            raiseAlert(this.db, { projectId, sessionId: session.id, kind: 'budget_exhausted', detail: { used: cycle.used, limit: cycle.limit } }, this.now()); }
+          return null;
+        }
+        cycle = this.db.put(CYCLE, { ...cycle, reserved: cycle.reserved + 1 });
+      }
       const config = queueConfig(this.db, projectId);
       const receipts = this.db.listProject(RECEIPT, projectId).filter(r => r.sessionId === collector.sessionId && r.roleId === roleId && r.status === 'queued')
         .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
@@ -119,7 +131,7 @@ export class SessionQueue {
         messageIds: taken.map(r => r.messageId), explicit: taken.some(r => r.explicitRequest), configVersion: config.version,
         // The Home lease runs on the Home clock; the Worker re-checks its own expiry before writing.
         reservation: { id: reservation.id, generation: reservation.generation, expiresAt: iso(this.now() + config.leaseSeconds * 1000), workerExpiresAt: reservation.expiresAt || null },
-        status: 'reserved', deliveryAttempted: false, runId: null, createdAt: iso(this.now()) };
+        status: 'reserved', deliveryAttempted: false, runId: null, createdAt: iso(this.now()), cycleId: cycle?.id || null, budget: cycle ? 'reserved' : null };
       this.db.put(BATCH, batch);
       for (const r of taken) this.db.put(RECEIPT, { ...r, status: 'sealed', batchId: batch.id });
       const rest = receipts.length > taken.length;
@@ -137,7 +149,8 @@ export class SessionQueue {
     return this.#update(batchId, b => {
       if (b.reservation.id !== reservationId) throw new Error(tr('sessionQueue.reservationMismatch'));
       if (!['reserved', 'pending_verification'].includes(b.status)) return b;
-      return { ...b, status: 'processing', runId, startedAt: iso(this.now()) };
+      if (b.budget === 'reserved') moveBudget(this.db, b.cycleId, { reserved: -1, used: 1 });
+      return { ...b, status: 'processing', runId, startedAt: iso(this.now()), budget: b.budget === 'reserved' ? 'charged' : b.budget };
     }, 'processing');
   }
 
@@ -199,6 +212,7 @@ export class SessionQueue {
       const verdict = this.db.get('runReports', run.id)?.verdict;
       const outcome = b.repliedMessageIds?.length ? 'replied' : b.passedAt ? 'passed' : ['blocked', 'needs_input'].includes(verdict) ? 'blocked' : null;
       if (outcome) return this.complete(b.id, { outcome });
+      raiseAlert(this.db, { projectId: b.projectId, sessionId: b.sessionId, kind: 'unresolved', detail: { batchId: b.id, roleId: b.roleId, runId: run.id } }, this.now());
       return this.db.put(BATCH, { ...b, status: 'unresolved', finishedAt: iso(this.now()), runStatus: run.status });
     });
   }
@@ -214,7 +228,8 @@ export class SessionQueue {
     const key = `${b.sessionId}:${b.roleId}`, c = this.db.get(COLLECTOR, key);
     this.db.put(COLLECTOR, { ...(c || { id: key, projectId: b.projectId, sessionId: b.sessionId, roleId: b.roleId, lastAt: this.now() }),
       open: true, firstAt: c?.open ? c.firstAt : this.now(), explicit: Boolean(c?.explicit || b.explicit), waitingReason: reason });
-    return this.db.put(BATCH, { ...b, status: 'released', releasedReason: reason });
+    if (b.budget === 'reserved') moveBudget(this.db, b.cycleId, { reserved: -1 });
+    return this.db.put(BATCH, { ...b, status: 'released', releasedReason: reason, budget: b.budget === 'reserved' ? 'returned' : b.budget });
   }
 
   #update(batchId, fn, receiptStatus) {
@@ -244,6 +259,7 @@ export class SessionQueue {
     };
     return { receipts: this.db.listProject(RECEIPT, projectId).map(r => ({ messageId: r.messageId, roleId: r.roleId, sessionId: r.sessionId, state: state(r) })),
       collectors: this.db.listProject(COLLECTOR, projectId).filter(c => c.open).map(c => ({ sessionId: c.sessionId, roleId: c.roleId, waitingReason: c.waitingReason || 'collecting' })),
+      cycles: this.db.listProject(CYCLE, projectId).map(c => ({ id: c.id, rootSessionId: c.rootSessionId, used: c.used, reserved: c.reserved, limit: c.limit, paused: c.paused })),
       batches: batches.map(b => ({ id: b.id, sessionId: b.sessionId, roleId: b.roleId, status: b.status, messageIds: b.messageIds, runId: b.runId, configVersion: b.configVersion })) };
   }
 }
@@ -252,12 +268,73 @@ export class SessionQueue {
  * Home pump: asks the role's Worker for a reservation over WebSocket, seals a batch against it and turns the batch
  * into one ordinary launch task. Lease timeouts are enforced here on the Home clock.
  */
-/** Acceptance-only switch for one session; there is no automatic path that turns broadcast on. */
-export function setSessionBroadcast(db, projectId, sessionId, { enabled, batchLimit = 6, acknowledgeNoBudget } = {}) {
+/** Acceptance-only switch, allowed only on projects explicitly marked as test projects. Budgets still apply. */
+export function setSessionBroadcast(db, projectId, sessionId, { enabled, acknowledgeNoBudget } = {}) {
   const s = db.get('collaborationSessions', sessionId);
   if (!s || s.projectId !== projectId) throw new Error(tr('collabSessions.sessionNotFound'));
-  if (typeof enabled !== 'boolean' || (enabled && acknowledgeNoBudget !== true) || !Number.isSafeInteger(batchLimit) || batchLimit < 1 || batchLimit > 50) throw new Error(tr('sessionQueue.broadcastNeedsAcknowledgement'));
-  return db.put('collaborationSessions', { ...s, broadcast: enabled, broadcastBatchLimit: batchLimit });
+  if (db.get('projects', projectId)?.testProject !== true) throw new Error(tr('sessionQueue.broadcastTestOnly'));
+  if (typeof enabled !== 'boolean' || (enabled && acknowledgeNoBudget !== true)) throw new Error(tr('sessionQueue.broadcastNeedsAcknowledgement'));
+  if (enabled) ensureCycle(db, s, Date.now());
+  return db.put('collaborationSessions', { ...s, broadcast: enabled });
+}
+
+export function setTestProject(db, projectId, enabled) {
+  const project = db.get('projects', projectId);
+  if (!project) throw new Error(tr('collabSessions.projectNotFound'));
+  if (typeof enabled !== 'boolean') throw new Error(tr('collabSessions.enabledMustBeBoolean'));
+  return db.put('projects', { ...project, testProject: enabled });
+}
+
+/** One propagation cycle per root session; derived sessions (parentSessionId) share it, so splitting never resets the budget. */
+export function ensureCycle(db, session, at = Date.now()) {
+  let root = session, guard = 0;
+  while (root.parentSessionId && guard++ < 20) root = db.get('collaborationSessions', root.parentSessionId) || root;
+  const id = root.cycleId || `cycle:${root.id}`, existing = db.get(CYCLE, id);
+  if (existing) return existing;
+  const limit = queueConfig(db, root.projectId).budgetBatches;
+  return db.put(CYCLE, { id, projectId: root.projectId, rootSessionId: root.id, sourceMessageId: root.sourceMessageId || null,
+    limit, used: 0, reserved: 0, paused: false, grants: [{ limit, actor: { kind: 'project_default' }, at: iso(at) }], createdAt: iso(at) });
+}
+
+function moveBudget(db, cycleId, { reserved = 0, used = 0 }) {
+  const c = cycleId ? db.get(CYCLE, cycleId) : null;
+  if (c) db.put(CYCLE, { ...c, reserved: Math.max(0, c.reserved + reserved), used: c.used + used });
+}
+
+/** Resuming needs a new human grant; usage history is kept, never reset. */
+export function grantBudget(db, projectId, sessionId, { additional } = {}, actor = { kind: 'human' }, at = Date.now()) {
+  return db.transaction(() => {
+    const s = db.get('collaborationSessions', sessionId);
+    if (!s || s.projectId !== projectId) throw new Error(tr('collabSessions.sessionNotFound'));
+    if (actor?.kind !== 'human') throw new Error(tr('sessionQueue.grantHumanOnly'));
+    if (!Number.isSafeInteger(additional) || additional < 1 || additional > 1000) throw new Error(tr('sessionQueue.budgetRange'));
+    const c = ensureCycle(db, s, at);
+    return db.put(CYCLE, { ...c, limit: c.limit + additional, paused: false, pausedAt: null, pauseReason: null,
+      grants: [...c.grants, { additional, actor, at: iso(at), usedAtGrant: c.used }] });
+  });
+}
+
+/**
+ * Supervisor alerts are merged per matter (session): while an alert task for the same session has not started,
+ * new kinds are appended to it instead of waking the supervisor again. The alert task is never broadcast.
+ */
+export function raiseAlert(db, { projectId, sessionId, kind, detail = {} }, at = Date.now()) {
+  const key = `${kind}:${detail.batchId || sessionId}`;
+  const open = db.listProject('tasks', projectId).find(t => t.sessionQueueAlert?.sessionId === sessionId && ['ready', 'queued'].includes(t.status) && !t.currentRunId);
+  const ledger = db.get(ALERT, key);
+  if (ledger) return null;                                                     // each matter alerts once
+  const project = db.get('projects', projectId), supervisor = db.get('roles', project?.supervisorRoleId || '');
+  db.put(ALERT, { id: key, projectId, sessionId, kind, detail, at: iso(at), taskId: open?.id || null });
+  if (!supervisor || supervisor.enabled === false || supervisor.archivedAt) return null;
+  const line = tr(`sessionQueue.alert.${kind}`, { sessionId, ...Object.fromEntries(Object.entries(detail).map(([k, v]) => [k, String(v)])) });
+  if (open) {
+    const merged = { ...open, prompt: `${open.prompt}\n${line}`, sessionQueueAlert: { ...open.sessionQueueAlert, kinds: [...open.sessionQueueAlert.kinds, kind] } };
+    db.put(ALERT, { ...db.get(ALERT, key), taskId: open.id });
+    return db.put('tasks', merged);
+  }
+  const task = db.createTask({ projectId, title: tr('sessionQueue.alertTitle'), prompt: `${tr('sessionQueue.alertIntro')}\n${line}`, model: supervisor.model, mode: supervisor.mode });
+  db.put(ALERT, { ...db.get(ALERT, key), taskId: task.id });
+  return db.put('tasks', { ...task, origin: 'chat', roleId: supervisor.id, roleSnapshot: supervisor, reportRequired: false, sessionQueueAlert: { sessionId, kinds: [kind] } });
 }
 
 export class QueuePump {
@@ -266,20 +343,16 @@ export class QueuePump {
     this.queue = new SessionQueue(db, { now }); this.pending = new Map();
   }
 
-  /** One supervisor alert per batch that stays in pending verification past the project threshold. Never reruns anything. */
+  /** One merged supervisor alert per batch that stays in pending verification past the project threshold. Never reruns anything. */
   alertStaleVerifications() {
     const alerts = [];
-    for (const b of this.db.list(BATCH).filter(b => b.status === 'pending_verification' && !b.verifyAlertTaskId)) {
+    for (const b of this.db.list(BATCH).filter(b => b.status === 'pending_verification' && !b.verifyAlertAt)) {
       const config = queueConfig(this.db, b.projectId);
       if (ms(b.verifySince) + config.verifyAlertSeconds * 1000 > this.now()) continue;
-      const project = this.db.get('projects', b.projectId), supervisor = this.db.get('roles', project?.supervisorRoleId || '');
-      if (!supervisor || supervisor.enabled === false || supervisor.archivedAt) { this.db.put(BATCH, { ...b, verifyAlertTaskId: 'no_supervisor' }); continue; }
       const minutes = Math.round((this.now() - ms(b.verifySince)) / 60000);
-      const prompt = tr('sessionQueue.verifyAlertPrompt', { batchId: b.id, roleId: b.roleId, minutes, runId: b.runId || '-' });
-      const task = this.db.createTask({ projectId: b.projectId, title: tr('sessionQueue.verifyAlertTitle'), prompt, model: supervisor.model, mode: supervisor.mode });
-      this.db.put('tasks', { ...task, origin: 'chat', roleId: supervisor.id, roleSnapshot: supervisor, reportRequired: false, sessionQueueAlert: { batchId: b.id, kind: 'pending_verification' } });
-      this.db.put(BATCH, { ...b, verifyAlertTaskId: task.id, verifyAlertAt: iso(this.now()) });
-      alerts.push(this.db.get('tasks', task.id));
+      const task = raiseAlert(this.db, { projectId: b.projectId, sessionId: b.sessionId, kind: 'pending_verification', detail: { batchId: b.id, roleId: b.roleId, minutes, runId: b.runId || '-' } }, this.now());
+      this.db.put(BATCH, { ...this.db.get(BATCH, b.id), verifyAlertAt: iso(this.now()), verifyAlertTaskId: task?.id || null });
+      if (task) alerts.push(task);
     }
     return alerts;
   }
