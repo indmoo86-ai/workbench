@@ -20,7 +20,7 @@ function setup({ capability = 1, broadcast = true, sessions = 1 } = {}) {
     if (broadcast) db.put('collaborationSessions', { ...db.get('collaborationSessions', s.id), broadcast: true });
     ids.push(s.id);
   }
-  const queue = new SessionQueue(db, { now });
+  db.queueNow = now; const queue = new SessionQueue(db, { now });
   let n = 0;
   const say = (roleId, text, session = 0) => {
     const m = db.put('roomMessages', { id: `m${++n}`, projectId: P, sender: 'agent', roleId, replyToId: `root${session}`, text, createdAt: new Date(clock).toISOString() });

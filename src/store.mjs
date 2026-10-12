@@ -17,7 +17,7 @@ import {syncError} from './source-sync-manifest.mjs';
 import {sourceInputWaitReason,sourceConflictContext} from './source-sync-input.mjs';
 import {ProactiveFollowup,followupFor,privateFollowup} from './proactive-followup.mjs';
 import {reviewView} from './collaboration-sessions.mjs';
-import {tagMessage} from './session-queue.mjs';
+import {tagMessage,SessionQueue} from './session-queue.mjs';
 
 export const terminal = new Set(['succeeded', 'failed', 'interrupted']);
 const now = () => new Date().toISOString();
@@ -44,7 +44,9 @@ export class Store {
       const previous=this.get(kind,value.id);
       if(!previous)value=tagMessage(this,value); // Session tagging from existing links; no-op while the project flag is off.
       if(!previous)this.db.prepare('INSERT OR IGNORE INTO room_message_receipts(message_id,project_id,received_at) VALUES(?,?,?)').run(value.id,value.projectId,now());
-      this.db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(value));return value;
+      this.db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(value));
+      if(!previous&&value.collaborationSessionId)new SessionQueue(this,{now:this.queueNow||Date.now}).register(value); // no-op unless the session opted into broadcast
+      return value;
     });
     this.db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind, value.id, JSON.stringify(value));return value;
   }
@@ -179,6 +181,7 @@ export class Store {
         projectScope: true, repositories, attachments: task.attachments || [], execution:task.execution||null,reportRequired:Boolean(task.reportRequired),scheduledJobId:task.scheduledJobId||null,
         repositoryUrl: repositoryId ? this.get('repositories', repositoryId)?.repoUrl : null,
         projectRoot: binding.localRoot, model: task.model, mode: task.mode, status: 'queued', lastSeq: 0, createdAt: now(), updatedAt: now(),
+        ...(task.collaborationBatchId?{collaborationBatchId:task.collaborationBatchId,collaborationBatch:task.collaborationBatch,explicitPublish:true}:{}),
         requestId: task.requestId || null, deliveryId: task.deliveryId || null, continuationRunId: task.continuationRunId || null, planId: task.planId || null, planVersion: task.planVersion || null, stepId: task.stepId || null,
         ...(task.origin === 'chat' ? { roleId: task.roleId, roleSnapshot: task.roleSnapshot, sourceMessageId: task.sourceMessageId, sourceRunId: task.sourceRunId, hop: task.hop || 0 } : {}) };
       if(task.origin==='chat'&&!isSwitchMaintenance(task)) {
@@ -207,6 +210,9 @@ export class Store {
         if (!request || request.status !== 'queued') throw new Error(tr('store.callWasCancelledItsStatus'));
         this.put('coordinationRequests', { ...request, status: 'running', currentRunId: run.id, updatedAt: now() });
       }
+      if(task.collaborationBatchId){const batch=this.get('sessionBatches',task.collaborationBatchId);
+        if(!batch||batch.status!=='reserved')throw new Error(tr('sessionQueue.reservationInvalid'));
+        this.put('sessionBatches',{...batch,deliveryAttempted:true,runId:run.id});}
       this.put('commands', { id: commandId, type: 'launch', runId: run.id, nodeId, fingerprint, acked: false, createdAt: now() });
       return run;
     });
@@ -250,11 +256,17 @@ export class Store {
         }
       }
       if (e.type === 'message' && e.payload.phase === 'final_answer') next.result = e.payload.text;
+      if(r.collaborationBatchId&&e.type==='status'){
+        const queue=new SessionQueue(this);
+        if(e.payload.status==='running'&&!terminal.has(r.status))queue.verify(r.collaborationBatchId,{started:true,runId:r.id})||null;
+        if(this.get('sessionBatches',r.collaborationBatchId)?.status==='reserved'&&e.payload.status==='running')queue.confirmStarted(r.collaborationBatchId,{runId:r.id,reservationId:r.collaborationBatch.reservation.id});
+      }
       this.put('runs', next);
       if (next.roleSessionId && e.type === 'status' && e.payload.nativeSession?.id) {
         new RoleSessions(this).recordNative(next.roleSessionId,next.id,e.payload.nativeSession,next.workspace);
       }
       if (terminal.has(next.status)) {
+        if(next.collaborationBatchId&&!terminal.has(r.status)){this.put('runs',next);new SessionQueue(this).finish(next,{queueRejected:Boolean(e.payload.queueRejected)});}
         if(next.roleSessionId && !terminal.has(r.status))new RoleSessions(this).release(next.roleSessionId,next.id);
         const task = this.get('tasks', r.taskId);
         if (!r.discussionDeliveryId && task && (!task.currentRunId || task.currentRunId === r.id) && !['done','cancelled'].includes(task.status)) this.put('tasks', { ...task, waitingReason:next.discussionWaiting?task.waitingReason:null,error:next.status==='failed'?next.error||null:null,status:next.discussionWaiting?'waiting_discussion': next.status === 'succeeded' ? (task.origin === 'chat' ? 'completed' : 'awaiting_acceptance') : 'blocked' });

@@ -18,7 +18,8 @@ import { renderRunPrompt } from './run-context.mjs';
 import { buildTeamContext, renderTeamContext } from './team-context.mjs';
 import { Rooms } from './rooms.mjs';
 import { CollaborationSessions, reviewView, setCollaborationSessionsEnabled } from './collaboration-sessions.mjs';
-import { SessionQueue, queueConfig, setQueueConfig } from './session-queue.mjs';
+import { SessionQueue, QueuePump, queueConfig, setQueueConfig, setSessionBroadcast } from './session-queue.mjs';
+import { renderBatch } from './session-queue-worker.mjs';
 import { defaultRoleTemplates, isSupervisorName } from './default-roles.mjs';
 import { Coordinator } from './coordinator.mjs';
 import { RoleCalls } from './role-calls.mjs';
@@ -179,6 +180,7 @@ function prepareChatContext(task) {
 }
 
 /** Only unacknowledged commands are resent; the Worker returns the original result based on the stable command ID. */
+const queuePump=new QueuePump(db,{send:(nodeId,payload)=>send(sockets.get(nodeId),payload),online:id=>online(id)&&sockets.get(id).workerReady,render:renderBatch});
 const dispatching=new Set();
 async function dispatch(nodeId) {
   if(!online(nodeId)||!sockets.get(nodeId).workerReady||dispatching.has(nodeId))return;
@@ -266,6 +268,7 @@ function snapshot() {
     supervisorRoles:db.list('roles').filter(r=>supervisorIds.get(r.projectId)===r.id&&r.systemSupervisor&&!r.platformAssistant&&!r.archivedAt).map(({instructions,...r})=>({...r,responsibility:roleResponsibility(r)})),
     discussionThreads:db.list('discussionThreads'),discussionDeliveries:db.list('discussionDeliveries'),
     roleSwitches:db.list('roleSwitches').map(roleSwitchView),
+    sessionQueues:Object.fromEntries(db.list('projects').filter(p=>p.features?.collaborationSessions===true).map(p=>[p.id,new SessionQueue(db).status(p.id)])),
     cliRecoveries:db.list('cliRecoveries').filter(r=>!['ready','resolved'].includes(r.state)).map(({binding,fingerprint,...record})=>record),
     sourceSyncSummaries:db.list('projects').map(p=>({id:p.id,projectId:p.id,enabled:sourceSync.sync.config(p.id).enabled,conflicts:db.listProject('sourceSyncConflicts',p.id).filter(c=>!['resolved','cancelled'].includes(c.status)).length})),
     terminalSessions: db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)).map(s=>terminalLaunchView({...s,roleId:s.roleId||(s.runId?db.get('runs',s.runId)?.roleId:null)})),
@@ -536,6 +539,7 @@ const server = http.createServer(async (req, res) => {
         }
         if (pathname === '/api/agent/setup/propose') return json(res, run.roleSnapshot?.platformAssistant ? assistant.propose(run,b) : setup.propose(run, b));
         if (pathname === '/api/agent/roles/prompt') return json(res, setup.updateRolePrompt(run, b));
+        if (pathname === '/api/agent/pass') { const result=new SessionQueue(db).pass(run);change();return json(res,result); }
         if (pathname === '/api/agent/note') {
           const r = rooms.agentNote(run, b.text); change(); return json(res, r, 201);
         }
@@ -590,6 +594,8 @@ const server = http.createServer(async (req, res) => {
       const collabListRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions$/);
       if(collabListRoute&&req.method==='GET')return json(res,{items:collaborationSessions.list(collabListRoute[1])});
       if(collabListRoute&&req.method==='POST'){const s=collaborationSessions.create(collabListRoute[1],await body(req));change();return json(res,s,201);}
+      const broadcastRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/([^/]+)\/broadcast$/);
+      if(broadcastRoute&&req.method==='POST'){const r=setSessionBroadcast(db,broadcastRoute[1],broadcastRoute[2],await body(req));change();return json(res,r);}
       const collabActionRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/([^/]+)\/(members\/add|members\/remove|link|release|close)$/);
       if(collabActionRoute&&req.method==='POST'){
         const [,projectId,id,action]=collabActionRoute,input=await body(req);
@@ -1007,6 +1013,7 @@ wss.on('connection', ws => {
         void sourceSync.message(nodeId,m).catch(e=>send(ws,{type:'error',error:e.message}));return;
       }
       if (m.type === 'ready') { ws.workerReady = true; void reconcileTerminals(nodeId); dispatch(nodeId); scheduleChat(); collectUsage(nodeId); }
+      if (m.type === 'queue_reservation') { if(queuePump.onReservation(nodeId,m)){change();dispatch(nodeId);} return; }
       if (m.type === 'heartbeat') db.put('workers', { ...db.get('workers', nodeId), lastSeen: new Date().toISOString() });
       if(m.type==='launch_deferred') {
         const c=db.get('commands',m.id);
@@ -1087,6 +1094,7 @@ const heartbeat = setInterval(() => {
   for (const r of viewers) r.write(': keepalive\n\n');
 }, 15000);
 const chatScheduler = setInterval(scheduleChat, 1000);
+const sessionQueueTimer=setInterval(()=>{try{queuePump.tick();}catch(e){console.error(e.message);}},2000);sessionQueueTimer.unref();
 const terminalMonitor=setInterval(()=>{void reconcileTerminals();},15000);terminalMonitor.unref();
 const sourceSyncTimer=setInterval(()=>{void sourceSync.tick().catch(e=>console.error(e.message));},1000);sourceSyncTimer.unref();
 const wechatPoll = setInterval(() => { void wechat.tick().catch(error => { console.error(tr('home.wechatChannelCheckFailed'), error.message); }); }, 4000);

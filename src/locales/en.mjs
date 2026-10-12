@@ -1720,4 +1720,11 @@ wb stands for this full prefix; every call uses this turn's prefix, and historic
   'sessionQueue.batchNotFound': "Batch not found.",
   'sessionQueue.reservationInvalid': "Reservation is no longer valid; the batch stays queued.",
   'sessionQueue.reservationExpired': "Reservation expired; the batch stays queued.",
+  'sessionQueue.passNoBatch': "wb pass only applies to the discussion batch this run is processing.",
+  'sessionQueue.passExplicitRequest': "This batch contains a request addressed to you; reply with a result, a blocker or a wait instead of passing.",
+  'sessionQueue.passAfterReply': "You already replied publicly in this batch; passing would contradict it.",
+  'sessionQueue.broadcastNeedsAcknowledgement': "Broadcast for a session is acceptance-only: set enabled, a batch limit of 1-50 and acknowledgeNoBudget:true.",
+  'sessionQueue.verifyAlertRange': "Verification alert time must be an integer from 60 to 86400 seconds.",
+  'sessionQueue.verifyAlertTitle': "Batch awaiting verification",
+  'sessionQueue.verifyAlertPrompt': "Queue alert: batch {batchId} for role {roleId} has been waiting {minutes} minutes for verification (run {runId}). Its start confirmation was lost, so the platform will not rerun it. Check the original run and CLI state and decide whether the user needs to act.",
 });

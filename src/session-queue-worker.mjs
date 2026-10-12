@@ -22,6 +22,8 @@ export class QueueSlots {
   #slot(key) { if (!this.slots.has(key)) this.slots.set(key, { generation: 0, reservation: null }); return this.slots.get(key); }
 
   /** Any change of the adapter state invalidates outstanding reservations. */
+  reservationFor(key) { return this.slots.get(key)?.reservation || null; }
+
   stateChanged(key) { const s = this.#slot(key); s.generation++; s.reservation = null; }
 
   reserve(key, state) {
