@@ -136,6 +136,10 @@ npm start        # Home
 npm run worker   # Worker (in another terminal)
 ```
 
+### Project memory: `AGENTS.md`
+
+Each managed project keeps one authoritative memory file, `AGENTS.md`, at the project root. When Workbench creates a project folder it writes, only if absent, an `AGENTS.md` template (project goal, rules and conventions, build and test commands, key decisions; conclusions only, under about 200 lines) and a one-line `CLAUDE.md` containing `@AGENTS.md`. Existing files are never overwritten and nothing is committed automatically. Codex, Grok and Agy read `AGENTS.md` natively; Claude Code needs version 2.1.281 or later for `AGENTS.md`, and the `CLAUDE.md` pointer covers its default mode, which skips `AGENTS.md` whenever a `CLAUDE.md` exists. Only the project supervisor edits `AGENTS.md`; other roles propose changes in the conversation, and important changes need user confirmation. Workbench no longer keeps its own memory (`wb memory` and `.workbench/MEMORY.md` / `INDEX.md` were removed; old files on disk are left untouched). Process history is available with `wb history search`.
+
 ### Where data lives
 
 | Path | Content |
@@ -143,6 +147,7 @@ npm run worker   # Worker (in another terminal)
 | `.data/home/` (override with `DATA_DIR`) | Home SQLite database, attachments, generated `worker-token` (mode 0600), hosting account secrets |
 | `.data/worker/` (override with `WORKER_DATA_DIR`) | Worker SQLite database, node identity, outbox, runtime environments |
 | `<project folder>/.worktrees/` | Per-run and project-baseline Git worktrees |
+| `<project folder>/AGENTS.md`, `CLAUDE.md` | Project rules and key decisions shared by every CLI (created once if absent) |
 | `<project folder>/.workbench/` | Handoff notes, temporary attachments and other platform files inside a workspace |
 | `.local/` | Scratch space for local validation; never published |
 

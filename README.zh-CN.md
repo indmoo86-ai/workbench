@@ -129,6 +129,10 @@ npm start        # Home
 npm run worker   # Worker（在另一个终端中）
 ```
 
+### 项目记忆：`AGENTS.md`
+
+每个受管项目只在项目根目录保留一个权威记忆文件 `AGENTS.md`。Workbench 创建项目文件夹时，仅在文件不存在时生成 `AGENTS.md` 模板（项目目标、规则和约定、构建和测试命令、关键决策；只写结论，约 200 行以内）和一行内容为 `@AGENTS.md` 的 `CLAUDE.md`。已有文件绝不覆盖，也不会自动提交。Codex、Grok 和 Agy 原生读取 `AGENTS.md`；Claude Code 需要 2.1.281 及以上版本才支持 `AGENTS.md`，而 `CLAUDE.md` 指针覆盖了它的默认模式（只要存在 `CLAUDE.md` 就不读 `AGENTS.md`）。只有项目主管修改 `AGENTS.md`；其他角色在会话中提出修改建议，重要修改需用户确认。Workbench 不再保存自己的记忆（已移除 `wb memory` 以及 `.workbench/MEMORY.md` / `INDEX.md`；磁盘上的旧文件不会被删除）。过程历史用 `wb history search` 查询。
+
 ### 数据存放位置
 
 | 路径 | 内容 |
@@ -136,6 +140,7 @@ npm run worker   # Worker（在另一个终端中）
 | `.data/home/`（可用 `DATA_DIR` 覆盖） | Home 的 SQLite 数据库、附件、自动生成的 `worker-token`（权限 0600）、托管账号密钥 |
 | `.data/worker/`（可用 `WORKER_DATA_DIR` 覆盖） | Worker 的 SQLite 数据库、节点身份、发件箱、运行环境 |
 | `<项目文件夹>/.worktrees/` | 每次运行及项目基线的 Git worktree |
+| `<项目文件夹>/AGENTS.md`、`CLAUDE.md` | 所有 CLI 共用的项目规则和关键决策（不存在时创建一次） |
 | `<项目文件夹>/.workbench/` | 交接记录、临时附件，以及工作区内的其他平台文件 |
 | `.local/` | 本地验证用的临时空间；永不发布 |
 
