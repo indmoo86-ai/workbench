@@ -2,6 +2,8 @@
 
 Status (2026-10-12): repaired and independently reviewed in an isolated checkout. No production restart, deployment, real-project activation, history clearing or real IM was performed. The approved contract is [session-queue-v3.md](session-queue-v3.md). This record distinguishes runtime tests from deterministic coverage, not a claim that every failure scenario was exercised on every device.
 
+Subsequent release verification installed the completed code and checked matching files, upgraded Worker capabilities and retained records/configuration. It did not enable real-project broadcast or replace the isolated CLI evidence below with production model calls. Four-provider crash/network-drill limits still apply.
+
 ## Fresh verification
 
 - Node 22.22.1: npm ci, npm run check and 83 tests passed (56 maintained plus 27 ignored repair regressions). No new repair tests or run data are committed; existing fixtures align with protocol 2 and explicit native-acceptance facts.

@@ -2,35 +2,20 @@ English | [简体中文](README.zh-CN.md)
 
 # Agent Collaboration Workbench
 
-Opt-in collaboration sessions collect discussion outside busy native CLIs and deliver a role-bound batch after the current turn ends. Queue protocol 2 separates native acceptance from process start, inherits a bounded propagation cycle and preserves original waits. Only explicit `wb note` / `wb chat post` publishes batch output; native streams and final answers stay in execution details. Independent-review reads and managed document access remain protected until release. This repair is isolated-tested, not deployed or enabled on business projects; see [V3 contract](docs/design/session-queue-v3.md) and [measured acceptance](docs/design/session-queue-v3-acceptance.md).
+A self-hosted project group chat for the AI coding CLIs and subscriptions you already use. Codex, Claude Code, Grok Build and Antigravity run as configurable roles on your Mac or servers; Home owns records and coordination, while Workers drive the real native CLIs.
 
-Basic Settings aligns its heading, tabs and content edges; the tab bar stays at the top while scrolling, including on narrow screens. This layout change is not deployed yet.
+> Development preview (`0.4.0`), for a single trusted operator or a small trusted team. Workbench does not proxy model APIs or replace native instructions, login or tools.
 
-CLI occupancy recovery reuses owned idle drivers, retires verified idle leftovers and asks before stopping busy or uncertain old work. The human-only dialog resumes the existing task and exact native session; unknown identities cannot be forcibly stopped. The five-minute warm cache remains unchanged. This development change is not deployed; see [recovery contract and acceptance](docs/design-cli-session-recovery.md).
+## What the current version provides
 
-Project settings now offer opt-in **Supervisor proactive follow-up**, off by default with a ten-minute silence duration. Each new complete chat starts one silence period; logs, duplicates and follow-up descendants do not re-arm it. The existing scheduler queues a background supervisor turn, rechecks fresh messages before starting, and preserves normal capacity/session/approval rules. The supervisor can publish with `wb note` or finish without a group reply; user-confirmation reports remain visible. Existing scheduled jobs and patrol schedules are unchanged. Installing this feature does not enable it for any project.
+- **Role-based collaboration.** Direct user assignments, supervisor coordination and role-to-role consultation through one `wb` entry. Keep role responsibilities separate from optional execution prompts; discover team, history, reports and user-confirmation tools on demand.
+- **External conversation queues.** Opt-in V3 sessions collect outside busy CLIs and deliver merged batches only at a verified input boundary. Original requests, waits and late replies stay linked; necessary resumption does not consume a new propagation charge. Explicit `wb note` / `wb chat post` publishes discussion output, while native streams and final answers remain in execution details.
+- **Independent review.** Workbench history, derived inputs and managed document reads remain isolated until explicit release. This is not an OS sandbox and cannot erase previously seen native context.
+- **Actual local project files.** Resources and document links resolve bound Mac files by repository scope and relative path, independently of the sync switch. Opt-in saved-source/document/resource sync runs in the background, preserves conflicting versions and rechecks before writing. Git commits, review and merge remain separate.
+- **Visible progress and usable UI.** Read-only live input/output/tool events, execution-only progress labels, quota reset details, local file availability and compact attachment previews. Basic Settings tabs stay sticky; supervisor role settings remain separate from project settings.
+- **Safe session operation.** Device capacity limits, five-minute idle reuse, verified leftover-process recovery and human confirmation before interrupting old work. Optional supervisor follow-up after chat silence defaults off and does not expand user authorization.
 
-The independent **Live execution** button on role cards and messages opens a read-only scene of dispatched input, model output and recorded tool arguments/results. It reconnects by event sequence; closing never stops or takes over the CLI. This is a live event view, not the native interactive TUI. Old missing input and truncated results are labeled; only the content exposed by each CLI is available (for example, Agy file reads may expose a summary rather than file contents).
-
-Device details include a per-device **Maximum running CLIs** setting. Managed role runs, retained CLI processes and background organization share the limit; full devices queue work and resume the original native session when capacity becomes available. Offline settings apply after reconnect. Lowering the limit does not interrupt accepted work.
-
-Role Details includes a History tab. Clear history removes that role's old session associations and starts a new native CLI session on the next execution; project chat, code files and other roles are preserved.
-
-Reviewer presets describe task-scoped document, plan and code review, not an automatic handoff to an execution role. Independent findings go back as agreed for the current task; authorship is established from records, not role names. Factual consultation remains available. New role presets still leave execution prompts empty.
-
-Consultations are bounded by the root request budget and cycle checks, not by how many times a supervisor has resumed. Pausing dispatch still lets accepted work submit conclusions, read context and register waits; new work and mutation tools remain blocked. Obvious placeholder reports are rejected, and print-runtime tool receipts retain bounded diagnostic output.
-
-The role-card terminal button also offers a new interactive CLI session without requiring past execution records. It uses the role's saved device, model and project folder; past sessions can still be resumed explicitly. Home verifies terminal processes every 15 seconds and when a Worker becomes ready, including after restart or reconnect. Exited takeovers return automatically; unused terminal links expire after 5 minutes. Both status refresh buttons can also return unused or exited takeovers immediately, allowing the original queue to continue. The terminal dialog offers **Stop CLI and return**: it stops only verified processes for that takeover and waits for exit before releasing it. Background checks never stop live CLIs; offline, unsupported or unverified Workers retain their locks. Plan cards distinguish an active CLI from queued work and show the blocking reason.
-
-Terminal links preserve command spaces and literal `+` characters. Refreshing the page also corrects older prepared links without clearing history or replacing the terminal takeover.
-
-Role quota percentages show reset details on hover or keyboard focus, and open the same details on click or touch. Vendor timezone text is preserved; missing reset times are explicitly marked unavailable.
-
-Claude Code reasoning-effort choices in role and supervisor settings come from each device's native model metadata. The check sends no user/model turn, starts no hooks or MCP servers and saves no native session. CLI defaults and existing role configuration stay unchanged; older CLIs without capability metadata keep unspecified choices. Compatible provider launchers retain their actual model name rather than appearing as Opus.
-
-A self-hosted workbench that turns the AI coding CLIs and accounts you already have (Codex, Claude Code, Grok Build, Antigravity) into one collaborating team. You talk to a project group chat, `@mention` roles, and the workbench launches the real CLI on the right machine, streams the progress back, and keeps the results, reviews and hand-offs in one place.
-
-> Status: development preview (`0.4.0`). It is built for a single trusted operator or a small trusted group. See [Limitations](#limitations-and-roadmap) before exposing it to a network.
+Installation does not enable collaboration broadcast, file synchronization or proactive follow-up on business projects. V3 broadcast remains test-project restricted. See [V3 design and measured acceptance](docs/design/session-queue-v3-acceptance.md), [file-sync contract](docs/design-source-sync.md), [CLI recovery](docs/design-cli-session-recovery.md) and [limitations](#limitations-and-roadmap) before enabling or exposing the service.
 
 ## Why this exists
 
