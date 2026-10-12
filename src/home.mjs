@@ -879,7 +879,10 @@ const server = http.createServer(async (req, res) => {
         if (m[2] === 'events') {
           const after=Number(url.searchParams.get('after')||0);
           if(!Number.isSafeInteger(after)||after<0)throw new Error(tr('home.invalidEventCursor'));
-          return json(res, { events: db.events(r.id,after) });
+          const limit=url.searchParams.has('limit')?Number(url.searchParams.get('limit')):null;
+          if(limit!==null&&(!Number.isSafeInteger(limit)||limit<1||limit>1000))throw new Error(tr('home.invalidEventCursor'));
+          const events=db.events(r.id,after,limit===null?-1:limit+1);
+          return json(res, { events:limit===null?events:events.slice(0,limit),...(limit===null?{}:{hasMore:events.length>limit,runState:{status:r.status,lastSeq:r.lastSeq,finishedAt:r.finishedAt}}) });
         }
         if(['file','document'].includes(m[2])){const ref=projectFiles.reference(r,url.searchParams.get('path'));if(ref)return json(res,await projectFiles.read(r.projectId,ref.scopeId,ref.path,{metadata:url.searchParams.get('metadata')==='1'}));}
         const result = await workerQuery(r, m[2], url.searchParams.get('path'),m[2]==='document'?30000:10000);
@@ -928,6 +931,7 @@ const server = http.createServer(async (req, res) => {
     files['/source-sync.js']='source-sync.js';
     files['/state-data.js']='state-data.js';
     files['/execution-progress.js']='execution-progress.js';
+    files['/live-scene.js']='live-scene.js';
     files['/browser-token.js']='browser-token.js';
     files['/role-switch.js']='role-switch.js';
     files['/role-history.js']='role-history.js';

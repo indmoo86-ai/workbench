@@ -208,6 +208,7 @@ export const UI_ICON = {
   transfer: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><rect x="3" y="13" width="18" height="7" rx="2"/><path d="M12 3v11m-4-4 4 4 4-4M16 17h1"/></svg>`,
   original: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><path d="M13 3H5v18h14V9zM13 3v6h6M8 13h8M8 17h6"/></svg>`,
   log: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><path d="M7 4h10v16H7z"/><path d="M10 8h4M10 12h4M10 16h2"/></svg>`,
+  live: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><rect x="2" y="4" width="20" height="14" rx="2"/><path d="M5 11h3l2-4 4 8 2-4h3M8 21h8M12 18v3"/></svg>`,
   stop: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>`,
   pause: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><path d="M8 5v14M16 5v14"/></svg>`,
   play: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" ${STROKE}><path d="M8 5v14l12-7z"/></svg>`

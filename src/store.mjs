@@ -238,7 +238,7 @@ export class Store {
       return next;
     });
   }
-  events(runId, after = 0) { return this.db.prepare('SELECT data FROM events WHERE run_id=? AND seq>? ORDER BY seq').all(runId,after).map(r => JSON.parse(r.data)); }
+  events(runId, after = 0, limit = -1) { return this.db.prepare('SELECT data FROM events WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?').all(runId,after,limit).map(r => JSON.parse(r.data)); }
   /** Manual acceptance only applies to the latest successful execution; a stale page cannot confirm the result of another round. */
   acceptTask(taskId, runId) {
     return this.transaction(() => {

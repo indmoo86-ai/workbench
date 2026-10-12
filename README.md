@@ -2,6 +2,8 @@ English | [简体中文](README.zh-CN.md)
 
 # Agent Collaboration Workbench
 
+The independent **Live execution** button on role cards and messages opens a read-only scene of dispatched input, model output and recorded tool arguments/results. It reconnects by event sequence; closing never stops or takes over the CLI. This is a live event view, not the native interactive TUI. Old missing input and truncated results are labeled; only the content exposed by each CLI is available (for example, Agy file reads may expose a summary rather than file contents).
+
 Device details include a per-device **Maximum running CLIs** setting. Managed role runs, retained CLI processes and background organization share the limit; full devices queue work and resume the original native session when capacity becomes available. Offline settings apply after reconnect. Lowering the limit does not interrupt accepted work.
 
 Role Details includes a History tab. Clear history removes that role's old session associations and starts a new native CLI session on the next execution; project chat, code files and other roles are preserved.

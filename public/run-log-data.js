@@ -9,7 +9,7 @@ export function taskRunDisplayStatus(task,run,request) {
 export function partitionRunLog(events = []) {
   const result = { input: null, output: [], tools: [] };
   const toolIndex = new Map();
-  for (const event of [...events].sort((a, b) => (a.seq || 0) - (b.seq || 0))) {
+  for (const event of mergeRunEvents([],events)) {
     if (event.type === 'input') {
       result.input = event.payload || null;
       continue;
@@ -23,11 +23,15 @@ export function partitionRunLog(events = []) {
     if (!item || ['reasoning', 'userMessage', 'contextCompaction'].includes(item.type)) continue;
     const key = item.id || `seq:${event.seq}`;
     const previous = toolIndex.get(key);
+    const merged={...(previous?.item||{}),...item};
+    if(item.aggregatedOutput!==undefined||item.output!==undefined)merged.aggregatedOutput=item.aggregatedOutput??item.output;
+    else if(typeof item.outputDelta==='string')merged.aggregatedOutput=String(previous?.item?.aggregatedOutput||'')+item.outputDelta;
+    delete merged.outputDelta;
     if (previous) {
-      previous.item = { ...previous.item, ...item };
+      previous.item = merged;
       previous.updatedAt = event.createdAt || previous.updatedAt;
     } else {
-      const tool = { seq: event.seq, createdAt: event.createdAt, updatedAt: event.createdAt, item };
+      const tool = { seq: event.seq, createdAt: event.createdAt, updatedAt: event.createdAt, item:merged };
       toolIndex.set(key, tool);
       result.tools.push(tool);
     }

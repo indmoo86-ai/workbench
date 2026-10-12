@@ -5,6 +5,41 @@ import { tr } from './i18n.mjs';
 import { executionText } from './input-language.mjs';
 
 const git = promisify(execFile);
+const MAX_TOOL_OUTPUT = 12000;
+
+function boundedToolOutput(value) {
+  if(typeof value!=='string')return {value,truncated:false};
+  return {value:value.slice(-MAX_TOOL_OUTPUT),truncated:value.length>MAX_TOOL_OUTPUT};
+}
+
+const PRIVATE_OR_MESSAGE_ITEMS=new Set(['agentMessage','reasoning','userMessage','plan','contextCompaction']);
+
+function isToolItem(item) {
+  if(!item?.id||PRIVATE_OR_MESSAGE_ITEMS.has(item.type))return false;
+  return ['commandExecution','fileChange','mcpToolCall','dynamicToolCall','webSearch','imageView'].includes(item.type)
+    || /(?:ToolCall|Execution)$/i.test(item.type||'') || Boolean(item.command||item.tool||item.server||Array.isArray(item.changes));
+}
+
+function toolOutputText(value) {
+  if(typeof value==='string')return value;
+  if(Array.isArray(value))return value.map(toolOutputText).filter(Boolean).join('\n');
+  if(value&&typeof value==='object') {
+    const parts=[typeof value.text==='string'?value.text:'',value.content!==undefined?toolOutputText(value.content):'',
+      value.structuredContent!==undefined?toolOutputText(value.structuredContent):'',value.output!==undefined?toolOutputText(value.output):''];
+    const unique=[...new Set(parts.filter(Boolean))];
+    if(unique.length)return unique.join('\n');
+  }
+  if(value===undefined||value===null)return '';
+  try{return JSON.stringify(value);}catch{return String(value);}
+}
+
+function completedToolSnapshot(item) {
+  const snapshot={...item};let field,raw;
+  if(Object.hasOwn(snapshot,'result')){raw=snapshot.result;delete snapshot.result;field='output';}
+  else for(const candidate of ['aggregatedOutput','output','results'])if(Object.hasOwn(snapshot,candidate)){field=candidate;raw=snapshot[candidate];break;}
+  if(field&&raw!==undefined&&raw!==null){const output=boundedToolOutput(toolOutputText(raw));snapshot[field]=output.value;if(output.truncated)snapshot.outputTruncated=true;}
+  return snapshot;
+}
 
 /** The Git metadata of a worktree lives outside the working directory; only the metadata of bound repositories is opened up, for fetch/commit. */
 async function gitMetadataRoots(roots) {
@@ -34,13 +69,15 @@ export class CodexSession {
     this.resumeSessionId = resumeSessionId;
     this.nextId = 0; this.pending = new Map(); this.approvals = new Map();
     this.stopping = false; this.done = false;
-    this.items = new Map(); this.textBuffer = '';
+    this.items = new Map(); this.toolOutputBuffers = new Map(); this.textBuffer = '';
   }
   /** After the turn has completed and the Worker has cleaned up the old bridge, rebind the events and instructions of the new Run. */
   reuse(options) {
     if(!this.done || !this.proc || this.proc.killed || this.proc.exitCode!==null || this.proc.signalCode!==null)throw new Error(tr('codex.codexProcessCannotBeReused'));
     Object.assign(this,options);this.done=false;this.stopping=false;this.turnId=null;
-    this.items.clear();this.textBuffer='';
+    this.items.clear();
+    for(const state of this.toolOutputBuffers.values())clearTimeout(state.timer);
+    this.toolOutputBuffers.clear();this.textBuffer='';
   }
   async start(prompt) {
     if(!this.proc) {
@@ -161,10 +198,19 @@ export class CodexSession {
     }
     if (m.method === 'item/started' && p.item?.id) this.items.set(p.item.id, p.item);
     if (m.method === 'item/completed' && p.item?.type === 'agentMessage') { this.flushText(); this.emit('message', { text: p.item.text, phase: p.item.phase || 'final_answer' }); }
-    if (m.method === 'item/started' && p.item?.type !== 'agentMessage') this.emit('tool', { text: p.item?.command || p.item?.type || tr('codex.working'), item: p.item });
+    if (m.method === 'item/started' && isToolItem(p.item)) this.emit('tool', { text: p.item.command || p.item.tool || p.item.type || tr('codex.working'), item: p.item });
+    if(m.method==='item/commandExecution/outputDelta' && p.itemId && typeof p.delta==='string')this.queueToolOutput(p.itemId,p.delta);
     // Save the completion state; file write attribution and tool logs must not rely on the intent of a single call alone.
     if (m.method === 'item/completed' && p.item?.type==='fileChange') this.emit('tool', {text:p.item.type,item:p.item});
-    if(m.method==='item/completed'&&p.item?.type==='commandExecution')this.emit('tool',{text:p.item.type,item:{id:p.item.id,type:p.item.type,status:p.item.status,exitCode:p.item.exitCode,command:p.item.command}});
+    if(m.method==='item/completed'&&p.item?.type==='commandExecution'){
+      this.flushToolOutput(p.item.id);this.items.set(p.item.id,p.item);
+      const output=boundedToolOutput(p.item.aggregatedOutput);
+      this.emit('tool',{text:p.item.type,item:{...p.item,aggregatedOutput:output.value,...(output.truncated?{outputTruncated:true}:{})}});
+    }
+    if(m.method==='item/completed'&&isToolItem(p.item)&&!['commandExecution','fileChange'].includes(p.item.type)){
+      this.items.set(p.item.id,p.item);
+      this.emit('tool',{text:p.item.tool||p.item.type,item:completedToolSnapshot(p.item)});
+    }
     if (m.method === 'thread/tokenUsage/updated') this.emit('usage', { ...(p.tokenUsage?.total || p.tokenUsage || p), source: 'runtime', modelContextWindow: p.tokenUsage?.modelContextWindow });
     if (m.method === 'turn/started') this.turnId = p.turn?.id;
     if (m.method === 'turn/completed') {
@@ -197,11 +243,27 @@ export class CodexSession {
   finish(status, error) {
     if (this.done) return;
     this.flushText();
+    for(const id of [...this.toolOutputBuffers.keys()])this.flushToolOutput(id);
     this.done = true; clearTimeout(this.stopTimer);
     for (const a of this.approvals.values()) clearTimeout(a.timer);
     this.approvals.clear(); this.emit('status', { status, ...(status === 'reconciling' ? { controlLost: true } : {}), ...(error ? { error } : {}) });
   }
   flushText() { clearTimeout(this.textTimer); this.textTimer = null; if (this.textBuffer) { this.emit('text', { text: this.textBuffer }); this.textBuffer = ''; } }
+  /** Coalesce noisy command chunks while retaining a stable tool ID; completion later replaces this delta view with its full snapshot. */
+  queueToolOutput(id, delta) {
+    const current=this.toolOutputBuffers.get(id)||{text:'',timer:null,outputTruncated:false};
+    const output=boundedToolOutput(current.text+delta);
+    current.text=output.value;current.outputTruncated||=output.truncated;
+    if(!current.timer)current.timer=setTimeout(()=>this.flushToolOutput(id),300);
+    this.toolOutputBuffers.set(id,current);
+  }
+  flushToolOutput(id) {
+    const state=this.toolOutputBuffers.get(id);if(!state)return;
+    clearTimeout(state.timer);this.toolOutputBuffers.delete(id);
+    if(!state.text)return;
+    const base=this.items.get(id)||{};
+    this.emit('tool',{text:base.command||base.type||tr('codex.working'),item:{id,type:base.type||'commandExecution',status:base.status||'inProgress',...(base.command?{command:base.command}:{}),outputDelta:state.text,...(state.outputTruncated?{outputTruncated:true}:{})}});
+  }
   /** Only wind down the process held by this Adapter; if it refuses to exit, force-kill after a bounded wait so it does not occupy a Worker slot indefinitely. */
   shutdown() {
     const proc=this.proc;

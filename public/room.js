@@ -184,7 +184,7 @@ function createMessageQueue({api,refreshState,create,setError}) {
 }
 
 /** The chat only handles display and user actions; role selection, idempotency and scheduling are validated by Home. */
-export function createRoomUI({ api, refreshState, openTask, stopRun, decideApproval, create, formatTime, setError, configureDevice }) {
+export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopRun, decideApproval, create, formatTime, setError, configureDevice }) {
   const historyViewer=createHistoryViewer({api});
   const messageQueue=createMessageQueue({api,refreshState,create,setError});
   const feed = document.querySelector('#chat-feed');
@@ -672,6 +672,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       }));
     }
     if (run) actions.push(iconAction('log', 'Log', () => openTask(task.id,run.id)));
+    if (run&&openLiveScene) actions.push(iconAction('live', 'Live execution (read-only)', () => openLiveScene(run)));
     if (actions.length) col.append(chatMeta('', actions));
     row.append(col);
     if (run && ['starting', 'running', 'waiting_user', 'stopping'].includes(run.status)) void pullLive(run.id);
@@ -743,12 +744,13 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       try{await api(`/api/runs/${encodeURIComponent(discussion.stopRunId)}/stop`,{method:'POST',json:{commandId:`discussion-owner-stop:${discussion.stopRunId}:${discussion.questionId}`}});await refreshState({quiet:true});}catch(e){setError(e.message);b.disabled=false;}
     }));
     actions.push(copyMessageButton(handoff ? m.handoff.summary || m.text : m.text));
-    actions.push(fullscreenMessageButton(handoff ? m.handoff.summary || m.text : m.text, m.senderName, agent || Boolean(handoff), m.attachments, null, m.runId));
     actions.push(iconAction('original','Original',()=>{void historyViewer.open(m.projectId,m.runId&&!discussion?'result':'message',m.runId&&!discussion?m.runId:m.id).catch(e=>setError(e.message));}));
     if (m.runId) {
       const run = data.runs?.find(r => r.id === m.runId);
       if (run) actions.push(iconAction('log', 'Log', () => openTask(run.taskId,run.id)));
     }
+    actions.push(fullscreenMessageButton(handoff ? m.handoff.summary || m.text : m.text, m.senderName, agent || Boolean(handoff), m.attachments, null, m.runId));
+    if(m.runId&&openLiveScene){const run=data.runs?.find(r=>r.id===m.runId);if(run)actions.push(iconAction('live','Live execution (read-only)',()=>openLiveScene(run)));}
     col.append(bubble, chatMeta('', actions));
     row.append(col);
     return row;

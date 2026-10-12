@@ -1,6 +1,7 @@
 import { t, getLanguage, setLanguage, onLanguageChange, syncLanguageWithBackend, dateLocale } from './i18n.js';
 import {simplifiedCliOutput} from './output-language.js';
 import {executionProgressLabels} from './execution-progress.js';
+import {createLiveScene} from './live-scene.js';
 import { createRoomUI, createRoleRefresh } from './room.js';
 import { projectSettings } from './project-settings.js';
 import { agentIconEl, machineIconEl, quotaForRole, roleActivity, roleNameQuota, UI_ICON, deviceIconEl, workerDisplayName, workerKind, setActionIcon, projectIconAssignments, projectIconEl } from './role-icons.js';
@@ -122,7 +123,8 @@ for (const [id, name, label] of [
 }
 const roleRefresh=createRoleRefresh({api,refreshState,getData:()=>({...app.data,roles:[...(app.data.supervisorRoles||[]),...app.data.roles]}),getProject:getCurrentProject,
   button:document.querySelector('#refresh-role-status'),feedback:document.querySelector('#role-refresh-feedback'),onUpdate:()=>renderRoles()});
-const room = createRoomUI({ api, refreshState, openTask, stopRun, decideApproval, create, formatTime, setError, configureDevice(projectId, nodeId) {
+const liveScene=createLiveScene({api,getProjectId:()=>app.selectedProjectId});
+const room = createRoomUI({ api, refreshState, openTask, openLiveScene:run=>liveScene.open(run.id,{projectId:run.projectId,name:run.roleSnapshot?.name}), stopRun, decideApproval, create, formatTime, setError, configureDevice(projectId, nodeId) {
   if (app.data.projects.some(p => p.id === projectId)) { app.selectedProjectId=projectId;openSettings('project'); }
 } });
 // Action icons apply only to explicit entry points; tabs, project names and the text confirm buttons at the bottom of dialogs are unchanged.
@@ -424,6 +426,7 @@ function getDetailRun(taskId) {
 
 /** Switching projects immediately isolates old data and in-flight details so late responses are not shown in another project. */
 function selectProject(projectId) {
+  liveScene.close();
   app.selectedProjectId=projectId;app.selectedTaskId=null;app.stateGeneration++;
   app.stateCache=null;app.fullRun=null;app.fullTask=null;app.requestVersion++;
   for(const key of ['tasks','runs','requests','executionPlans','runReports','runAlerts','discussionThreads','discussionDeliveries','roleSessions','roleSwitches'])app.data[key]=[];
@@ -869,6 +872,10 @@ function renderRoles() {
     terminalButton.title='Continue the original session in iTerm';terminalButton.setAttribute('aria-label',t('Terminal session {name}', { name: displayName }));
     terminalButton.addEventListener('click',e=>{e.stopPropagation();openRoleTerminal(role);});
     head.append(terminalButton);
+    const sceneButton=create('button','chat-icon-btn role-live-scene');sceneButton.type='button';sceneButton.innerHTML=UI_ICON.live;
+    sceneButton.title=t('Live execution (read-only)');sceneButton.setAttribute('aria-label',t('Live execution for {name}',{name:displayName}));
+    const candidates=(app.data.runs||[]).filter(r=>r.roleId===role.id&&!r.switchOperationId).sort((a,b)=>Number(!['succeeded','failed','interrupted'].includes(b.status))-Number(!['succeeded','failed','interrupted'].includes(a.status))||Date.parse(b.createdAt)-Date.parse(a.createdAt));
+    sceneButton.disabled=!candidates.length;sceneButton.addEventListener('click',event=>{event.stopPropagation();void liveScene.open(candidates[0].id,{projectId:role.projectId,name:displayName});});head.append(sceneButton);
     if (activity.label !== 'Idle') head.append(create('span', `role-badge is-${activity.tone}`, activity.label));
     const ids = create('div', 'role-id-row');
     if (configured) {
