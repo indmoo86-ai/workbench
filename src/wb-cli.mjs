@@ -5,7 +5,7 @@ import { agentRequest } from './agent-bridge.mjs';
 import {discussionHelp} from './discussion-policy.mjs';
 import { setupCatalog, setupPropose, updateRolePrompt } from './setup-tools.mjs';
 import {
-  helpText, boot, memoryRead, memoryWrite, memorySearch, docsList, docsRead,
+  helpText, boot, docsList, docsRead,
   gitStatus, chatPost, askRole, callRole, waitForRole, requestDelivery, writeHandoff, handoffLast
 } from './wb-tools.mjs';
 import { tr } from './i18n.mjs';
@@ -59,7 +59,7 @@ export async function main(argv = process.argv.slice(2)) {
       return out(await agentRequest('/api/agent/discussions',{runId:process.env.WB_RUN_ID,action:sub,input:rest.length?JSON.parse(rest[0]):sub==='peers'?{view:'summary'}:{}}));
     }
     if(discussion&&(!cmd||['help','-h','--help'].includes(cmd)))return out(`${helpText()}\n\n${discussionHelp()}`);
-    if (cmd === 'capabilities') return out({protocol:2,sourceSyncTools:sourceSync?1:0,discussionProtocol:discussion?2:0,sessionTools:1,timerTools:1,tools:['setup catalog',...(sourceSync?['sync status','sync read','sync request','sync propose',...(supervisor?['sync assign']:[])]:[]),...(roleSession?['discuss peers']:[]),...(discussion?['discuss ask','discuss reply','discuss read','discuss resolve',...(supervisor?['discuss budget_extend']:[])]:[]),'call','wait',...(supervisor?['schedule','timer','role prompt']:[]),'note','git status','memory read','memory write','report','history search','history read','result read','deliver','session current','session list','session summary','session read','chat summary']});
+    if (cmd === 'capabilities') return out({protocol:2,sourceSyncTools:sourceSync?1:0,discussionProtocol:discussion?2:0,sessionTools:1,timerTools:1,tools:['setup catalog',...(sourceSync?['sync status','sync read','sync request','sync propose',...(supervisor?['sync assign']:[])]:[]),...(roleSession?['discuss peers']:[]),...(discussion?['discuss ask','discuss reply','discuss read','discuss resolve',...(supervisor?['discuss budget_extend']:[])]:[]),'call','wait',...(supervisor?['schedule','timer','role prompt']:[]),'note','git status','report','history search','history read','result read','deliver','session current','session list','session summary','session read','chat summary']});
     if (cmd === 'session' && sub === 'current') return out(await agentRequest('/api/agent/sessions/current',{runId:process.env.WB_RUN_ID}));
     if (cmd === 'session' && sub === 'list') return out(await agentRequest('/api/agent/sessions/list',{runId:process.env.WB_RUN_ID,...sessionOptions(rest)}));
     if (cmd === 'session' && sub === 'summary') return out(await agentRequest('/api/agent/sessions/summary',{runId:process.env.WB_RUN_ID,roleSessionId:rest[0]}));
@@ -83,9 +83,6 @@ export async function main(argv = process.argv.slice(2)) {
     if (cmd === 'role' && sub === 'prompt') return out(await updateRolePrompt(JSON.parse(rest.join(' '))));
     if (!cmd || cmd === 'help' || cmd === '-h' || cmd === '--help') return out(supervisor ? tr('wbCli.wbScheduleJsonSupervisorSubmits', { HELP: helpText() }) : helpText());
     if (cmd === 'boot' || cmd === 'status') return out(await boot());
-    if (cmd === 'memory' && (!sub || sub === 'read')) return out(await memoryRead());
-    if (cmd === 'memory' && sub === 'write') return out(await memoryWrite(rest.join(' ')));
-    if (cmd === 'memory' && sub === 'search') return out(await memorySearch(rest.join(' ')));
     if (cmd === 'docs' && (!sub || sub === 'list')) return out(await docsList());
     if (cmd === 'docs' && sub === 'read') return out(await docsRead(rest.join(' ')));
     if (cmd === 'git' && (!sub || sub === 'status')) return out(await gitStatus());
