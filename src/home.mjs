@@ -1,4 +1,5 @@
 import http from 'node:http';
+import { sendBufferedResponse } from './http-response.mjs';
 import { readFile, mkdir, writeFile, chmod } from 'node:fs/promises';
 import { resolve, dirname, join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -446,7 +447,8 @@ const server = http.createServer(async (req, res) => {
       }
       if (pathname === '/api/state' && req.method === 'GET') {
         const state=snapshot();
-        return json(res,url.searchParams.get('view')==='workspace'?workspaceFeed.read(state,url.searchParams.get('projectId'),url.searchParams.get('cursor')):state);
+        const view=url.searchParams.get('view')==='workspace'?workspaceFeed.read(state,url.searchParams.get('projectId'),url.searchParams.get('cursor')):state;
+        return await sendBufferedResponse(req,res,Buffer.from(JSON.stringify(view)),{ 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' });
       }
       if (pathname === '/api/wechat' && req.method === 'GET') return json(res, wechat.status());
       if (pathname === '/api/wechat' && req.method === 'POST') return json(res, wechat.configure((await body(req)).enabled));
@@ -836,7 +838,7 @@ const server = http.createServer(async (req, res) => {
         const r = rooms.saveRole(m[1], b); scheduleChat(); change(); return json(res, r);
       }
       if ((m = pathname.match(/^\/api\/projects\/([^/]+)\/messages$/))) {
-        if (req.method === 'GET') return json(res, rooms.messages(m[1], url.searchParams.get('before')));
+        if (req.method === 'GET') return await sendBufferedResponse(req,res,Buffer.from(JSON.stringify(rooms.messages(m[1],url.searchParams.get('before')))),{ 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' });
         if (req.method === 'POST') {
           const input = await body(req);
           const r = db.transaction(() => { const message = rooms.post(m[1], input); wechat.webReply(message); return message; });
@@ -1023,7 +1025,7 @@ const server = http.createServer(async (req, res) => {
     files['/locales/zh.js']='locales/zh.js';
     const file = files[pathname]; if (!file) return json(res, { error: tr('home.pageNotFound') }, 404);
     const bytes = await readFile(join(base, 'public', file));
-    res.writeHead(200, { 'Content-Type': { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.webmanifest': 'application/manifest+json; charset=utf-8' }[extname(file)], 'Cache-Control': 'no-cache' }); res.end(bytes);
+    await sendBufferedResponse(req,res,bytes,{ 'Content-Type': { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.webmanifest': 'application/manifest+json; charset=utf-8' }[extname(file)], 'Cache-Control': 'no-cache' });
   } catch (e) { if (!res.headersSent) json(res, { error: e.message,...(e.code?{code:e.code}:{}) }, 400); else res.end(); }
 });
 const wss = new WebSocketServer({ noServer: true, maxPayload: 1024 * 1024 });

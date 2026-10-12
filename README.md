@@ -78,6 +78,7 @@ All items below exist in the current code. Items that are only designed are list
 - GitHub and Gitee account storage and optional repository creation (private by default).
 - Installable PWA shell, desktop three-column layout and a mobile drawer layout.
 - State reads time out after 20 seconds and recover automatically without replaying task submissions. Returning to the page or reconnecting refreshes state while preserving drafts; connection details show the last successful update.
+- Buffered static text and state/chat reads negotiate gzip to reduce SSH transfer overhead; streaming events and attachments are unchanged. Small page icons use the existing 192px asset, and optional high-resolution images are not eagerly downloaded for offline-shell installation.
 - Optional confirmation channel over WeChat, disabled by default. It depends on an external confirmation hub that you must provide.
 
 ## Architecture overview
