@@ -1,4 +1,4 @@
-const CACHE = 'agent-workbench-static-tunnel-loading-v60';
+const CACHE = 'agent-workbench-static-tunnel-loading-v61';
 const STATIC = [
   '/', '/styles.css', '/app.js', '/manifest.webmanifest', '/app-icon.png', '/app-icon-192.png',
   '/platform-admin.js', '/project-space.js', '/token-usage.js', '/run-log-data.js', '/room.js',
@@ -10,9 +10,11 @@ const STATIC = [
   '/output-language.js', '/vendor/opencc-t2cn.js', '/cli-recovery.js', '/session-queue.js'
 ];
 const staticPaths = new Set(STATIC);
+// These large optional images are cached only if requested, so first install cannot starve state/chat reads over SSH.
+const precache = STATIC.filter(path => !['/app-icon.png', '/agent-codex.png'].includes(path));
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(STATIC)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(precache)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', event => {

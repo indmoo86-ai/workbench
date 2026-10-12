@@ -838,7 +838,7 @@ const server = http.createServer(async (req, res) => {
         const r = rooms.saveRole(m[1], b); scheduleChat(); change(); return json(res, r);
       }
       if ((m = pathname.match(/^\/api\/projects\/([^/]+)\/messages$/))) {
-        if (req.method === 'GET') return json(res, rooms.messages(m[1], url.searchParams.get('before')));
+        if (req.method === 'GET') return await sendBufferedResponse(req,res,Buffer.from(JSON.stringify(rooms.messages(m[1],url.searchParams.get('before')))),{ 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' });
         if (req.method === 'POST') {
           const input = await body(req);
           const r = db.transaction(() => { const message = rooms.post(m[1], input); wechat.webReply(message); return message; });
