@@ -1,6 +1,7 @@
 import { t, dateLocale } from './i18n.js';
 import { agentIconEl, UI_ICON, workerDisplayName } from './role-icons.js';
 import { renderMarkdown, linkRunDocuments, localizeDocumentLinks } from './markdown.js';
+import {simplifiedCliOutput} from './output-language.js';
 import { createHistoryViewer } from './history-view.js';
 import {createRoleSwitchUI} from './role-switch.js';
 import {createRoleHistoryTabs} from './role-history.js';
@@ -220,7 +221,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     previewDialog.className = 'message-fullscreen';
     previewDialog.setAttribute('aria-label', 'Full attachment text');
     const header = create('div', 'message-fullscreen-heading');
-    header.append(create('strong', '', name), copyMessageButton(text), iconAction('back', 'Close attachment preview', () => previewDialog.close()));
+    header.append(create('strong', '', name), copyMessageButton(text), iconAction('close', 'Close attachment preview', () => previewDialog.close()));
     if (downloadUrl) header.insertBefore(iconAction('original', 'Download original', () => {
       const link = create('a'); link.href = downloadUrl; link.download = name; link.click();
     }), header.lastChild);
@@ -546,8 +547,8 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     return copy;
   }
 
-  /** Collapsing only affects display; viewing and copying the full text always use the complete original. */
-  const renderLinkedMarkdown=(text,runId)=>localizeDocumentLinks(linkRunDocuments(renderMarkdown(text),runId),runId,api);
+  /** CLI prose is simplified for display only; copying and the Original view retain the complete stored text. */
+  const renderLinkedMarkdown=(text,runId)=>localizeDocumentLinks(linkRunDocuments(renderMarkdown(simplifiedCliOutput(text)),runId),runId,api);
   function replyPreview(text, markdown = true, runId = null) {
     const preview = create('div', 'chat-reply-preview');
     preview.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', text));
@@ -680,7 +681,11 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     const role = agent ? (data.roles || []).find(r => r.id === m.roleId) || (data.runs || []).find(r => r.id === m.runId)?.roleSnapshot : null;
     if (agent) row.append(avatarFor(role, m.senderName));
     const col = create('div', 'chat-col');
-    col.append(create('div', 'chat-name', agent ? `@${m.senderName}` : m.broadcast ? 'Me · notify everyone' : 'Me'));
+    const header = create('div', 'chat-message-header');
+    const time = create('time', '', formatTime(m.createdAt));
+    if (m.createdAt) time.dateTime = m.createdAt;
+    header.append(create('div', 'chat-name', agent ? `@${m.senderName}` : m.broadcast ? 'Me · notify everyone' : 'Me'), time);
+    col.append(header);
     const bubble = create('div', `chat-bubble${handoff || replyDirection ? ' handoff-card' : ''}`);
     if(discussion){const title=create('div','handoff-title');title.append(create('strong','',`${m.senderName||t('Me')} → @${discussion.to}`));bubble.append(title,create('div','handoff-label',t('Peer discussion · {state}', { state: discussion.state })));}
     if (m.replyToId) {
@@ -731,7 +736,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       try{await api(`/api/runs/${encodeURIComponent(discussion.stopRunId)}/stop`,{method:'POST',json:{commandId:`discussion-owner-stop:${discussion.stopRunId}:${discussion.questionId}`}});await refreshState({quiet:true});}catch(e){setError(e.message);b.disabled=false;}
     }));
     actions.push(copyMessageButton(handoff ? m.handoff.summary || m.text : m.text));
-    actions.push(fullscreenMessageButton(handoff ? m.handoff.summary || m.text : m.text, m.senderName, true, m.attachments, null, m.runId));
+    actions.push(fullscreenMessageButton(handoff ? m.handoff.summary || m.text : m.text, m.senderName, agent || Boolean(handoff), m.attachments, null, m.runId));
     actions.push(iconAction('original','Original',()=>{void historyViewer.open(m.projectId,m.runId&&!discussion?'result':'message',m.runId&&!discussion?m.runId:m.id).catch(e=>setError(e.message));}));
     if(m.runId&&!discussion) {
       const report=data.runReports?.find(r=>r.id===m.runId);
@@ -742,7 +747,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       const run = data.runs?.find(r => r.id === m.runId);
       if (run) actions.push(iconAction('log', 'Log', () => openTask(run.taskId,run.id)));
     }
-    col.append(bubble, chatMeta(formatTime(m.createdAt), actions));
+    col.append(bubble, chatMeta('', actions));
     row.append(col);
     return row;
   }

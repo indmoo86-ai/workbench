@@ -46,6 +46,8 @@ Managed dialogue inputs for Codex, Claude Code, Grok and Antigravity use English
 
 ## Key features
 
+CLI prose is displayed in Simplified Chinese in chat, live/fullscreen replies and execution output. This browser-only conversion uses a bundled OpenCC dictionary without a model or CDN request. User messages, quoted input, code, commands, paths, original-text views, copies and stored records retain their original content.
+
 All items below exist in the current code. Items that are only designed are listed separately under [Limitations and roadmap](#limitations-and-roadmap).
 
 **Collaboration**

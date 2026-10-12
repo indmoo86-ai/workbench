@@ -672,6 +672,7 @@ export default {
   '5-hour quota': '5 小时额度',
   'Weekly quota': '每周额度',
   'Resets at: {time}': '重置时间：{time}',
+  'Reset in: {time}': '重置剩余：{time}',
   'Reset time unavailable': '暂未取得重置时间',
   '{kind} {pct}% left': '{kind} 剩余 {pct}%',
   'Week': '周',

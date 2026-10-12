@@ -271,20 +271,38 @@ function remainingPercent(bucket) {
 
 const MONTHS = { jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5, jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11 };
 
-function parseQuotaResetDate(raw) {
-  const text = String(raw || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
-  const direct = new Date(text);
-  if (text && Number.isFinite(direct.getTime()) && /\d{4}/.test(text)) return direct;
-  const match = text.match(/^([A-Za-z]{3})\s+(\d{1,2})\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
-  if (!match) return null;
-  let hour = Number(match[3]);
-  const ap = match[5].toLowerCase();
-  if (ap === 'pm' && hour !== 12) hour += 12;
-  if (ap === 'am' && hour === 12) hour = 0;
-  const now = new Date();
-  const date = new Date(now.getFullYear(), MONTHS[match[1].toLowerCase()], Number(match[2]), hour, Number(match[4] || 0));
-  if (date.getTime() + 14 * 86400000 < now.getTime()) date.setFullYear(now.getFullYear() + 1);
-  return date;
+function parseQuotaResetDate(raw, now = Date.now()) {
+  const text = String(raw || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:?\d{2})$/i.test(text)) {
+    const date = new Date(text);
+    return Number.isFinite(date.getTime()) ? date : null;
+  }
+  const match = text.match(/^([A-Za-z]{3})\s+(\d{1,2})(?:\s+at\s+|,\s*)(\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)$/i);
+  if (!match || MONTHS[match[1].toLowerCase()] === undefined || +match[3] < 1 || +match[3] > 12 || +(match[4] || 0) > 59) return null;
+  const month = MONTHS[match[1].toLowerCase()] + 1, day = +match[2];
+  const hour = +match[3] % 12 + (match[5].toLowerCase() === 'pm' ? 12 : 0), minute = +(match[4] || 0);
+  try {
+    const formatter = new Intl.DateTimeFormat('en-US', {timeZone:match[6], year:'numeric', month:'numeric', day:'numeric', hour:'numeric', minute:'numeric', second:'numeric', hourCycle:'h23'});
+    const parts = time => Object.fromEntries(formatter.formatToParts(time).filter(p => p.type !== 'literal').map(p => [p.type, Number(p.value)]));
+    const year = parts(now).year, candidates = [];
+    // Resolve the vendor's wall clock in its own zone, including DST; nearest year handles December/January.
+    for (const y of [year - 1, year, year + 1]) {
+      const wall = Date.UTC(y, month - 1, day, hour, minute); let time = wall;
+      for (let i = 0; i < 3; i++) { const p = parts(time); time += wall - Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second); }
+      const p = parts(time);
+      if (p.year === y && p.month === month && p.day === day && p.hour === hour && p.minute === minute) candidates.push(time);
+    }
+    candidates.sort((a,b) => Math.abs(a-now) - Math.abs(b-now));
+    return candidates.length ? new Date(candidates[0]) : null;
+  } catch { return null; }
+}
+
+/** Weekly windows use d/h; short windows use h/m. Unknown reset times stay unknown. */
+export function formatQuotaCountdown(raw, weekly = false, now = Date.now()) {
+  const date = parseQuotaResetDate(raw, now);
+  if (!date) return '';
+  const minutes = Math.max(0, Math.floor((date.getTime() - now) / 60000)), hours = Math.floor(minutes / 60);
+  return weekly ? `${Math.floor(hours / 24)}d ${hours % 24}h` : `${hours}h ${minutes % 60}m`;
 }
 
 /** Parses claude /usage output such as "Sep 17 at 5:40pm (America/Los_Angeles)" */
@@ -328,41 +346,46 @@ export function quotaForRole(roleRuntime, _worker, modelId = '') {
 let quotaTooltipId = 0;
 let activeQuotaHintCleanup = null;
 
-/** Preserve vendor timezone text, including Claude dates without a year; never guess a reset date when none was reported. */
+/** Use the same countdown in hover, accessible labels and the click dialog. */
 function quotaDetails(kind, pct, bucket) {
-  const reset = String(bucket.resetsAt || '').trim();
+  const reset = formatQuotaCountdown(bucket.resetsAt, kind === 'Week');
   return {
     remaining: t('{kind} {pct}% left', { kind: t(kind === 'Week' ? 'Weekly quota' : '5-hour quota'), pct }),
-    reset: t('Resets at: {time}', { time: reset || t('Reset time unavailable') })
+    reset: reset ? t('Reset in: {time}', { time: reset }) : t('Reset time unavailable')
   };
 }
 
 /** A tap or keyboard activation opens the same facts as hover, without entering the enclosing role editor. */
-function openQuotaDetails(details) {
+function openQuotaDetails(getDetails) {
   const dialog = el('dialog', 'quota-dialog');
   dialog.setAttribute('aria-label', t('Quota details'));
   const heading = el('div', 'dialog-heading');
   const close = el('button', 'secondary compact', t('Close'));
   close.type = 'button'; close.onclick = () => dialog.close();
   heading.append(el('h2', '', t('Quota details')), close);
-  dialog.append(heading, el('p', 'workspace-note', details.remaining), el('p', 'quota-reset-detail', details.reset));
-  dialog.addEventListener('close', () => dialog.remove(), { once: true });
+  const remaining = el('p', 'workspace-note'), reset = el('p', 'quota-reset-detail');
+  const update = () => { const details = getDetails(); remaining.textContent = details.remaining; reset.textContent = details.reset; };
+  update(); const timer = setInterval(update, 30000);
+  dialog.append(heading, remaining, reset);
+  dialog.addEventListener('close', () => { clearInterval(timer); dialog.remove(); }, { once: true });
   document.body.append(dialog); dialog.showModal();
 }
 
 /** A body-level hint escapes clipped quota shapes; remove it when a refreshed role card detaches its trigger. */
-function bindQuotaDetails(mark, details) {
-  let hint = null, observer = null;
+function bindQuotaDetails(mark, getDetails) {
+  let hint = null, observer = null, timer = null;
   const hide = () => {
     if (activeQuotaHintCleanup === hide) activeQuotaHintCleanup = null;
-    observer?.disconnect(); observer = null; hint?.remove(); hint = null;
+    observer?.disconnect(); observer = null; clearInterval(timer); timer = null; hint?.remove(); hint = null;
     mark.removeAttribute('aria-describedby');
     window.removeEventListener('scroll', hide, true); window.removeEventListener('resize', hide);
   };
   const show = () => {
     if (hint || !mark.isConnected) return;
     activeQuotaHintCleanup?.(); activeQuotaHintCleanup = hide;
-    hint = el('div', 'quota-tooltip', `${details.remaining}\n${details.reset}`);
+    hint = el('div', 'quota-tooltip');
+    const update = () => { const details = getDetails(); hint.textContent = `${details.remaining}\n${details.reset}`; mark.setAttribute('aria-label', `${details.remaining} · ${details.reset}`); };
+    update(); timer = setInterval(update, 30000);
     hint.id = `quota-tooltip-${++quotaTooltipId}`; hint.setAttribute('role', 'tooltip');
     document.body.append(hint); mark.setAttribute('aria-describedby', hint.id);
     const rect = mark.getBoundingClientRect();
@@ -374,7 +397,7 @@ function bindQuotaDetails(mark, details) {
   };
   mark.addEventListener('mouseenter', show); mark.addEventListener('mouseleave', hide);
   mark.addEventListener('focus', show); mark.addEventListener('blur', hide);
-  mark.addEventListener('click', event => { event.stopPropagation(); hide(); openQuotaDetails(details); });
+  mark.addEventListener('click', event => { event.stopPropagation(); hide(); openQuotaDetails(getDetails); });
 }
 
 /** Draw only quota windows actually returned by the vendor; unknown quota is not shown as green. */
@@ -386,10 +409,10 @@ export function roleNameQuota(quota) {
     const pct = Math.round(remainingPercent(bucket));
     const tone = quotaTone(pct, { weekly, resetsAt: bucket?.resetsAt });
     const windowClass = weekly ? 'is-weekly' : 'is-five-hour';
-    const mark = el('button', `role-quota-mark ${windowClass} is-${tone}`), details = quotaDetails(kind, pct, bucket);
+    const mark = el('button', `role-quota-mark ${windowClass} is-${tone}`), getDetails = () => quotaDetails(kind, pct, bucket), details = getDetails();
     mark.type = 'button'; mark.setAttribute('aria-haspopup', 'dialog');
     mark.setAttribute('aria-label', `${details.remaining} · ${details.reset}`);
-    bindQuotaDetails(mark, details);
+    bindQuotaDetails(mark, getDetails);
     mark.textContent = String(pct);
     wrap.append(mark);
   };

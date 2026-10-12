@@ -1,4 +1,5 @@
 import { t, getLanguage, setLanguage, onLanguageChange, syncLanguageWithBackend, dateLocale } from './i18n.js';
+import {simplifiedCliOutput} from './output-language.js';
 import { createRoomUI, createRoleRefresh } from './room.js';
 import { projectSettings } from './project-settings.js';
 import { agentIconEl, machineIconEl, quotaForRole, roleActivity, roleNameQuota, UI_ICON, deviceIconEl, workerDisplayName, workerKind, setActionIcon, projectIconAssignments, projectIconEl } from './role-icons.js';
@@ -125,7 +126,7 @@ const room = createRoomUI({ api, refreshState, openTask, stopRun, decideApproval
 } });
 // Action icons apply only to explicit entry points; tabs, project names and the text confirm buttons at the bottom of dialogs are unchanged.
 for(const [selector,icon,label] of [
-  ['#close-settings-page','back'],['#show-device-enroll','plus'],['#edit-assistant-runtime','edit'],
+  ['#close-settings-page','close'],['#show-device-enroll','plus'],['#edit-assistant-runtime','edit'],
   ['[data-prompt-edit]','edit'],['#edit-conversation-organizer','edit','Edit conversation organizer model'],['#edit-api-token','edit'],
   ['#manage-wechat','settings'],['#assistant-stop','stop'],['#configuration-assistant-form > .form-actions [type=submit]','send'],
   ['#token-usage-form [type=submit]','search'],['#token-usage-refresh','refresh'],['#open-project-timers','history'],
@@ -1581,7 +1582,7 @@ function renderRunResult(result) {
   const section = create('section', 'subsection run-result');
   const heading = create('div', 'subsection-heading');
   heading.append(create('h3', '', 'Execution Result'), create('span', 'subsection-note', 'Runtime output'));
-  section.append(heading, create('div', 'result-content', typeof result === 'string' ? result : safeJson(result)));
+  section.append(heading, create('div', 'result-content', typeof result === 'string' ? simplifiedCliOutput(result) : safeJson(result)));
   return section;
 }
 
@@ -1663,13 +1664,13 @@ function renderRunOutput(run, events) {
   const section = create('section', 'run-log-content run-output');
   if (!events.length && !run?.result) section.append(create('div', 'event-empty', run ? 'Waiting for CLI output…' : 'Task has not started yet'));
   let text = '';
-  const flushText = () => { if (text) { section.append(create('pre', 'run-log-pre run-output-text', text)); text = ''; } };
+  const flushText = () => { if (text) { section.append(create('pre', 'run-log-pre run-output-text', simplifiedCliOutput(text))); text = ''; } };
   for (const event of events) {
     if (event.type === 'text') { text += stripAnsi(eventPayloadText(event)); continue; }
     flushText();
     const block = create('div', `run-output-entry${event.type === 'error' ? ' error' : ''}`);
     block.append(create('small', '', `${event.type === 'error' ? t('Error') : event.type === 'log' ? t('CLI log') : t('Reply')} · ${formatTime(event.createdAt)}`),
-      create('pre', 'run-log-pre', stripAnsi(eventPayloadText(event))));
+      create('pre', 'run-log-pre', simplifiedCliOutput(stripAnsi(eventPayloadText(event)))));
     section.append(block);
   }
   flushText();

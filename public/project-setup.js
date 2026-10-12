@@ -11,15 +11,9 @@ export function preferredSelectValue(values, current, preferred) {
 export function projectSetupUI({ api, getData, getProject, refreshState, create, setError }) {
   const form = document.querySelector('#project-form');
   const cards = document.querySelector('#setup-proposals');
-  const proposalDialog = document.querySelector('#setup-proposals-dialog');
-  const proposalEntry = document.querySelector('#show-setup-proposals');
   const repositories = document.querySelector('#project-repositories');
   const busy = new Set();
   let signature = '';
-  let proposalProjectId = null;
-  // 确认入口独立于聊天滚动区，避免长会话自动追尾后把待确认卡片藏在顶部。
-  proposalEntry.addEventListener('click', () => proposalDialog.showModal());
-  document.querySelector('#close-setup-proposals').addEventListener('click', () => proposalDialog.close());
   const select = (name, values, blank, preferred = '') => {
     const el = form.elements[name], old = el.value;
     el.replaceChildren();
@@ -65,17 +59,15 @@ export function projectSetupUI({ api, getData, getProject, refreshState, create,
       repositories.append(card);
     }
     const proposals = (data.setupProposals || []).filter(r => r.projectId === p?.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-    if (proposalProjectId !== p?.id || !proposals.length) proposalDialog.close();
-    proposalProjectId = p?.id;
     const pendingCount = proposals.filter(proposal => proposal.status === 'pending').length;
-    proposalEntry.hidden = !proposals.length;
-    proposalEntry.textContent = pendingCount
+    const title = pendingCount
       ? `${t('Pending confirmation')} (${pendingCount}) · ${t('Supervisor setup suggestions')}`
       : t('Supervisor setup suggestions');
     const nextSignature = JSON.stringify([p?.id, proposals, [...busy], getLanguage()]);
     cards.hidden = !proposals.length;
     if (nextSignature === signature) return;
     signature = nextSignature; cards.replaceChildren();
+    if (proposals.length) cards.append(create('h3', '', title));
     for (const proposal of proposals) {
       const card = create('details', 'setup-card');
       card.open = ['pending', 'running', 'blocked'].includes(proposal.status);

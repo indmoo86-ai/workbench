@@ -6,7 +6,7 @@
     "node": ">=22.16"
   },
   "scripts": {
-    "precheck": "node --check src/input-language.mjs",
+    "precheck": "node --check src/input-language.mjs && node --check public/output-language.js",
     "start": "node src/home.mjs",
     "worker": "node src/worker.mjs",
     "dev": "node src/dev.mjs",

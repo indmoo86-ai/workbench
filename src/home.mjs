@@ -931,6 +931,8 @@ const server = http.createServer(async (req, res) => {
     files['/role-switch.js']='role-switch.js';
     files['/role-history.js']='role-history.js';
     files['/i18n.js']='i18n.js';
+    files['/output-language.js']='output-language.js';
+    files['/vendor/opencc-t2cn.js']='vendor/opencc-t2cn.js';
     files['/locales/zh.js']='locales/zh.js';
     const file = files[pathname]; if (!file) return json(res, { error: tr('home.pageNotFound') }, 404);
     const bytes = await readFile(join(base, 'public', file));
