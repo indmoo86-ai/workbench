@@ -1035,9 +1035,11 @@ body[data-workspace-view="settings"] .workspace { display: flex; width: 100%; he
 body[data-workspace-view="settings"] .settings-page { padding: 0 24px 40px; }
 body[data-workspace-view="settings"] .settings-page-heading { position: sticky; top: 0; z-index: 2; align-items: center; max-width: none; margin: 0; padding: 18px 0; border-bottom: 1px solid var(--line); background: var(--surface, #fff); }
 body[data-workspace-view="settings"] .settings-page-heading h2 { margin: 0; }
+body[data-workspace-view="settings"] .settings-page[data-settings-scope="global"] { scrollbar-gutter: stable both-edges; }
+body[data-workspace-view="settings"] .settings-page[data-settings-scope="global"] .settings-page-heading { position: static; max-width: 1200px; width: 100%; margin-inline: auto; }
 body[data-workspace-view="settings"] .settings-tabs,
 body[data-workspace-view="settings"] .settings-page-body { max-width: 1200px; width: 100%; margin-inline: auto; }
-body[data-workspace-view="settings"] .settings-tabs { margin-top: 16px; }
+body[data-workspace-view="settings"] .settings-tabs { position: sticky; top: 0; z-index: 2; margin-top: 16px; }
 body[data-workspace-view="settings"] .settings-panel { border: 0; padding: 12px 0 0; background: transparent; }
 body[data-workspace-view="settings"] #settings-usage-panel .settings-panel-heading h3 { display: none; }
 .project-timer-link { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 18px; }
