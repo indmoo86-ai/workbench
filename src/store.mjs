@@ -6,7 +6,7 @@ import { giteeRepository } from './repository.mjs';
 import { roleWorkspace } from './project-repositories.mjs';
 import { projectRepositories } from './project-space.mjs';
 import { projectTerminalLock } from './terminal-resume.mjs';
-import { RoleSessions } from './role-sessions.mjs';
+import { RoleSessions,taskConversationId } from './role-sessions.mjs';
 import { buildRunContext } from './run-context.mjs';
 import { steeringWaitReason } from './role-steering.mjs';
 import {RoleDiscussions} from './role-discussions.mjs';
@@ -102,6 +102,7 @@ export class Store {
       for (const t of this.list('tasks').filter(t => t.projectId === id)) this.remove('tasks', t.id);
       for (const m of this.list('roomMessages').filter(m => m.projectId === id)) this.remove('roomMessages', m.id);
       this.remove('proactiveFollowups',id);
+      for(const kind of ['cliRecoveries','cliRecoveryDecisions'])for(const record of this.list(kind).filter(r=>r.projectId===id))this.remove(kind,record.id);
       this.db.prepare('DELETE FROM room_message_receipts WHERE project_id=?').run(id);
       for (const r of this.list('roles').filter(r => r.projectId === id)) this.remove('roles', r.id);
       for (const w of this.list('workspaces').filter(w => w.projectId === id)) this.remove('workspaces', w.id);
@@ -161,7 +162,7 @@ export class Store {
       if (!task.roleSnapshot?.systemSupervisor && repositories.some(repo => !repo.localRoot)) throw new Error(tr('store.projectRepositoriesOnDeviceNot'));
       const sourceWait=sourceInputWaitReason(this,task,nodeId);if(sourceWait)throw syncError(sourceWait);
       const roleSession = isSwitchMaintenance(task) ? this.get('roleSessions',task.switchSessionId) : task.origin === 'chat' && (task.roleSnapshot?.id || task.roleId)
-        ? new RoleSessions(this).getOrCreate({projectId:task.projectId,conversationId:task.sourceInputs?.length&&task.execution?.isolated?`${task.projectId}:source:${task.sourceSessionKey||task.sourceConflictAssignmentId||task.id}`:task.conversationId||task.projectId,
+        ? new RoleSessions(this).getOrCreate({projectId:task.projectId,conversationId:taskConversationId(task),
           roleId:task.roleSnapshot?.id||task.roleId,nodeId,runtime:task.roleSnapshot?.runtime||'codex',model:task.model,workspaceRoot:binding.localRoot}) : null;
       const run = { id: randomUUID(), taskId, projectId: task.projectId, nodeId, repositoryId,turnPurpose:'task',directionRevision:task.directionRevision||1,
         ...(followupFor(this,task)?{proactiveFollowup:followupFor(this,task),backgroundFollowup:privateFollowup(this,task)}:{}),
@@ -235,6 +236,9 @@ export class Store {
         if (r.stopRequested && !terminal.has(next.status) && next.status !== 'reconciling') next.status = 'stopping';
       }
       if (e.type === 'usage') next.usage = e.payload;
+      // Preserve finished business results while accepting the owning Worker's driver-exit facts.
+      if(e.type==='status'&&terminal.has(r.status)&&e.payload.runtimeRetained===false&&e.payload.processSettled===true)
+        Object.assign(next,{runtimeRetained:false,processSettled:true,driverState:e.payload.driverState,...(e.payload.pid===null?{pid:null,previousPid:e.payload.previousPid||r.pid}:{})});
       if (e.type === 'status' && e.payload.controlLost) {
         for (const a of this.list('approvals').filter(a => a.runId === r.id && ['pending', 'responding'].includes(a.status))) {
           this.put('approvals', { ...a, status: a.status === 'responding' ? 'unconfirmed' : 'expired' });

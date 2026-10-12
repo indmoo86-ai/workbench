@@ -45,6 +45,7 @@ import { History } from './history.mjs';
 import { saveRunReport } from './run-reports.mjs';
 import { ScheduledJobs } from './scheduled-jobs.mjs';
 import {ProactiveFollowup} from './proactive-followup.mjs';
+import {CliRecoveryHome} from './cli-session-recovery-home.mjs';
 import { TimerAgentActions } from './timer-agent.mjs';
 import { inspectRunProgress } from './run-monitor.mjs';
 import { projectTerminalLock, terminalCommand, terminalLaunchView, TERMINAL_PREPARATION_TTL_MS } from './terminal-resume.mjs';
@@ -119,6 +120,8 @@ for (const run of db.list('runs').filter(r => !terminal.has(r.status))) db.put('
 const sockets = new Map();
 const viewers = new Set();
 const queries = new Map();
+const cliRecovery=new CliRecoveryHome({db,query:workerQuery,online:id=>online(id),change:()=>change()});
+rooms.nativeRecoveryReason=task=>cliRecovery.reason(task);
 const workspaceFeed = new WorkspaceStateFeed();
 const roleSwitches=new RoleSwitches(db);
 const roleSwitchRuntime=new RoleSwitchRuntime({db,switches:roleSwitches,query:workerQuery,dispatch,change:()=>change(),
@@ -260,6 +263,7 @@ function snapshot() {
     supervisorRoles:db.list('roles').filter(r=>supervisorIds.get(r.projectId)===r.id&&r.systemSupervisor&&!r.platformAssistant&&!r.archivedAt).map(({instructions,...r})=>({...r,responsibility:roleResponsibility(r)})),
     discussionThreads:db.list('discussionThreads'),discussionDeliveries:db.list('discussionDeliveries'),
     roleSwitches:db.list('roleSwitches').map(roleSwitchView),
+    cliRecoveries:db.list('cliRecoveries').filter(r=>!['ready','resolved'].includes(r.state)).map(({binding,fingerprint,...record})=>record),
     sourceSyncSummaries:db.list('projects').map(p=>({id:p.id,projectId:p.id,enabled:sourceSync.sync.config(p.id).enabled,conflicts:db.listProject('sourceSyncConflicts',p.id).filter(c=>!['resolved','cancelled'].includes(c.status)).length})),
     terminalSessions: db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)).map(s=>terminalLaunchView({...s,roleId:s.roleId||(s.runId?db.get('runs',s.runId)?.roleId:null)})),
     attachmentTransfers:db.list('attachmentTransfers').slice(-200).map(({fingerprint,...t})=>t),
@@ -277,6 +281,7 @@ function snapshot() {
 }
 /** Scheduling does not call a model; it only issues new executions after the Worker has finished reconnection verification. */
 function scheduleChat() {
+  cliRecovery.tick();
   void roleSwitchRuntime.tick();
   if(reconcileCallResults(db,calls))change();
   try { if(scheduledJobs.tick()) change(); } catch(error) {console.error(tr('home.scheduledJobCheckFailed'),error.message);}
@@ -706,6 +711,9 @@ const server = http.createServer(async (req, res) => {
       if ((m = pathname.match(/^\/api\/projects\/([^/]+)\/git-versions$/)) && req.method === 'POST') {
         return json(res,await projectGitVersions.refresh(m[1]));
       }
+      if((m=pathname.match(/^\/api\/projects\/([^/]+)\/tasks\/([^/]+)\/cli-recovery$/))&&req.method==='POST'){
+        return json(res,await cliRecovery.confirm(m[1],m[2],await body(req)));
+      }
       if ((m = pathname.match(/^\/api\/projects\/([^/]+)\/roles\/([^/]+)\/archive$/)) && req.method === 'POST') {
         const r = rooms.archiveRole(m[1], m[2]); change(); return json(res, r);
       }
@@ -939,6 +947,7 @@ const server = http.createServer(async (req, res) => {
     files['/state-data.js']='state-data.js';
     files['/execution-progress.js']='execution-progress.js';
     files['/live-scene.js']='live-scene.js';
+    files['/cli-recovery.js']='cli-recovery.js';
     files['/browser-token.js']='browser-token.js';
     files['/role-switch.js']='role-switch.js';
     files['/role-history.js']='role-history.js';
@@ -970,7 +979,7 @@ wss.on('connection', ws => {
         sockets.set(nodeId, ws); clearTimeout(registerTimer);
         const config=db.get('workerConfigs',nodeId),limits=registrationCapacity(m.node,config);
         db.put('workers', { ...m.node, ...config,...limits,id:nodeId, lastSeen: new Date().toISOString() });
-        send(ws, { type: 'registered', paused: !!db.get('settings', 'main')?.paused, language: getLanguage(),...(m.node.capabilities?.cliCapacity===1?{capacity:limits.desiredCapacity}:{}) }); change(); return;
+        send(ws, { type: 'registered', paused: !!db.get('settings', 'main')?.paused, language: getLanguage(),cliRecovery:1,...(m.node.capabilities?.cliCapacity===1?{capacity:limits.desiredCapacity}:{}) }); change(); return;
       }
       if (!nodeId || sockets.get(nodeId) !== ws) throw new Error(tr('home.nodeNotRegisteredYet'));
       if(['source_sync_receipt','source_sync_command_ack','source_sync_watch_ack','source_sync_watch_status','source_sync_dirty'].includes(m.type)){

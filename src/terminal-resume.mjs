@@ -53,16 +53,17 @@ export function processAlive(pid) {
 export function terminalProcessIdentity(pid) {
   if(!Number.isInteger(pid)||pid<1)return null;
   try{
-    const line=execFileSync('ps',['-p',String(pid),'-o','pid=,ppid=,uid=,lstart=,stat=,command='],{encoding:'utf8',timeout:3000,maxBuffer:128000,env:{...process.env,LC_ALL:'C'},stdio:['ignore','pipe','ignore']}).trim();
-    const m=line.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(\S+)\s+([\s\S]*)$/);
+    const line=execFileSync('ps',['-p',String(pid),'-o','pid=,ppid=,uid=,pgid=,lstart=,stat=,command='],{encoding:'utf8',timeout:3000,maxBuffer:128000,env:{...process.env,LC_ALL:'C'},stdio:['ignore','pipe','ignore']}).trim();
+    const m=line.match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(\S+)\s+([\s\S]*)$/);
     if(!m)throw new Error('ps');
-    let start=m[4];
+    let start=m[5];
     if(process.platform==='linux'){const stat=readFileSync(`/proc/${pid}/stat`,'utf8');start=readFileSync('/proc/sys/kernel/random/boot_id','utf8').trim()+':'+stat.slice(stat.lastIndexOf(')')+2).split(' ')[19];}
-    return {pid:Number(m[1]),ppid:Number(m[2]),uid:Number(m[3]),start,zombie:m[5].startsWith('Z'),command:m[6]};
+    return {pid:Number(m[1]),ppid:Number(m[2]),uid:Number(m[3]),pgid:Number(m[4]),start,zombie:m[6].startsWith('Z'),command:m[7]};
   }catch{return processAlive(pid)?{pid,unknown:true}:null;}
 }
 const processKey=p=>p&&!p.unknown?{pid:p.pid,uid:p.uid,start:p.start}:null;
 const sameProcess=(actual,expected)=>!!actual&&!actual.unknown&&actual.pid===expected?.pid&&actual.uid===expected.uid&&actual.start===expected.start;
+export {processKey as processIdentityKey,sameProcess as sameProcessIdentity};
 
 /** Old sessions are accepted only with a live, recognizable launcher or its direct child; uncertainty never authorizes a signal. */
 function terminalProcesses(session,dbPath) {

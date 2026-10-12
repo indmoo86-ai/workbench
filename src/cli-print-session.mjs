@@ -98,7 +98,7 @@ export class CliPrintSession {
       this.emit('status',{status:'running',workspace:this.cwd,nativeSessionId:this.nativeSessionId});
       this.sendTurn(prompt);return;
     }
-    this.proc = spawn(this.bin(), this.args(prompt), { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], env: this.env });
+    this.proc = spawn(this.bin(), this.args(prompt), { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], env: this.env,detached:process.platform!=='win32' });
     this.proc.stdin.on('error',e=>{if(!this.done){this.finish('failed',tr('cliPrintSession.cliInputStreamClosed', { message: e.message }));this.shutdown();}});
     // Grok uses stdin EOF as a user-cancel signal while headless tools are running.
     if (this.runtime !== 'grok' && !this.keepAlive) try { this.proc.stdin.end(); } catch {}

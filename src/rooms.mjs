@@ -270,6 +270,7 @@ export class Rooms {
       const discussion=Boolean(task.discussionDeliveryId||task.discussionIntentId);
       const kind=task.discussionDeliveryId?'discussionDeliveries':'discussionIntents',recordId=task.discussionDeliveryId||task.discussionIntentId;
       const role = effectiveExecutionRole(this.db,task), worker = this.db.get('workers', role.nodeId);
+      const recoveryReason=discussion?null:this.nativeRecoveryReason?.(task);
       const active = this.db.list('runs').filter(r => !terminal.has(r.status));
       const reason = this.db.get('settings', 'main')?.paused ? tr('rooms.remoteExecutionPaused')
         : roleSwitchWaitReason(this.db,task) ? roleSwitchWaitReason(this.db,task)
@@ -288,6 +289,7 @@ export class Rooms {
         : task.execution && worker.capabilities.executionScheduling !== 1 ? tr('rooms.upgradeWorkerRunSupervisorSchedules')
         : task.requiresCoordination && worker?.capabilities?.coordinationVersion !== 1 ? tr('rooms.upgradeWorkerSupportCrossDevice')
         : runtimeIssue(worker, role.runtime, role.model) ? runtimeIssue(worker, role.runtime, role.model)
+        : recoveryReason ? recoveryReason
         : active.some(r => r.roleId === role.id) ? tr('rooms.waitingForRoleFinishIts')
         : executionConflict({...task,nodeId:role.nodeId},active) ? (task.execution?.exclusive ? tr('rooms.waitingForExclusiveOperationWindow') : tr('rooms.waitingForProjectWorkspaceExclusive'))
         : active.some(r => r.nodeId === role.nodeId && r.status === 'reconciling') ? tr('rooms.nodeHasRunsAwaitingReconciliation')

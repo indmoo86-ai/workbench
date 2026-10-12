@@ -6,6 +6,7 @@ import {executionProgress} from './execution-progress.js';
 import { createHistoryViewer } from './history-view.js';
 import {createRoleSwitchUI} from './role-switch.js';
 import {createRoleHistoryTabs} from './role-history.js';
+import {createCliRecoveryUI} from './cli-recovery.js';
 
 /** Long text only changes its carrier; the file content keeps the original line breaks, whitespace and trailing characters. */
 export function longTextFileName(text) {
@@ -187,6 +188,7 @@ function createMessageQueue({api,refreshState,create,setError}) {
 export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopRun, decideApproval, create, formatTime, setError, configureDevice }) {
   const historyViewer=createHistoryViewer({api});
   const messageQueue=createMessageQueue({api,refreshState,create,setError});
+  const cliRecoveryUI=createCliRecoveryUI({api,refreshState,getData:()=>data,create});
   const feed = document.querySelector('#chat-feed');
   // Configuration, plans and messages share one scroll area so status cards do not permanently crowd out the body.
   const scroller = document.querySelector('#chat-scroll');
@@ -637,7 +639,8 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
 
   function renderLiveBubble(task, messages) {
     const run = data.runs?.find(r => r.id === task.currentRunId);
-    if(task.backgroundFollowup||run?.backgroundFollowup)return run?renderApprovalsInline(run):null;
+    const recoveryButton=cliRecoveryUI.button(task);
+    if(task.backgroundFollowup||run?.backgroundFollowup){const approvals=run?renderApprovalsInline(run):null;if(!recoveryButton)return approvals;const entry=create('div','chat-approvals');if(approvals)entry.append(approvals);entry.append(recoveryButton);return entry;}
     if (run && messages.some(m => m.runId === run.id)) return null;
     const role = task.roleSnapshot || {};
     const row = create('article', 'chat-row agent is-live');
@@ -659,6 +662,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     if(alert)col.append(create('p','run-alert',alert.reason));
     const approvals = run ? renderApprovalsInline(run) : null;
     if (approvals) col.append(approvals);
+    if(recoveryButton)col.append(recoveryButton);
     const actions = [];
     if (preview) actions.push(copyMessageButton(preview));
     actions.push(fullscreenMessageButton(preview, role.name, true, [], task.id, run?.id));
@@ -758,6 +762,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
   }
 
   function renderMessages() {
+    cliRecoveryUI.refresh();
     const history = histories.get(projectId), messages = history?.messages || [];
     const scrollTop = scroller.scrollTop;
     const atBottom = scroller.scrollHeight - scroller.clientHeight - scrollTop < 120;

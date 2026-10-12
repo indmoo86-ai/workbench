@@ -493,6 +493,7 @@ async function refreshState({ quiet = false } = {}) {
       supervisorRoles: Array.isArray(data.supervisorRoles) ? data.supervisorRoles : [],
       roleSessions:Array.isArray(data.roleSessions)?data.roleSessions:[],
       roleSwitches:Array.isArray(data.roleSwitches)?data.roleSwitches:[],
+      cliRecoveries:Array.isArray(data.cliRecoveries)?data.cliRecoveries:[],
       roleTemplates: Array.isArray(data.roleTemplates) ? data.roleTemplates : [],
       rooms: Array.isArray(data.rooms) ? data.rooms : [],
       gitChecks: Array.isArray(data.gitChecks) ? data.gitChecks : [],

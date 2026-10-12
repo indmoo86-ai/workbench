@@ -1684,4 +1684,12 @@ wb 表示这个完整前缀；每次调用都使用本轮前缀，不复用历�
   'minimal.waitTimeout': '依赖等待已超时，原请求仍有效：{requestIds}。没有取消或重跑同伴。可继续独立工作，或再次等待这些原请求。此前任务状态：{resumeSummary}\n',
   'minimal.dependencyEvent': '本任务原依赖在实际启动时的最新状态：{events}',
   'minimal.externalRepositories': '本轮另有工作目录之外的仓库映射：{repositories}。仅操作本任务已授权的目标。',
+  'cliRecovery.identityUnknown': '进程身份尚未确认，继续核对中，暂不允许强制结束。',
+  'cliRecovery.stopPending': '正在等待已核实的旧 CLI 及其工具进程退出。',
+  'cliRecovery.bindingChanged': '待执行任务或原生会话已变更，请刷新状态。',
+  'cliRecovery.processChanged': '旧 CLI 进程已发生变化，请核对当前进程后重新确认。',
+  'cliRecovery.oldProcessExited': '原 CLI 进程已退出，会话历史保留。',
+  'cliRecovery.oldProcessStopped': '已停止核实的旧 CLI，会话历史保留。',
+  'cliRecovery.waiting': '正在等待原 CLI；确认后可停止旧 CLI 并继续。',
+  'cliRecovery.checking': '正在核对原 CLI 会话占用。',
 });

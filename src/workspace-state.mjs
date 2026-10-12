@@ -14,7 +14,7 @@ export function workspaceState(snapshot,requestedProjectId) {
     roleSnapshot:role(r.roleSnapshot),originalRoleSnapshot:role(r.originalRoleSnapshot),executionBinding:binding(r.executionBinding),error:short(r.error),report:r.report?omit(r.report,['summary']):r.report,summaryOnly:true}));
   state.tasks=snapshot.tasks.filter(t=>t.projectId===projectId).map(t=>({...omit(t,['prompt','inputTask','contextPacket','teamContext']),roleSnapshot:role(t.roleSnapshot),executionBinding:binding(t.executionBinding),error:short(t.error),summaryOnly:true}));
   state.requests=(snapshot.requests||[]).filter(r=>r.projectId===projectId).map(r=>({...omit(r,['summary','result','resumeSummary','reportSummary','execution']),executionBinding:binding(r.executionBinding),error:short(r.error)}));
-  for(const key of ['discussionThreads','discussionDeliveries','roleSessions','roleSwitches','runAlerts'])state[key]=(snapshot[key]||[]).filter(r=>r.projectId===projectId);
+  for(const key of ['discussionThreads','discussionDeliveries','roleSessions','roleSwitches','runAlerts','cliRecoveries'])state[key]=(snapshot[key]||[]).filter(r=>r.projectId===projectId);
   state.runReports=(snapshot.runReports||[]).filter(r=>runIds.has(r.id)).map(r=>omit(r,['summary']));
   state.approvals=(snapshot.approvals||[]).filter(r=>runIds.has(r.runId));
   state.executionPlans=(snapshot.executionPlans||[]).filter(p=>p.projectId===projectId).map(p=>({...p,stages:(p.stages||[]).map(s=>({...s,members:(s.members||[]).map(m=>omit(m,['prompt','summary','execution']))}))}));

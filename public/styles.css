@@ -1189,6 +1189,8 @@ body:has(#platform-prompts-dialog[open]) .settings-page { overflow: hidden; }
 .role-history-tabs { display: flex; gap: 8px; padding: 10px 20px; flex-shrink: 0; border-bottom: 1px solid var(--line); }
 .role-history-tabs [aria-selected="true"] { color: var(--accent); background: var(--accent-soft); }
 .role-history-panel { min-height: 0; overflow-y: auto; padding: 16px 20px; }
+.cli-recovery-dialog { max-width: 660px; }
+.cli-recovery-dialog .workspace-note { white-space: pre-line; }
 :is(#role-form, #supervisor-form) .role-field-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 :is(#role-form, #supervisor-form) .role-field-row > label { min-width: 0; }
 #supervisor-form .role-field-row:first-child > label:first-child { grid-column: span 2; }

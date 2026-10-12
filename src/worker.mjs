@@ -25,6 +25,7 @@ import { writeHandoff } from './wb-tools.mjs';
 import { resolveNodeKind } from './node-kind.mjs';
 import { normalizeRemoteDesktopUrl } from './remote-desktop.mjs';
 import { validateLaunch, afterProcessExit, recordDeliveryResult, recoverDeliveryCommands, continuationSource } from './worker-coordinator.mjs';
+import {CliSessionRecovery,driverIdentity} from './cli-session-recovery.mjs';
 import { publishDelivery, receiveDelivery } from './git-delivery.mjs';
 import { composeAgentInstructions, englishExecutionRules } from './platform-prompts.mjs';
 import { runtimeGuidance } from './runtime-guidance.mjs';
@@ -80,7 +81,7 @@ const sessions = new Map();
 let organizerRunning = 0;
 const organizerControllers = new Set();
 let capacity = validateCliCapacity(db.get('settings','cli-capacity')?.capacity??Number(process.env.WORKER_CONCURRENCY||2));
-let ws, paused = true, quitting = false, registered = false, readySent = false, reconnectCleanup;
+let ws, paused = true, quitting = false, registered = false, readySent = false, reconnectCleanup,cliRecoveryEnabled=false;
 const eventSent = new Map();
 let runtimes = await inspectRuntimes(), probing;
 // The first version is still in isolated acceptance testing; only adapters that are explicitly enabled and have version-tested evidence report the capability.
@@ -113,7 +114,11 @@ function flushOutbox() {
   }
   if(!events.length&&!readySent){readySent=true;send({type:'ready'});}
 }
-const warmSessions = new WarmSessions({max:capacity,changed:()=>{send({type:'warm_sessions',sessions:warmSessions.snapshot()});reportCapacity();}});
+const warmSessions = new WarmSessions({max:capacity,changed:()=>{send({type:'warm_sessions',sessions:warmSessions.snapshot()});reportCapacity();},retired:(metadata,pid)=>{if(!quitting&&metadata.runId&&db.get('runs',metadata.runId))emit(metadata.runId,'status',{pid:null,previousPid:pid,runtimeRetained:false,processSettled:true,driverState:'exited'});}});
+const cliRecovery=new CliSessionRecovery({db,warmSessions,activeSessions:sessions,emit});
+const recoveryBinding=m=>({taskId:m.run.taskId||m.task.id,projectId:m.run.projectId,roleId:m.run.roleId,nodeId:identity.nodeId,roleSessionId:m.run.roleSessionId||null,
+  nativeSessionId:m.run.resumeNativeSessionId||db.get('runs',m.run.continuationRunId||'')?.nativeSession?.id||null,priorRunId:m.run.continuationRunId||null,runId:m.run.id});
+async function checkNativeDriver(m){const binding=recoveryBinding(m);if(!binding.nativeSessionId&&!binding.priorRunId)return;if(!cliRecoveryEnabled){const owned=sessions.get(binding.runId),pid=(owned?.preparing?owned.session:owned)?.proc?.pid;if(cliRecovery.records(binding).some(r=>r.pid&&r.pid!==pid&&processAlive(r.pid)&&!warmSessions.owns(r.pid)))throw Error(tr('worker.nativeSessionStillHasProcess'));return;}const result=await cliRecovery.check(binding);if(result.state!=='ready'){const error=Error(result.reason||tr('cliRecovery.waiting'));error.code='CLI_RECOVERY_WAIT';error.recovery=result;throw error;}}
 /** Slot reservations count before asynchronous preparation; retained processes are reclaimed, never active work. */
 function occupiedSlots(){return sessions.size+organizerRunning+reservedTerminalSlots(db,identity.nodeId);}
 function reportCapacity(){send({type:'capacity_state',capacity,usage:{active:sessions.size,retained:warmSessions.snapshot().length,organizer:organizerRunning,terminal:reservedTerminalSlots(db,identity.nodeId)}});}
@@ -148,6 +153,7 @@ function emit(runId, type, payload) {
   const seq = (r.seq || 0) + 1;
   if (type === 'approval') payload = { ...payload, rpcId: payload.id, id: `${runId}:${payload.id}`, runId, status: 'pending' };
   if (type === 'approval_resolved') payload = { ...payload, id: `${runId}:${payload.id}` };
+  if(type==='status'&&payload.nativeSession?.id&&r.processIdentity)payload={...payload,processIdentity:{...r.processIdentity,nativeSessionId:payload.nativeSession.id,runtime:payload.nativeSession.runtime}};
   const next = { ...r, seq, ...(type === 'status' ? payload : {}) };
   const event = { id: randomUUID(), runId, seq, type, payload, createdAt: new Date().toISOString() };
   db.transaction(() => { db.put('runs', next); db.put('outbox', event); });
@@ -193,7 +199,7 @@ async function command(m) {
   const prior = db.get('commands', c.id);
   if (prior) {
     if (prior.signature !== signature) throw new Error(tr('worker.duplicateCommandParameterConflict'));
-    if (!prior.deferred || db.get('runs',c.runId)) {
+    if ((!prior.deferred || db.get('runs',c.runId))&&!db.get('runs',c.runId)?.cliRecoveryWait) {
     if (!db.get('runs', c.runId)) {
       db.put('runs', { id: c.runId, seq: 0 });
       emit(c.runId, 'status', { status: 'reconciling', error: tr('worker.commandWasRegisteredButExecution') });
@@ -208,11 +214,14 @@ async function command(m) {
   }
   db.put('commands', { id: c.id, signature, runId: c.runId, type: c.type, deliveryId: c.deliveryId });
   if (c.type === 'launch') {
-    if (db.get('runs', c.runId)) { send({ type: 'command_ack', id: c.id }); return; }
-    db.put('runs', { id: c.runId, projectId: m.run.projectId, nodeId:identity.nodeId,execution:m.run.execution||null,roleId: m.run.roleId,roleSessionId:m.run.roleSessionId, status: 'starting', seq: 0,
+    const deferred=db.get('runs',c.runId);
+    if (deferred&&!deferred.cliRecoveryWait) { send({ type: 'command_ack', id: c.id }); return; }
+    db.put('runs', { ...deferred,id: c.runId, projectId: m.run.projectId, nodeId:identity.nodeId,execution:m.run.execution||null,roleId: m.run.roleId,roleSessionId:m.run.roleSessionId, status: 'starting', seq: deferred?.seq||0,cliRecoveryWait:false,error:null,
       switchOperationId:m.run.switchOperationId,switchPhase:m.run.switchPhase,switchHandoffHash:m.run.switchHandoffHash });
     send({ type: 'command_ack', id: c.id });
     let bridge, ending=false,provenance;
+    const reservation = { preparing: true, stopRequested: false };
+    sessions.set(c.runId,reservation);
     try {
       const policy=discussionPolicy(m.run),discussionTurn=policy.turnPurpose!=='task';
       roleSwitchWorker.assertLaunch(m.run);
@@ -225,10 +234,10 @@ async function command(m) {
       if (m.run.requestId) validateLaunch({ request: m.request, roleSnapshot: m.run.roleSnapshot, delivery: m.delivery, currentPlanVersion: m.run.planVersion });
       const issue = runtimeIssue({ capabilities: { runtimeDiscovery: true }, runtimes }, m.run.roleSnapshot?.runtime || 'codex', m.task.model);
       if (issue) throw new Error(issue);
+      await checkNativeDriver(m);
+      if(reservation.stopRequested){emit(c.runId,'status',{status:'interrupted',cliRecoveryWait:false,processSettled:true,error:tr('worker.taskHadNotStartedWas')});return;}
       if (db.list('runs').some(r => r.id !== c.runId && r.status === 'reconciling')) throw new Error(tr('worker.workerFullHasProcessesAwaiting'));
       if (executionConflict(m.run,db.list('runs').filter(r=>r.id!==c.runId && !terminal.has(r.status)).map(r=>({...r,nodeId:identity.nodeId})))) throw new Error(tr('worker.projectWorkspaceExclusiveOperationStill'));
-      const reservation = { preparing: true, stopRequested: false };
-      sessions.set(c.runId, reservation);
       emit(c.runId, 'status', { status: 'starting' });
       if(reservation.stopRequested || paused || ws?.readyState!==1){emit(c.runId,'status',{status:'interrupted',error:tr('worker.interruptedByStopDisconnectWhile')});return;}
       let executionRepositories = m.run.repositories || [];
@@ -322,7 +331,7 @@ async function command(m) {
         const prior=m.run.resumeNativeSession;
         if(!prior || prior.id!==m.run.resumeNativeSessionId || prior.runtime!==runtimeType || prior.user!==native.user || prior.home!==native.home)throw new Error(tr('worker.nativeSessionIdentityHasChanged'));
         await findSessionHistory(prior);
-        if(db.list('runs').some(r=>r.id!==c.runId && r.runtimeRetained && r.nativeSession?.id===prior.id && processAlive(r.pid) && !warmSessions.owns(r.pid)))throw new Error(tr('worker.nativeSessionStillHasProcess'));
+        await checkNativeDriver(m);
       }
       db.put('runtimeEnvironments',{id:c.runId,env:resumeEnvironment(wbEnv)});
       if(m.run.sourceSyncTracking){
@@ -401,9 +410,12 @@ async function command(m) {
       const input = createRunInput({ minimal:Boolean(executionConfiguration),environmentHint,configurationUpdate:instructions.configurationUpdate,taskPrompt, boundary, context, runtimeGuidance:toolGuide, setupHint, attachmentHint,
         executionInstructions:m.run.switchOperationId?'Read-only CLI handoff maintenance. Return the requested final answer; do not execute business work or write handoff files.':englishExecutionRules(m.run),roleInstructions:instructions.instructions,sourceInputs:sourceInputReceipts });
       if(instructions.inheritedFrom)input.instructionsInheritedFrom=instructions.inheritedFrom;
+      await checkNativeDriver(m);
+      if(db.get('runs',c.runId)?.stopRequested||session.stopping||paused||quitting||ws?.readyState!==1){session.shutdown();await afterProcessExit(session.proc,()=>{});await provenance?.finish();sessions.delete(c.runId);emit(c.runId,'status',{status:'interrupted',cliRecoveryWait:false,processSettled:true,error:tr('worker.interruptedByStopDisconnectBefore2')});return;}
       emit(c.runId, 'input', input);
       const result = session.start(input.prompt);
-      db.put('runs', { ...db.get('runs', c.runId), pid: session.proc?.pid });
+      const processIdentity=driverIdentity({...db.get('runs',c.runId),runtime:runtimeType},session.proc?.pid);
+      emit(c.runId,'status',{pid:session.proc?.pid,processIdentity});
       await result;
       await ended;
       await provenance?.finish();
@@ -427,7 +439,7 @@ async function command(m) {
       }
       if(finalStatus?.status==='succeeded' && keepAlive && !paused && !quitting && !session.stopping) {
         sessions.delete(c.runId);
-        warmSessions.keep(m.run.roleSessionId,fingerprint,session,{projectId:m.run.projectId,roleId:m.run.roleId,runtime:runtimeType});
+        warmSessions.keep(m.run.roleSessionId,fingerprint,session,{projectId:m.run.projectId,roleId:m.run.roleId,runtime:runtimeType,runId:c.runId});
         await warmSessions.trim(occupiedSlots());
       } else {session.shutdown();await afterProcessExit(session.proc,()=>{});sessions.delete(c.runId);}
       emit(c.runId,'status',{...finalStatus,runtimeRetained:warmSessions.owns(session.proc?.pid),processSettled:!warmSessions.owns(session.proc?.pid),...(m.run.discussionProtocol===2?{discussionCleanup:{turnEnded:true,toolsClosed:true,effectsKnown:false}}:{})});
@@ -435,6 +447,11 @@ async function command(m) {
       ending=true;
       await provenance?.finish();
       const entry = sessions.get(c.runId),s=entry?.preparing?entry.session:entry;
+      if(entry?.stopRequested||db.get('runs',c.runId)?.stopRequested){s?.shutdown();await afterProcessExit(s?.proc,()=>{});await bridge?.stop();bridge=null;sessions.delete(c.runId);emit(c.runId,'status',{status:'interrupted',cliRecoveryWait:false,processSettled:true,error:tr('worker.taskHadNotStartedWas')});return;}
+      if(e.code==='CLI_RECOVERY_WAIT'){
+        s?.shutdown();await afterProcessExit(s?.proc,()=>{});await bridge?.stop();bridge=null;sessions.delete(c.runId);
+        emit(c.runId,'status',{status:'waiting_user',cliRecoveryWait:true,cliRecovery:e.recovery,error:e.message});return;
+      }
       if (typeof s?.finish === 'function') { s.finish('failed', e.message); s.shutdown(); await afterProcessExit(s.proc, () => sessions.delete(c.runId)); }
       await bridge?.stop();bridge=null;
       emit(c.runId, 'status', { status: 'failed', error: e.message,...(m.run.minimalInstructions===1?{configurationState:'failed',configurationError:e.message}:{}) }); sessions.delete(c.runId);
@@ -467,9 +484,11 @@ async function command(m) {
     let r = db.get('runs', c.runId);
     if (!r) { r = db.put('runs', { id: c.runId, seq: 0 }); emit(c.runId, 'status', { status: 'interrupted',processSettled:true,error: tr('worker.taskHadNotStartedWas') }); }
     else if (!terminal.has(r.status)) {
+      db.put('runs',{...r,stopRequested:true});
       const s = sessions.get(c.runId);
-      if (s?.preparing) s.stopRequested = true;
+      if (s?.preparing) {s.stopRequested = true;db.put('runs',{...r,stopRequested:true});}
       else if (s) { emit(c.runId, 'status', { status: 'stopping' }); void s.stop(); }
+      else if(r.cliRecoveryWait)emit(c.runId,'status',{status:'interrupted',cliRecoveryWait:false,processSettled:true,error:tr('worker.taskHadNotStartedWas')});
       else emit(c.runId, 'status', { status: 'reconciling', error: tr('worker.originalProcessNotControlledBy') });
     }
   }
@@ -491,6 +510,12 @@ async function query(m) {
   }
   const modifies=['repository_setup','execution_receive','execution_baseline_advance','terminal_prepare','terminal_new'].includes(m.action);
   try {
+    if(m.action==='cli_session_check'||m.action==='cli_session_stop'){
+      if(!cliRecoveryEnabled)throw Error(tr('cliRecovery.bindingChanged'));
+      if(m.path?.nodeId!==identity.nodeId)throw Error(tr('cliRecovery.bindingChanged'));
+      const result=m.action==='cli_session_check'?await cliRecovery.check(m.path):await cliRecovery.reclaim(m.path,m.path.fingerprint,true);
+      send({type:'reply',id:m.id,result});return;
+    }
     if(m.action==='project_file'||m.action==='project_files'){
       const root=await projectRoot(m.path?.root),args={...m.path,root};
       const result=m.action==='project_files'?await listProjectFiles(args):await readProjectFile(args);
@@ -781,6 +806,7 @@ async function query(m) {
 // On Worker restart, only known PIDs are verified; no --resume is attempted and no replacement process is started.
 recoverDeliveryCommands(db);
 for (const r of db.list('runs').filter(r => !terminal.has(r.status))) {
+  if(r.cliRecoveryWait){emit(r.id,'status',{status:'waiting_user',cliRecoveryWait:true});continue;}
   let alive = false; if (r.pid) try { process.kill(r.pid, 0); alive = true; } catch (e) { alive = e.code === 'EPERM'; }
   emit(r.id, 'status', { status: alive ? 'reconciling' : 'interrupted', controlLost: true, error: alive ? tr('worker.leftoverProcessFoundAwaitingManual') : tr('worker.workerRestartedOriginalManagedProcess') });
 }
@@ -792,7 +818,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {
@@ -807,6 +833,7 @@ function connect() {
       if(m.type==='source_sync_cancel'){sourceSync.cancel(m.commandId);return;}
       if(m.type==='source_sync_receipt_ack'){sourceSync.acknowledge(m.commandId);return;}
       if (m.type === 'registered') {
+        cliRecoveryEnabled=m.cliRecovery===1;
         paused = m.paused;
         // Home announces its language; run payloads carry their own, this covers Worker-originated text outside a run.
         if (m.language) try { setLanguage(m.language); } catch { /* keep current */ }

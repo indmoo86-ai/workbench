@@ -4,6 +4,9 @@ import {activeRoleSwitch} from './role-switch-policy.mjs';
 
 const now = () => new Date().toISOString();
 
+/** Dispatch and occupancy checks must select the same isolated source conversation. */
+export const taskConversationId=task=>task.sourceInputs?.length&&task.execution?.isolated?`${task.projectId}:source:${task.sourceSessionKey||task.sourceConflictAssignmentId||task.id}`:task.conversationId||task.projectId;
+
 /** Platform sessions only store the mapping between a role and a native session; whether the CLI process is alive is still determined by the Worker. */
 export class RoleSessions {
   constructor(db) { this.db=db; }

@@ -1684,4 +1684,12 @@ wb stands for this full prefix; every call uses this turn's prefix, and historic
   'minimal.waitTimeout': 'A dependency wait timed out; the original requests remain active: {requestIds}. No teammate was cancelled or rerun. Continue independent work or wait on these same requests again. Prior task state: {resumeSummary}\n',
   'minimal.dependencyEvent': 'Current state of this task\'s original dependencies at execution admission: {events}',
   'minimal.externalRepositories': 'This turn also has repository mappings outside cwd: {repositories}. Use only the targets authorized for this task.',
+  'cliRecovery.identityUnknown': 'Process identity is not verified; checking continues and forced shutdown is unavailable.',
+  'cliRecovery.stopPending': 'Waiting for the verified old CLI and its tools to exit.',
+  'cliRecovery.bindingChanged': 'The pending task or native session changed. Refresh its state.',
+  'cliRecovery.processChanged': 'The old CLI process changed; check the current process before confirming again.',
+  'cliRecovery.oldProcessExited': 'The original CLI process exited; session history is preserved.',
+  'cliRecovery.oldProcessStopped': 'The verified old CLI was stopped; session history is preserved.',
+  'cliRecovery.waiting': 'Waiting for the original CLI; stop it and continue only after confirmation.',
+  'cliRecovery.checking': 'Checking original CLI session occupancy.',
 });

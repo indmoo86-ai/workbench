@@ -81,7 +81,7 @@ export class CodexSession {
   }
   async start(prompt) {
     if(!this.proc) {
-    this.proc = spawn(process.env.CODEX_BIN || 'codex', this.launchArgs(), { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], env: this.env });
+    this.proc = spawn(process.env.CODEX_BIN || 'codex', this.launchArgs(), { cwd: this.cwd, stdio: ['pipe', 'pipe', 'pipe'], env: this.env,detached:process.platform!=='win32' });
     this.proc.on('error', e => this.transportError(e));
     this.proc.stdin.on('error', e => this.transportError(e));
     this.proc.on('exit', (code, signal) => {
