@@ -1713,4 +1713,11 @@ wb stands for this full prefix; every call uses this turn's prefix, and historic
   'collabSessions.sessionClosed': "This collaboration session is closed.",
   'collabSessions.notIndependentReview': "Only an independent review can be released.",
   'collabSessions.readOnlyView': "Review-filtered view is read-only.",
+  'sessionQueue.secondsMustBeInteger': "Merge times must be integers from 0 to 3600 seconds.",
+  'sessionQueue.maxBelowQuiet': "Maximum collection time cannot be shorter than the merge wait.",
+  'sessionQueue.reservationMismatch': "Reservation does not match this batch.",
+  'sessionQueue.invalidOutcome': "Batch outcome must be replied, passed or blocked.",
+  'sessionQueue.batchNotFound': "Batch not found.",
+  'sessionQueue.reservationInvalid': "Reservation is no longer valid; the batch stays queued.",
+  'sessionQueue.reservationExpired': "Reservation expired; the batch stays queued.",
 });

@@ -18,6 +18,7 @@ import { renderRunPrompt } from './run-context.mjs';
 import { buildTeamContext, renderTeamContext } from './team-context.mjs';
 import { Rooms } from './rooms.mjs';
 import { CollaborationSessions, reviewView, setCollaborationSessionsEnabled } from './collaboration-sessions.mjs';
+import { SessionQueue, queueConfig, setQueueConfig } from './session-queue.mjs';
 import { defaultRoleTemplates, isSupervisorName } from './default-roles.mjs';
 import { Coordinator } from './coordinator.mjs';
 import { RoleCalls } from './role-calls.mjs';
@@ -583,6 +584,9 @@ const server = http.createServer(async (req, res) => {
       }
       const collabFlagRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/feature$/);
       if(collabFlagRoute&&req.method==='POST'){const p=setCollaborationSessionsEnabled(db,collabFlagRoute[1],(await body(req)).enabled);change();return json(res,{enabled:p.features.collaborationSessions});}
+      const queueRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/(queue|queue-config)$/);
+      if(queueRoute&&req.method==='GET')return json(res,queueRoute[2]==='queue'?new SessionQueue(db).status(queueRoute[1]):queueConfig(db,queueRoute[1]));
+      if(queueRoute&&queueRoute[2]==='queue-config'&&req.method==='POST'){const c=setQueueConfig(db,queueRoute[1],await body(req));change();return json(res,c);}
       const collabListRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions$/);
       if(collabListRoute&&req.method==='GET')return json(res,{items:collaborationSessions.list(collabListRoute[1])});
       if(collabListRoute&&req.method==='POST'){const s=collaborationSessions.create(collabListRoute[1],await body(req));change();return json(res,s,201);}

@@ -1,0 +1,204 @@
+import { randomUUID } from 'node:crypto';
+import { tr } from './i18n.mjs';
+import { collaborationSessionsEnabled, sessionOf } from './collaboration-sessions.mjs';
+
+/**
+ * Home-side external queue (design V3 sections 4-6). Messages wait here; a CLI only receives a sealed batch
+ * after its Worker reported a true idle state and a still-valid reservation. Nothing here writes to a CLI.
+ */
+export const QUEUE_CAPABILITY = 'sessionQueue';
+export const DEFAULT_QUEUE_CONFIG = Object.freeze({ quietSeconds: 10, maxSeconds: 30, leaseSeconds: 30, maxBatchMessages: 50 });
+const RECEIPT = 'sessionReceipts', COLLECTOR = 'sessionCollectors', BATCH = 'sessionBatches', ROTATION = 'sessionRotations';
+const iso = ms => new Date(ms).toISOString();
+const ms = value => Date.parse(value);
+
+/** Project-level merge parameters; an invalid combination is rejected and the stored value stays unchanged. */
+export function queueConfig(db, projectId) {
+  return { ...DEFAULT_QUEUE_CONFIG, version: 0, ...(db.get('projects', projectId)?.sessionQueue || {}) };
+}
+export function setQueueConfig(db, projectId, input = {}) {
+  return db.transaction(() => {
+    const project = db.get('projects', projectId);
+    if (!project) throw new Error(tr('collabSessions.projectNotFound'));
+    const current = queueConfig(db, projectId);
+    const next = { quietSeconds: input.quietSeconds ?? current.quietSeconds, maxSeconds: input.maxSeconds ?? current.maxSeconds };
+    for (const value of Object.values(next)) if (!Number.isSafeInteger(value) || value < 0 || value > 3600) throw new Error(tr('sessionQueue.secondsMustBeInteger'));
+    if (next.maxSeconds < next.quietSeconds) throw new Error(tr('sessionQueue.maxBelowQuiet'));
+    const sessionQueue = { ...(project.sessionQueue || {}), ...next, version: current.version + 1 };
+    db.put('projects', { ...project, sessionQueue });
+    return queueConfig(db, projectId);
+  });
+}
+
+/** Called for every new room message: tags its collaboration session from existing links (flag on only). */
+export function tagMessage(db, message) {
+  if (!message?.projectId || message.collaborationSessionId || !collaborationSessionsEnabled(db, message.projectId)) return message;
+  const sessionId = sessionOf(db, 'roomMessages', message);
+  return sessionId ? { ...message, collaborationSessionId: sessionId } : message;
+}
+
+export class SessionQueue {
+  constructor(db, { now = () => Date.now() } = {}) { this.db = db; this.now = now; }
+
+  /**
+   * Register per-role receipts for a complete message. Broadcast is off unless the session explicitly sets
+   * broadcast:true (phase 4 adds budgets before anything turns it on). Explicit requests still need the target.
+   */
+  register(message, { explicitRequestRoleIds = [] } = {}) {
+    return this.db.transaction(() => {
+      if (!message?.collaborationSessionId || !collaborationSessionsEnabled(this.db, message.projectId)) return [];
+      const session = this.db.get('collaborationSessions', message.collaborationSessionId);
+      if (!session || session.state !== 'open') return [];
+      if (message.partial || message.visibility === 'internal' || !['human', 'agent'].includes(message.sender)) return [];
+      const at = this.now(), created = [];
+      const recipients = session.participants.map(p => p.roleId)
+        .filter(roleId => roleId !== message.roleId)                               // the sender is never woken by itself
+        .filter(roleId => session.broadcast === true || explicitRequestRoleIds.includes(roleId));
+      for (const roleId of recipients) {
+        const id = `${message.id}:${roleId}`;
+        if (this.db.get(RECEIPT, id)) continue;                                    // redelivery never registers twice
+        const receipt = { id, projectId: message.projectId, sessionId: session.id, roleId, messageId: message.id,
+          explicitRequest: explicitRequestRoleIds.includes(roleId), status: 'queued', batchId: null, createdAt: iso(at), order: at };
+        this.db.put(RECEIPT, receipt); created.push(receipt);
+        const key = `${session.id}:${roleId}`, collector = this.db.get(COLLECTOR, key);
+        this.db.put(COLLECTOR, { id: key, projectId: message.projectId, sessionId: session.id, roleId,
+          firstAt: collector?.open ? collector.firstAt : at, lastAt: at, open: true, explicit: Boolean(collector?.open && collector.explicit) || receipt.explicitRequest, waitingReason: null });
+      }
+      return created;
+    });
+  }
+
+  #ready(collector, config, at) {
+    if (!collector?.open) return false;
+    if (collector.explicit) return true;                                           // explicit requests skip the discussion window
+    return at >= Math.min(collector.lastAt + config.quietSeconds * 1000, collector.firstAt + config.maxSeconds * 1000);
+  }
+
+  /** Fair choice for one role: rotate across ready sessions, starting after the persisted position. */
+  pick(projectId, roleId) {
+    const config = queueConfig(this.db, projectId), at = this.now();
+    const ready = this.db.listProject(COLLECTOR, projectId).filter(c => c.roleId === roleId && this.#ready(c, config, at)
+      && this.db.get('collaborationSessions', c.sessionId)?.state === 'open')
+      .sort((a, b) => a.sessionId.localeCompare(b.sessionId));
+    if (!ready.length) return null;
+    const last = this.db.get(ROTATION, `${projectId}:${roleId}`)?.lastSessionId;
+    return ready.find(c => last && c.sessionId > last) || ready[0];
+  }
+
+  /**
+   * Seal a batch against a Worker reservation. The Worker must have checked true idleness and returned a
+   * reservation {id, generation, expiresAt}; old Workers keep everything queued.
+   */
+  seal(projectId, roleId, { workerId, reservation, roleSessionId = null }) {
+    return this.db.transaction(() => {
+      const collector = this.pick(projectId, roleId);
+      if (!collector) return null;
+      const worker = this.db.get('workers', workerId);
+      if (worker?.capabilities?.[QUEUE_CAPABILITY] !== 1) {
+        this.db.put(COLLECTOR, { ...collector, waitingReason: 'worker_upgrade_required' });
+        return null;
+      }
+      if (!reservation?.id || !Number.isSafeInteger(reservation.generation) || !(ms(reservation.expiresAt) > this.now())) {
+        this.db.put(COLLECTOR, { ...collector, waitingReason: 'not_idle' });
+        return null;
+      }
+      if (this.db.list(BATCH).some(b => b.roleId === roleId && b.projectId === projectId && ['reserved', 'pending_verification', 'processing'].includes(b.status)))
+        { this.db.put(COLLECTOR, { ...collector, waitingReason: 'role_busy' }); return null; }
+      const config = queueConfig(this.db, projectId);
+      const receipts = this.db.listProject(RECEIPT, projectId).filter(r => r.sessionId === collector.sessionId && r.roleId === roleId && r.status === 'queued')
+        .sort((a, b) => a.order - b.order || a.id.localeCompare(b.id));
+      const taken = receipts.slice(0, config.maxBatchMessages);                    // ordered split, never silent truncation
+      const batch = { id: randomUUID(), projectId, sessionId: collector.sessionId, roleId, roleSessionId, workerId,
+        messageIds: taken.map(r => r.messageId), explicit: taken.some(r => r.explicitRequest), configVersion: config.version,
+        reservation: { id: reservation.id, generation: reservation.generation, expiresAt: reservation.expiresAt },
+        status: 'reserved', deliveryAttempted: false, runId: null, createdAt: iso(this.now()) };
+      this.db.put(BATCH, batch);
+      for (const r of taken) this.db.put(RECEIPT, { ...r, status: 'sealed', batchId: batch.id });
+      const rest = receipts.length > taken.length;
+      this.db.put(COLLECTOR, { ...collector, open: rest, explicit: rest && receipts.slice(taken.length).some(r => r.explicitRequest),
+        firstAt: rest ? collector.firstAt : null, waitingReason: null });
+      this.db.put(ROTATION, { id: `${projectId}:${roleId}`, projectId, roleId, lastSessionId: collector.sessionId });
+      return batch;
+    });
+  }
+
+  /** Home is about to send the start command; from here on a lost acknowledgement means "needs verification". */
+  markDelivering(batchId) { return this.#update(batchId, b => b.status === 'reserved' ? { ...b, deliveryAttempted: true } : b); }
+
+  confirmStarted(batchId, { runId, reservationId }) {
+    return this.#update(batchId, b => {
+      if (b.reservation.id !== reservationId) throw new Error(tr('sessionQueue.reservationMismatch'));
+      if (!['reserved', 'pending_verification'].includes(b.status)) return b;
+      return { ...b, status: 'processing', runId, startedAt: iso(this.now()) };
+    }, 'processing');
+  }
+
+  /** A batch is processed only once its reply or no-reply result is saved; receipts are confirmed per message. */
+  complete(batchId, { outcome }) {
+    if (!['replied', 'passed', 'blocked'].includes(outcome)) throw new Error(tr('sessionQueue.invalidOutcome'));
+    return this.#update(batchId, b => b.status === 'processing' ? { ...b, status: 'processed', outcome, finishedAt: iso(this.now()) } : b, 'processed');
+  }
+
+  /** Lease expiry: unsent reservations return to the queue; possibly-sent ones wait for verification; started ones are untouched. */
+  expireLeases() {
+    return this.db.transaction(() => {
+      const changed = [];
+      for (const b of this.db.list(BATCH).filter(b => b.status === 'reserved' && ms(b.reservation.expiresAt) <= this.now())) {
+        if (b.deliveryAttempted) changed.push(this.db.put(BATCH, { ...b, status: 'pending_verification', verifySince: iso(this.now()) }));
+        else changed.push(this.#releaseBatch(b, 'lease_expired'));
+      }
+      return changed;
+    });
+  }
+
+  /** Resolve a pending verification from facts the Worker reported about the original Run / native turn / process. Never reruns. */
+  verify(batchId, facts = {}) {
+    return this.db.transaction(() => {
+      const b = this.db.get(BATCH, batchId);
+      if (!b || b.status !== 'pending_verification') return b;
+      if (facts.started === true && facts.runId) return this.confirmStarted(batchId, { runId: facts.runId, reservationId: b.reservation.id });
+      if (facts.started === false && facts.processSettled === true) return this.#releaseBatch(b, 'verified_not_started');
+      return b;                                                                    // still unknown: keep waiting, do not start again
+    });
+  }
+
+  #releaseBatch(b, reason) {
+    for (const id of b.messageIds) {
+      const r = this.db.get(RECEIPT, `${id}:${b.roleId}`);
+      if (r?.batchId === b.id) this.db.put(RECEIPT, { ...r, status: 'queued', batchId: null });
+    }
+    const key = `${b.sessionId}:${b.roleId}`, c = this.db.get(COLLECTOR, key);
+    this.db.put(COLLECTOR, { ...(c || { id: key, projectId: b.projectId, sessionId: b.sessionId, roleId: b.roleId, lastAt: this.now() }),
+      open: true, firstAt: c?.open ? c.firstAt : this.now(), explicit: Boolean(c?.explicit || b.explicit), waitingReason: reason });
+    return this.db.put(BATCH, { ...b, status: 'released', releasedReason: reason });
+  }
+
+  #update(batchId, fn, receiptStatus) {
+    return this.db.transaction(() => {
+      const b = this.db.get(BATCH, batchId);
+      if (!b) throw new Error(tr('sessionQueue.batchNotFound'));
+      const next = fn(b);
+      if (next !== b) this.db.put(BATCH, next);
+      if (receiptStatus && next.status === receiptStatus) for (const id of next.messageIds) {
+        const r = this.db.get(RECEIPT, `${id}:${next.roleId}`);
+        if (r?.batchId === next.id) this.db.put(RECEIPT, { ...r, status: receiptStatus === 'processing' ? 'sealed' : 'processed' });
+      }
+      return next;
+    });
+  }
+
+  /** Delivery status for the page: platform queue, pending verification, CLI processing, processed. */
+  status(projectId) {
+    const batches = this.db.listProject(BATCH, projectId);
+    const state = r => {
+      if (r.status === 'processed') return 'processed';
+      const b = r.batchId ? batches.find(x => x.id === r.batchId) : null;
+      if (b?.status === 'processing') return 'processing';
+      if (b?.status === 'pending_verification') return 'pending_verification';
+      return 'queued';
+    };
+    return { receipts: this.db.listProject(RECEIPT, projectId).map(r => ({ messageId: r.messageId, roleId: r.roleId, sessionId: r.sessionId, state: state(r) })),
+      collectors: this.db.listProject(COLLECTOR, projectId).filter(c => c.open).map(c => ({ sessionId: c.sessionId, roleId: c.roleId, waitingReason: c.waitingReason || 'collecting' })),
+      batches: batches.map(b => ({ id: b.id, sessionId: b.sessionId, roleId: b.roleId, status: b.status, messageIds: b.messageIds, runId: b.runId, configVersion: b.configVersion })) };
+  }
+}
