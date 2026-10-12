@@ -1712,4 +1712,8 @@ wb 表示这个完整前缀；每次调用都使用本轮前缀，不复用历�
   'sessionQueue.batchNotFound': "批次不存在。",
   'sessionQueue.reservationInvalid': "预留已失效，批次继续在平台排队。",
   'sessionQueue.reservationExpired': "预留已过期，批次继续在平台排队。",
+  'sessionQueue.passNoBatch': "wb pass 只适用于本次执行正在处理的讨论批次。",
+  'sessionQueue.passExplicitRequest': "本批包含交给你的明确请求，请回复结果、说明阻塞或登记等待，不能选择不发言。",
+  'sessionQueue.passAfterReply': "你已在本批公开回复，不能再登记不发言。",
+  'sessionQueue.broadcastNeedsAcknowledgement': "会话广播仅用于验收：需提供 enabled、1 到 50 的批次上限，并设置 acknowledgeNoBudget:true。",
 });

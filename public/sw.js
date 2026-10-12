@@ -1,4 +1,4 @@
-const CACHE = 'agent-workbench-static-cli-recovery-v55';
+const CACHE = 'agent-workbench-static-cli-recovery-v56';
 const STATIC = [
   '/', '/styles.css', '/app.js', '/manifest.webmanifest', '/app-icon.png', '/app-icon-192.png',
   '/platform-admin.js', '/project-space.js', '/token-usage.js', '/run-log-data.js', '/room.js',
@@ -7,7 +7,7 @@ const STATIC = [
   '/git-version.js', '/plan-dock.js', '/agent-codex.png', '/agent-antigravity.png',
   '/document.html', '/document.js', '/workspace-inspector.js', '/state-data.js', '/execution-progress.js', '/live-scene.js',
   '/i18n.js', '/locales/zh.js', '/browser-token.js', '/source-sync.js',
-  '/output-language.js', '/vendor/opencc-t2cn.js', '/cli-recovery.js'
+  '/output-language.js', '/vendor/opencc-t2cn.js', '/cli-recovery.js', '/session-queue.js'
 ];
 const staticPaths = new Set(STATIC);
 

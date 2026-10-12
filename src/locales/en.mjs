@@ -1712,4 +1712,8 @@ wb stands for this full prefix; every call uses this turn's prefix, and historic
   'sessionQueue.batchNotFound': "Batch not found.",
   'sessionQueue.reservationInvalid': "Reservation is no longer valid; the batch stays queued.",
   'sessionQueue.reservationExpired': "Reservation expired; the batch stays queued.",
+  'sessionQueue.passNoBatch': "wb pass only applies to the discussion batch this run is processing.",
+  'sessionQueue.passExplicitRequest': "This batch contains a request addressed to you; reply with a result, a blocker or a wait instead of passing.",
+  'sessionQueue.passAfterReply': "You already replied publicly in this batch; passing would contradict it.",
+  'sessionQueue.broadcastNeedsAcknowledgement': "Broadcast for a session is acceptance-only: set enabled, a batch limit of 1-50 and acknowledgeNoBudget:true.",
 });

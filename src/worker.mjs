@@ -31,6 +31,8 @@ import { composeAgentInstructions, englishExecutionRules } from './platform-prom
 import { runtimeGuidance } from './runtime-guidance.mjs';
 import { prepareSupervisorDirectory, setupRepository } from './setup-workspace.mjs';
 import { startAgentBridge, agentProcessEnv, canSendAgentOperation } from './agent-bridge.mjs';
+import { QueueSlots } from './session-queue-worker.mjs';
+import { TurnStates } from './session-queue-adapters.mjs';
 import { outboxBatch } from './worker-outbox.mjs';
 import { prepareProjectSpace } from './project-space.mjs';
 import { publishProjectDelivery, receiveProjectDelivery, fetchExecutionDeliveries } from './project-delivery.mjs';
@@ -73,6 +75,8 @@ const lock = openSync(lockFile, 'wx', 0o600); writeFileSync(lock, String(process
 process.on('exit', () => { try { if (Number(readFileSync(lockFile, 'utf8')) === process.pid) unlinkSync(lockFile); } catch {} });
 const db = new Store(join(data, 'worker.sqlite'));
 const identity = db.get('identity', 'node') || db.put('identity', { id: 'node', nodeId: process.env.NODE_ID || randomUUID() });
+// External session queue: turn facts per role session and short-lived reservations; nothing here writes to a CLI.
+const turnStates = new TurnStates({ nodeId: identity.nodeId }), queueSlots = new QueueSlots();
 const roots = await Promise.all((process.env.WORKER_ROOTS || base).split(delimiter).map(p => realpath(p)));
 let defaultRoot = db.get('settings','workspace')?.localRoot || process.env.WORKSPACE_ROOT || roots[0];
 const homeUrl = process.env.HOME_URL || 'ws://127.0.0.1:4317/worker';
@@ -146,6 +150,10 @@ const sourceSync=new SourceSyncClient({db,data,home:homeUrl.replace(/^ws/i,'http
   }});
 
 /** The local outbox is written to disk first and deleted only after Home confirms, so "sent" is never treated as "received". */
+function queueState(q) {
+  const state=turnStates.state(q.key,{ownerNodeId:q.ownerNodeId,runtime:q.runtime});
+  return state&&{...state,manualTakeover:state.manualTakeover||Boolean(projectTerminalLock(db,q.projectId,identity.nodeId))};
+}
 function emit(runId, type, payload) {
   recordSwitchOutput(db,runId,type,payload);
   const r = db.get('runs', runId);
@@ -156,6 +164,7 @@ function emit(runId, type, payload) {
   if(type==='status'&&payload.nativeSession?.id&&r.processIdentity)payload={...payload,processIdentity:{...r.processIdentity,nativeSessionId:payload.nativeSession.id,runtime:payload.nativeSession.runtime}};
   const next = { ...r, seq, ...(type === 'status' ? payload : {}) };
   const event = { id: randomUUID(), runId, seq, type, payload, createdAt: new Date().toISOString() };
+  turnStates.observe(runId,type,payload);
   db.transaction(() => { db.put('runs', next); db.put('outbox', event); });
   flushOutbox();
   return event;
@@ -230,6 +239,13 @@ async function command(m) {
       if (paused || m.paused) throw new Error(tr('worker.remoteCommandsPaused'));
       if(!sourceSync.worker.canStart(m.run.projectId))throw syncError('sync_busy');
       if (projectTerminalLock(db,m.run.projectId,identity.nodeId)) throw new Error(tr('worker.projectUnderManualTerminalTakeover'));
+      if(m.run.collaborationBatch){
+        // Re-check the queue reservation right before the CLI receives anything; a stale one never starts.
+        const q=m.run.collaborationBatch,state=queueState(q);
+        try{await queueSlots.deliver(q.key,q.reservation,state,()=>true);}
+        catch(error){emit(c.runId,'status',{status:'interrupted',queueRejected:true,processSettled:true,error:error.message});return;}
+      }
+      turnStates.begin({...m.run,runtime:m.run.roleSnapshot?.runtime});
       if (m.run.nodeId !== identity.nodeId) throw new Error(tr('worker.assignmentDoesNotBelongMachine'));
       if (m.run.requestId) validateLaunch({ request: m.request, roleSnapshot: m.run.roleSnapshot, delivery: m.delivery, currentPlanVersion: m.run.planVersion });
       const issue = runtimeIssue({ capabilities: { runtimeDiscovery: true }, runtimes }, m.run.roleSnapshot?.runtime || 'codex', m.task.model);
@@ -818,7 +834,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:1,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {
@@ -850,6 +866,12 @@ function connect() {
       if (m.type === 'ack') {db.remove('outbox', m.id);eventSent.delete(m.id);flushOutbox();}
       // Each command/query runs under the language Home put on the message, so prompts and errors built on this Worker match it.
       if (m.type === 'command') void runWithLanguage(m.language, () => command(m)).catch(e => console.error(tr('worker.commandRejected'), e.message));
+      if (m.type === 'queue_reserve') {
+        turnStates.prune();
+        const result=queueSlots.reserve(m.key,queueState(m));
+        send({type:'queue_reservation',id:m.id,projectId:m.projectId,roleId:m.roleId,key:m.key,...result});return;
+      }
+      if (m.type === 'queue_cancel') {queueSlots.cancel(m.key,{id:m.reservationId});return;}
       if (m.type === 'query') void runWithLanguage(m.language, () => query(m));
       if (m.type === 'error') console.error(tr('worker.rejectedByHome'), m.error);
     } catch (e) { console.error(tr('worker.protocolError'), e.message); }

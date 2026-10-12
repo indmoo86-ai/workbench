@@ -332,6 +332,7 @@ export class Rooms {
       id: randomUUID(), projectId: run.projectId, sender: 'agent', senderName: run.roleSnapshot.name,
       roleId: run.roleId, text: body, replyToId: run.sourceMessageId || null, runId: run.id, taskIds: [], createdAt: now()
     });
+    if (run.collaborationBatchId) new SessionQueue(this.db).recordReply(run, message.id);
     this.touch(run.projectId);
     return message;
   }
@@ -339,6 +340,8 @@ export class Rooms {
   /** Post only a run's final state back to the group; text streams and tool logs stay in the run details. */
   complete(run) {
     if (!run?.roleId || !terminal.has(run.status)||run.discussionDeliveryId||run.switchOperationId) return;
+    // Collaboration batches publish only through an explicit reply; a successful final answer stays in run details. Failures still surface.
+    if (run.explicitPublish && run.status === 'succeeded') return;
     const id = `result-${run.id}`;
     if (this.db.get('roomMessages', id)) return;
     this.db.transaction(() => {
@@ -357,3 +360,4 @@ export class Rooms {
   }
 }
 import { projectTerminalLock } from './terminal-resume.mjs';
+import { SessionQueue } from './session-queue.mjs';
