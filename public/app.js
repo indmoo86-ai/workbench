@@ -138,7 +138,7 @@ for(const [selector,icon,label] of [
   ['#supervisor-form [type=submit]','save'],
   ['#delete-project','trash'],['#save-project-settings','save']
 ])document.querySelectorAll(selector).forEach(button=>setActionIcon(button,icon,label));
-const projectsUI = projectSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create, setError, openSettings, closeSettings });
+const projectsUI = projectSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create, setError, openSettings, closeSettings,openTask });
 const supervisorsUI = supervisorSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create });
 const setupUI = projectSetupUI({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create, setError });
 const platformUI = platformAdminUI({api,getData:()=>app.data,refreshState,create});

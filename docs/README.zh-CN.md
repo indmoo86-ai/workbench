@@ -10,6 +10,8 @@
 | [design-coordination](design-coordination.md)（英文） | 主管、模板、自定义角色、可选计划与固定版本交接 | 设计。部分已实现；见 ARCHITECTURE |
 | [design-local-supervisor](design-local-supervisor.md)（英文） | 项目主管、多仓库设置、设备与账号配置助手 | 已在当前代码中实现 |
 | [design-supervisor-timers](design-supervisor-timers.md)（英文） | `wb timer` 定时任务与低成本进度巡检 | 已在当前代码中实现 |
+| [design-supervisor-proactive-followup](design-supervisor-proactive-followup.md) | 群聊静默后由总管直接跟进，默认十分钟；IM 通知用户协助为后续扩展 | 已开发并通过隔离测试，未部署、未启用真实项目 |
+| [plan-supervisor-proactive-followup](plan-supervisor-proactive-followup.md) | 总管静默跟进的代码落点、持久去重、安静结束及验收 | 已直接实施并独立审核，不含发布 |
 | [design-session-handoff](design-session-handoff.md)（英文） | 受控的跨设备角色会话交接 | 方案。尚未实现 |
 
 建议先读 README，再读 ARCHITECTURE。需要完整的产品范围时再读 PRD。ARCHITECTURE 只描述实际代码，从不把计划当作功能。设计文档可能描述预期行为；若与代码不一致，以代码为准。

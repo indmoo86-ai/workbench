@@ -44,6 +44,7 @@ import { ExecutionPlans, schedulingRules } from './execution-plans.mjs';
 import { History } from './history.mjs';
 import { saveRunReport } from './run-reports.mjs';
 import { ScheduledJobs } from './scheduled-jobs.mjs';
+import {ProactiveFollowup} from './proactive-followup.mjs';
 import { TimerAgentActions } from './timer-agent.mjs';
 import { inspectRunProgress } from './run-monitor.mjs';
 import { projectTerminalLock, terminalCommand, terminalLaunchView, TERMINAL_PREPARATION_TTL_MS } from './terminal-resume.mjs';
@@ -99,6 +100,7 @@ const conversationContext = new ConversationContext(db);
 conversationContext.recover();
 for(const task of db.list('tasks').filter(task=>task.origin==='chat'&&task.status==='ready'&&task.contextState==='pending'))db.put('tasks',{...task,contextState:null});
 const scheduledJobs = new ScheduledJobs(db,rooms);
+const proactiveFollowup=new ProactiveFollowup(db,rooms);
 const timerAgent = new TimerAgentActions(db,scheduledJobs);
 const executionPlans = new ExecutionPlans(db,calls,workerQuery,{
   request:(run,items)=>deliveries.request(run,{requestId:'planned-handoff',commit:items[0].commit,items,summary:tr('home.supervisorStageDeliveryContinueWith')}),
@@ -286,6 +288,7 @@ function scheduleChat() {
     if (request.status === 'waiting_call') calls.resume(request.id);
     if (['queued', 'waiting_delivery'].includes(request.status)) calls.reconcile(request.id);
   }
+  try {if(proactiveFollowup.tick())change();}catch(error){console.error('Proactive follow-up:',error.message);}
   for(const task of db.list('tasks').filter(task=>task.origin==='chat'&&task.status==='ready'))prepareChatContext(task);
   const scheduled = rooms.schedule(id => online(id) && sockets.get(id).workerReady);
   for (const nodeId of scheduled.nodes) dispatch(nodeId);
@@ -618,6 +621,10 @@ const server = http.createServer(async (req, res) => {
       }
       if (pathname === '/api/tasks' && req.method === 'POST') { const r = db.createTask(await body(req)); change(); return json(res, r, 201); }
       let m;
+      if((m=pathname.match(/^\/api\/projects\/([^/]+)\/proactive-followup$/))){
+        if(req.method==='GET')return json(res,proactiveFollowup.view(m[1]));
+        if(req.method==='POST'){const result=proactiveFollowup.save(m[1],await body(req));change();return json(res,result);}
+      }
       if((m=pathname.match(/^\/api\/tasks\/([^/]+)\/detail$/)) && req.method==='GET') {
         const task=db.get('tasks',decodeURIComponent(m[1]));
         if(!task)return json(res,{error:tr('home.taskNotFound')},404);

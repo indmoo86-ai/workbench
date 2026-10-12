@@ -15,6 +15,12 @@ function excerpt(message,limit) {
 /** Pin this turn's instruction and the organizer version; only material with a clear source enters the prompt. */
 export function buildRunContext({run,task,role={},environment={},conversation=null,messages=[],deliveries=[],references=[],completion=null,previousRun=null,organizer=null}) {
   const instruction=String(task?.prompt||'');
+  if(run.backgroundFollowup){
+    const visible=messages.filter(m=>m.visibility!=='internal'&&['human','agent'].includes(m.sender));
+    const selected=visible.slice(-12),human=visible.findLast(m=>m.sender==='human');
+    if(human&&!selected.some(m=>m.id===human.id))selected.unshift(human);
+    let remaining=8000;references=selected.map(m=>{const entry=excerpt(m,Math.min(600,remaining));remaining-=entry.text.length;return {...m,text:entry.text,followupExcerpt:entry};});
+  }
   if(conversation?.coveredThroughMessageId && !messages.some(m=>m.id===conversation.coveredThroughMessageId))conversation=null;
   const covered=conversation?.coveredThroughMessageId;
   const index=covered?messages.findIndex(message=>message.id===covered):-1;
@@ -28,7 +34,8 @@ export function buildRunContext({run,task,role={},environment={},conversation=nu
   const uncovered=pending.filter(message=>limits.has(message.id)).map(message=>excerpt(message,limits.get(message.id)||0));
   const packet={
     roleSessionId:run.roleSessionId||null,runId:run.id,discussionResolution:task?.discussionResolution||null,
-    source:{kind:task?.coordinationKind&&task.coordinationKind!=='direct'?'role_call':'human',messageId:run.sourceMessageId||null,requestId:run.requestId||null},
+    source:{kind:run.backgroundFollowup?'platform':task?.coordinationKind&&task.coordinationKind!=='direct'?'role_call':'human',messageId:run.sourceMessageId||null,requestId:run.requestId||null},
+    followup:run.backgroundFollowup?{...run.proactiveFollowup,state:run.followupState||[]}:null,
     instruction,schedulingRoster:(task?.schedulingRoster||[]).map(r=>({id:r.id,name:r.name})),steering:task?.steering||null,rules:{roleRevision:role.revision||null},environment,
     context:{status:conversation?.version?(uncovered.length||conversation.partialThrough?'supplemented':'ready'):'unavailable',version:conversation?.version||null,
       organizer:organizer?{status:organizer.status,error:organizer.error||null,retryAt:organizer.retryAt||null}:null,
@@ -39,7 +46,7 @@ export function buildRunContext({run,task,role={},environment={},conversation=nu
       openItems:conversation?.openItems||[],recentSummary:conversation?.recentSummary||'',
       sourceMessageIds:conversation?.sourceMessageIds||[],uncovered},
     deliveries:deliveries.filter(item=>item.id===task?.deliveryId).map(item=>({id:item.id,summary:item.summary||'',commit:item.commit||null})),
-    references:references.map(item=>excerpt(item,8000)),
+    references:references.map(item=>item.followupExcerpt||excerpt(item,8000)),
     completion:completion||null
   };
   // Save the full snapshot for auditing; identical content already delivered to the native history is omitted only at render time.
@@ -55,6 +62,7 @@ export function buildRunContext({run,task,role={},environment={},conversation=nu
 /** The source text is not rewritten by the summarizer; the background carries a coverage range and a fallback marker so it is not mistaken for a new instruction. */
 export function renderRunPrompt(packet,{minimal=false}={}) {
   if(minimal)return [packet.instruction,
+    packet.followup?tr('followup.context',{context:JSON.stringify(packet.followup)}):'',
     packet.steering?tr('runContext.userChangedDirectionTurnImmediate'):'',
     packet.discussionResolution?tr('runContext.questionOnOriginalTaskHas',{p1:JSON.stringify(packet.discussionResolution)}):'',
     packet.schedulingRoster?.length?tr('runContext.rolesTurnMustCoverFixed',{p1:packet.schedulingRoster.map(r=>`${JSON.stringify(r.name)} [${r.id}]`).join(', ')}):'',
@@ -62,6 +70,7 @@ export function renderRunPrompt(packet,{minimal=false}={}) {
     ...(packet.deliveries||[]).map(item=>`${item.id} ${item.commit||''} ${item.summary||''}`),
     packet.completion?tr('runContext.explicitCompletionRequirement',{completion:packet.completion}):''].filter(Boolean).join('\n\n');
   const lines=[tr('runContext.originalInstructionForTurnVerbatim', { instruction: packet.instruction })];
+  if(packet.followup)lines.push(tr('followup.context',{context:JSON.stringify(packet.followup)}));
   if(packet.discussionResolution)lines.push(tr('runContext.questionOnOriginalTaskHas', { p1: JSON.stringify(packet.discussionResolution) }));
   if(packet.schedulingRoster?.length)lines.push(tr('runContext.rolesTurnMustCoverFixed', { p1: packet.schedulingRoster.map(r=>`${JSON.stringify(r.name)} [${r.id}]`).join(tr('runContext.text')) }));
   if(packet.steering)lines.unshift(tr('runContext.userChangedDirectionTurnImmediate'));

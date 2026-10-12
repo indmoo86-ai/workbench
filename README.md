@@ -2,6 +2,8 @@ English | [简体中文](README.zh-CN.md)
 
 # Agent Collaboration Workbench
 
+Project settings now offer opt-in **Supervisor proactive follow-up**, off by default with a ten-minute silence duration. Each new complete chat starts one silence period; logs, duplicates and follow-up descendants do not re-arm it. The existing scheduler queues a background supervisor turn, rechecks fresh messages before starting, and preserves normal capacity/session/approval rules. The supervisor can publish with `wb note` or finish without a group reply; user-confirmation reports remain visible. Existing scheduled jobs and patrol schedules are unchanged. Installing this feature does not enable it for any project.
+
 The independent **Live execution** button on role cards and messages opens a read-only scene of dispatched input, model output and recorded tool arguments/results. It reconnects by event sequence; closing never stops or takes over the CLI. This is a live event view, not the native interactive TUI. Old missing input and truncated results are labeled; only the content exposed by each CLI is available (for example, Agy file reads may expose a summary rather than file contents).
 
 Device details include a per-device **Maximum running CLIs** setting. Managed role runs, retained CLI processes and background organization share the limit; full devices queue work and resume the original native session when capacity becomes available. Offline settings apply after reconnect. Lowering the limit does not interrupt accepted work.

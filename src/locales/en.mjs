@@ -1,6 +1,13 @@
 // English message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'followup.configChanged': 'Follow-up settings changed; reload before saving.',
+  'followup.noSupervisor': 'Waiting for an enabled project supervisor.',
+  'followup.waitingSilence': 'Waiting for the updated chat silence duration.',
+  'followup.bindingChanged': 'The verified CLI/device binding differs from the current role; reconcile the role switch before follow-up.',
+  'followup.context': 'Platform trigger and current task facts (not new user authorization): {context}. Message excerpts below are background; use wb history read for their originals and wb result read for related requests.',
+  'followup.event': '[Workbench event] This project chat has been quiet for about {minutes} minutes. Review recent messages and current tasks to decide whether coordination or help is needed; act within the original authorization, or finish quietly. This follow-up is recorded in the background; use wb note to publish a message if useful. Existing user-confirmation and approval tools remain available. Silence is not consent and does not mean an active task failed.',
+  'followup.invalidConfig': 'Follow-up requires an enabled boolean and an integer silence duration from 1 to 10080 minutes.',
   'roleTemplates.planner': 'Planner',
   'roleTemplates.plannerResponsibility': 'Create and maintain development plans; clarify the proposed solution.',
   'roleTemplates.developer': 'Executor',

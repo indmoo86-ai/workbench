@@ -637,6 +637,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
 
   function renderLiveBubble(task, messages) {
     const run = data.runs?.find(r => r.id === task.currentRunId);
+    if(task.backgroundFollowup||run?.backgroundFollowup)return run?renderApprovalsInline(run):null;
     if (run && messages.some(m => m.runId === run.id)) return null;
     const role = task.roleSnapshot || {};
     const row = create('article', 'chat-row agent is-live');

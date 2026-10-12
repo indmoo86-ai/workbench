@@ -2,7 +2,7 @@ import { t } from './i18n.js';
 import { workerDisplayName } from './role-icons.js';
 
 /** Node folder selection and repository settings share the existing authenticated API and never upload local browser files. */
-export function projectSettings({ api, getData, getProject, refreshState, create, setError, openSettings, closeSettings }) {
+export function projectSettings({ api, getData, getProject, refreshState, create, setError, openSettings, closeSettings, openTask }) {
   const picker = document.querySelector('#folder-dialog');
   const crumbs = document.querySelector('#folder-crumbs');
   const list = document.querySelector('#folder-list');
@@ -19,6 +19,31 @@ export function projectSettings({ api, getData, getProject, refreshState, create
   const pickSettingsFolder = document.querySelector('#pick-settings-folder');
   const saveSettingsFolder = document.querySelector('#save-settings-folder');
   let workerId, current = null, callback, serial = 0, settingsId, savedUrl = '', busy = false, allowedRoots = [], filterText = '';
+  const followupForm=document.querySelector('#proactive-followup-form'),followupFeedback=document.querySelector('#followup-feedback'),followupStatus=document.querySelector('#followup-status'),viewFollowup=document.querySelector('#view-followup');
+  let followupVersion=0,followupConfig=null,followupProject=null;
+  function followupDisabled(value){for(const element of followupForm.elements)element.disabled=value;viewFollowup.disabled=value||!followupConfig?.execution?.taskId;}
+  function showFollowup(value){
+    followupConfig=value;followupForm.elements.enabled.checked=value.enabled;followupForm.elements.silenceMinutes.value=value.silenceMinutes;
+    const execution=value.execution;
+    followupStatus.textContent=execution?[t(execution.progress?.label||execution.status),execution.waitingReason||execution.error||''].filter(Boolean).join(' · '):value.waitingReason||t(value.enabled?(value.anchorMessageId?'Waiting for chat silence':'Waiting for a new complete message'):'Proactive follow-up is off');
+    viewFollowup.disabled=!execution?.taskId;
+  }
+  async function loadFollowup(){
+    const id=getProject()?.id,version=++followupVersion;if(!id)return;
+    followupProject=id;followupConfig=null;followupDisabled(true);followupFeedback.hidden=true;followupStatus.textContent=t('Loading…');
+    try{const value=await api(`/api/projects/${encodeURIComponent(id)}/proactive-followup`);if(version===followupVersion&&getProject()?.id===id)showFollowup(value);}
+    catch(error){if(version===followupVersion&&getProject()?.id===id){followupStatus.textContent=error.message;}}
+    finally{if(version===followupVersion&&getProject()?.id===id){followupDisabled(!followupConfig);document.querySelector('#refresh-followup').disabled=false;}}
+  }
+  followupForm.addEventListener('submit',async event=>{
+    event.preventDefault();const id=followupProject,version=followupVersion;if(!followupConfig||id!==getProject()?.id)return;
+    const input={enabled:followupForm.elements.enabled.checked,silenceMinutes:Number(followupForm.elements.silenceMinutes.value),revision:followupConfig.revision};followupDisabled(true);followupFeedback.hidden=true;
+    try{const value=await api(`/api/projects/${encodeURIComponent(id)}/proactive-followup`,{method:'POST',json:input});if(version!==followupVersion||getProject()?.id!==id)return;showFollowup(value);followupFeedback.textContent=t('Saved');followupFeedback.hidden=false;}
+    catch(error){if(version===followupVersion&&getProject()?.id===id){followupFeedback.textContent=error.message;followupFeedback.hidden=false;}}
+    finally{if(version===followupVersion&&getProject()?.id===id)followupDisabled(false);}
+  });
+  document.querySelector('#refresh-followup').addEventListener('click',()=>void loadFollowup());
+  viewFollowup.addEventListener('click',()=>{const execution=followupConfig?.execution;if(followupProject===getProject()?.id&&execution?.taskId)openTask?.(execution.taskId,execution.runId);});
   const option = (label, value) => { const o = create('option', '', label); o.value = value; return o; };
 
   function activeRoot(path) {
@@ -183,6 +208,7 @@ export function projectSettings({ api, getData, getProject, refreshState, create
     const p = getProject(); if (!p) return;
     busy = false;
     settingsId = p.id; savedUrl = p.repoUrl || '';
+    void loadFollowup();
     form.elements.name.value = p.name || '';
     form.elements.description.value = p.description || '';
     form.elements.repoUrl.value = savedUrl;

@@ -223,7 +223,12 @@ export class ScheduledJobs {
     });
     if (!fresh.length || deferred) return updated;
     const text = tr('scheduledJobs.inspectionFoundNewAnomaliesVerify', { description: job.description, p2: fresh.map(item => `- ${item.text}`).join('\n') }).slice(0, 12000);
-    return this.#dispatch(updated, key, { ...extra, kind: 'monitor', text });
+    const followupMessageIds=[...new Set(fresh.flatMap(finding=>{
+      if(finding.key.startsWith('run:')){const run=this.db.get('runs',finding.key.split(':')[1]);return run?.sourceMessageId?[run.sourceMessageId,`result-${run.id}`]:[];}
+      const plan=this.db.listProject('executionPlans',job.projectId).find(p=>finding.key===`plan:${p.id}:${p.status}`);
+      const request=this.db.get('coordinationRequests',plan?.parentRequestId||'');return request?.sourceMessageId?[request.sourceMessageId]:[];
+    }))];
+    return this.#dispatch(updated, key, { ...extra, kind: 'monitor', text,followupMessageIds });
   }
 
   #dispatch(job, key, extra) {
@@ -241,6 +246,7 @@ export class ScheduledJobs {
     const message = this.rooms.post(job.projectId, {
       clientMessageId: messageId, text: text || job.description, targetRoleId: role.id, scheduledJobId: job.id
     });
+    if(extra.followupMessageIds?.length)for(const taskId of message.taskIds||[]){const task=this.db.get('tasks',taskId);this.db.put('tasks',{...task,followupMessageIds:extra.followupMessageIds});}
     return this.db.put('scheduledOccurrences', { ...occurrence, taskIds: message.taskIds || [], status: 'queued' });
   }
 

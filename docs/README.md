@@ -15,6 +15,8 @@
 | [design-role-cli-switch](design-role-cli-switch.md) | Reversible same-device CLI handoff and staged verification | Codex/Grok implemented; Claude/Agy switching not yet supported |
 | [plan-role-cli-switch](plan-role-cli-switch.md) | Implementation and acceptance of safe role CLI changes | Selectively deployed; supported scope is recorded in the design |
 | [design-supervisor-timers](design-supervisor-timers.md) | `wb timer` scheduled jobs and low-cost progress patrol | Implemented in the current code |
+| [design-supervisor-proactive-followup](design-supervisor-proactive-followup.md) | Direct supervisor follow-up after configurable chat silence (default ten minutes), with future IM assistance notifications (Chinese) | Implemented and isolated-tested; not deployed or enabled on real projects |
+| [plan-supervisor-proactive-followup](plan-supervisor-proactive-followup.md) | Implementation mapping and acceptance for direct supervisor silence follow-up (Chinese) | Executed inline with independent review; release excluded |
 | [design-session-handoff](design-session-handoff.md) | Controlled cross-device role session handoff | Proposal. Not implemented |
 
 | [design-source-sync](design-source-sync.md) | Single authority for project-file sync, safe apply, conflicts and continuous folders | Implemented; legacy and directory acceptance limits are recorded separately |

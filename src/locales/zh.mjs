@@ -1,6 +1,13 @@
 // Simplified Chinese message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'followup.configChanged': '主动跟进设置已变更，请刷新后再保存。',
+  'followup.noSupervisor': '等待可用且已启用的项目总管。',
+  'followup.waitingSilence': '等待达到更新后的静默时长。',
+  'followup.bindingChanged': '已核验的 CLI／设备绑定与当前角色不一致，请先核对角色切换状态。',
+  'followup.context': '平台触发与当前任务事实（不构成用户新增授权）：{context}。以下消息摘录仅作背景，可通过 wb history read 查看原文、wb result read 查看关联请求。',
+  'followup.event': '【Workbench 平台事件】项目群聊已静默约 {minutes} 分钟。请结合近期对话和当前任务，判断是否需要继续协同或帮助用户推进；有需要就按原授权处理，没有需要可以保持沉默。本次跟进仅记后台，需要公开消息时使用 wb note；用户确认和审批仍用已有入口。静默不代表用户同意，也不代表活动任务失败。',
+  'followup.invalidConfig': '主动跟进开关须为布尔值，静默时间须为 1 至 10080 的整数分钟。',
   'roleTemplates.planner': '计划',
   'roleTemplates.plannerResponsibility': '制定和维护开发计划，解答方案问题。',
   'roleTemplates.developer': '执行',
