@@ -1179,24 +1179,27 @@ body:has(#platform-prompts-dialog[open]) .settings-page { overflow: hidden; }
 @media (max-width: 760px) { .message-queue { margin-inline: 8px; } .message-queue-item { gap: 5px; } .message-queue-item .icon-button { width: 32px; height: 36px; } }
 
 /* Role settings scroll only the form; the title and close control do not move with the body. */
-#role-dialog { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
-#role-dialog:not([open]) { display: none; }
-#role-dialog > .dialog-heading { flex: 0 0 auto; align-items: center; margin: 0; padding: 14px 20px; border-bottom: 1px solid var(--line); background: #fff; }
-#role-dialog-title { margin: 0; font-size: 20px; }
+:is(#role-dialog, #supervisor-settings) { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+:is(#role-dialog, #supervisor-settings):not([open]) { display: none; }
+:is(#role-dialog, #supervisor-settings) > .dialog-heading { flex: 0 0 auto; align-items: center; margin: 0; padding: 14px 20px; border-bottom: 1px solid var(--line); background: #fff; }
+:is(#role-dialog-title, #supervisor-dialog-title) { margin: 0; font-size: 20px; }
 #role-form { min-height: 0; padding: 16px 20px 20px; gap: 14px; overflow-y: auto; overscroll-behavior: contain; }
+#supervisor-settings-body { min-height: 0; padding: 16px 20px 20px; overflow-y: auto; overscroll-behavior: contain; }
 #role-form[hidden], .supervisor-configuration[hidden], .role-history-panel[hidden], .role-history-tabs[hidden] { display: none; }
 .role-history-tabs { display: flex; gap: 8px; padding: 10px 20px; flex-shrink: 0; border-bottom: 1px solid var(--line); }
 .role-history-tabs [aria-selected="true"] { color: var(--accent); background: var(--accent-soft); }
 .role-history-panel { min-height: 0; overflow-y: auto; padding: 16px 20px; }
-#role-form .role-field-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
-#role-form .role-field-row > label { min-width: 0; }
-#role-form input, #role-form select { min-width: 0; max-width: 100%; }
-#role-form select { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding-right: 26px; }
-#role-form .workspace-note { margin: 0; overflow-wrap: anywhere; }
+:is(#role-form, #supervisor-form) .role-field-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+:is(#role-form, #supervisor-form) .role-field-row > label { min-width: 0; }
+#supervisor-form .role-field-row:first-child > label:first-child { grid-column: span 2; }
+:is(#role-form, #supervisor-form) input, :is(#role-form, #supervisor-form) select { min-width: 0; max-width: 100%; }
+:is(#role-form, #supervisor-form) select { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; padding-right: 26px; }
+:is(#role-form, #supervisor-form) .workspace-note { margin: 0; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
-  #role-dialog > .dialog-heading { padding: calc(10px + env(safe-area-inset-top)) 16px 10px; }
-  #role-form { padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); }
-  #role-form .role-field-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  :is(#role-dialog, #supervisor-settings) > .dialog-heading { padding: calc(10px + env(safe-area-inset-top)) 16px 10px; }
+  :is(#role-form, #supervisor-settings-body) { padding: 14px 16px calc(16px + env(safe-area-inset-bottom)); }
+  :is(#role-form, #supervisor-form) .role-field-row { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  #supervisor-form .role-field-row:first-child > label:first-child { grid-column: auto; }
 }
 
 /* Conversation details scroll only the body; the title always stays at the top of the dialog. */

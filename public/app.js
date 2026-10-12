@@ -135,11 +135,10 @@ for(const [selector,icon,label] of [
   ['#token-usage-form [type=submit]','search'],['#token-usage-refresh','refresh'],['#open-project-timers','history'],
   ['#pick-settings-folder','folder'],['#project-prepare-form [type=submit]','refresh'],
   ['#project-repository-form [type=submit]','git'],['#save-settings-folder','save'],
-  ['#supervisor-form [type=submit]','save'],
   ['#delete-project','trash'],['#save-project-settings','save']
 ])document.querySelectorAll(selector).forEach(button=>setActionIcon(button,icon,label));
 const projectsUI = projectSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create, setError, openSettings, closeSettings,openTask });
-const supervisorsUI = supervisorSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create });
+const supervisorsUI = supervisorSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create,openTask });
 const setupUI = projectSetupUI({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create, setError });
 const platformUI = platformAdminUI({api,getData:()=>app.data,refreshState,create});
 const spacesUI = projectSpaceUI({api,getData:()=>app.data,getProject:getCurrentProject,refreshState,create});
@@ -256,7 +255,6 @@ document.querySelector('#pick-binding-folder').addEventListener('click', () => p
 function openSettings(value = 'devices') {
   let tab = normalizeSettingsTab(value);
   if (tab === 'project' && !projectsUI.prepareSettings()) tab = 'devices';
-  if (tab === 'project') supervisorsUI.prepare();
   dom.projectFormPanel.hidden = true;
   app.view = 'settings';
   app.settingsTab = activateSettingsTab(dom.settingsPage, tab);
@@ -897,15 +895,14 @@ function renderRoles() {
     card.append(head, ids, activityRow);
     const open = () => {
       if(!isSupervisor){room.openRoleEditor(role.id);return;}
-      openSettings('project');
-      document.querySelector('#supervisor-settings').scrollIntoView({block:'start'});
-      document.querySelector('#supervisor-form [name=nodeId]').focus({preventScroll:true});
+      supervisorsUI.open();
     };
     card.addEventListener('click', open);
     card.addEventListener('keydown', (e) => { if (e.target===card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); open(); } });
     dom.roleList.append(card);
   }
   terminalDialog?.refreshState?.();
+  supervisorsUI.refresh();
 }
 
 const gitVersionRequests=new Set();

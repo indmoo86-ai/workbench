@@ -199,26 +199,6 @@
                   <p id="followup-feedback" class="form-feedback" role="status" hidden></p>
                 </section>
                 <section class="settings-block project-timer-link"><div><h3>Scheduled Jobs</h3><p class="workspace-note">View and adjust scheduled dispatches and progress checks for the current project.</p></div><button class="secondary" id="open-project-timers" type="button" data-action-label>Manage scheduled jobs</button></section>
-                <section id="supervisor-settings" class="settings-block" hidden>
-                  <h3>System Supervisor</h3>
-                  <p id="supervisor-responsibility" class="workspace-note"></p>
-                  <div class="settings-overview-card">
-                    <div class="artifact-section-heading"><h4>Default supervisor prompt</h4><button id="edit-project-supervisor-prompt" class="secondary compact" type="button" data-prompt-edit="supervisor-prompt" aria-label="Edit default supervisor prompt">Edit</button></div>
-                    <p class="workspace-note">Shared by all projects. Edit the default prompt without changing this project's device or model.</p>
-                    <p id="project-supervisor-prompt-preview" class="settings-overview-preview" translate="no"></p>
-                  </div>
-                  <p class="workspace-note">The supervisor can run locally or on a server. When there is no @, the supervisor handles the message; project folders and repositories can be configured on this page, or the supervisor can help.</p>
-                  <form id="supervisor-form" class="form-grid">
-                    <label>Supervisor run device<select name="nodeId" required></select></label>
-                    <label>Supervisor CLI<select name="runtime" required></select></label>
-                    <label>Supervisor model<select name="model" required></select></label>
-                    <label>Supervisor reasoning effort (optional)<select name="effort"><option value="">Use CLI default</option></select></label>
-                    <label class="checkbox-label"><input name="enabled" type="checkbox" checked>Enable this node's supervisor configuration</label>
-                    <div class="form-actions full-width"><button type="submit" class="secondary" data-action-label>Save supervisor settings</button></div>
-                  </form>
-                  <p class="workspace-note">No planner role is pre-bound. The supervisor selects suitable collaborators for each task from current responsibilities and availability.</p>
-                  <p id="supervisor-feedback" class="form-feedback" role="status" hidden></p>
-                </section>
               </div>
               <section class="settings-block project-danger-zone" aria-labelledby="project-danger-heading">
                 <div><h3 id="project-danger-heading">Danger zone</h3><p class="workspace-note">Deleting a project requires confirmation.</p></div>
@@ -488,6 +468,30 @@
       </div>
     </dialog>
 
+
+    <dialog id="supervisor-settings" aria-labelledby="supervisor-dialog-title">
+      <div class="dialog-heading"><h2 id="supervisor-dialog-title">Role Details</h2><button class="icon-button" id="close-supervisor-dialog" type="button" aria-label="Close role settings">×</button></div>
+      <form id="supervisor-form" class="form-grid">
+        <div class="role-field-row full-width">
+          <label>Role name<input name="name" readonly></label>
+          <label>Select machine<select name="nodeId" required></select></label>
+        </div>
+        <div class="role-field-row full-width">
+          <label>Select Agent<select name="runtime" required></select></label>
+          <label>Select model<select name="model" required></select></label>
+          <label>Reasoning effort / effort<select name="effort"><option value="">Use CLI default</option></select></label>
+        </div>
+        <label class="full-width">Role responsibility<textarea id="supervisor-responsibility" name="responsibility" rows="3" readonly></textarea></label>
+        <div class="full-width">
+          <div class="artifact-section-heading"><label for="project-supervisor-prompt-preview">Role prompt</label><button id="edit-project-supervisor-prompt" class="secondary compact" type="button" data-prompt-edit="supervisor-prompt" aria-label="Edit default supervisor prompt">Edit</button></div>
+          <p class="workspace-note">Shared by all projects. Edit the default prompt without changing this project's device or model.</p>
+          <textarea id="project-supervisor-prompt-preview" rows="7" readonly translate="no"></textarea>
+        </div>
+        <label class="checkbox-label full-width"><input name="enabled" type="checkbox" checked>Enable role (disabling pauses this role's waiting assignments; a running execution must be stopped separately)</label>
+        <p id="supervisor-feedback" class="form-feedback full-width" role="status" hidden></p>
+        <div class="form-actions full-width"><button type="submit" class="primary">Save role</button></div>
+      </form>
+    </dialog>
 
     <dialog id="role-dialog" aria-labelledby="role-dialog-title">
       <div class="dialog-heading"><h2 id="role-dialog-title">Role Details</h2><button class="icon-button" id="close-role-dialog" type="button" aria-label="Close role settings">×</button></div>
