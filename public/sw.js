@@ -1,11 +1,11 @@
-const CACHE = 'agent-workbench-static-terminal-icon-v50';
+const CACHE = 'agent-workbench-static-execution-progress-v51';
 const STATIC = [
   '/', '/styles.css', '/app.js', '/manifest.webmanifest', '/app-icon.png', '/app-icon-192.png',
   '/platform-admin.js', '/project-space.js', '/token-usage.js', '/run-log-data.js', '/room.js',
   '/markdown.js', '/project-settings.js', '/role-icons.js', '/settings-page.js',
   '/supervisor-settings.js', '/role-switch.js', '/role-history.js', '/project-setup.js', '/history-view.js', '/scheduled-jobs.js',
   '/git-version.js', '/plan-dock.js', '/agent-codex.png', '/agent-antigravity.png',
-  '/document.html', '/document.js', '/workspace-inspector.js', '/state-data.js',
+  '/document.html', '/document.js', '/workspace-inspector.js', '/state-data.js', '/execution-progress.js',
   '/i18n.js', '/locales/zh.js', '/browser-token.js', '/source-sync.js',
   '/output-language.js', '/vendor/opencc-t2cn.js'
 ];

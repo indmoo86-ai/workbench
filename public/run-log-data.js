@@ -1,8 +1,8 @@
 import { t } from './i18n.js';
-/** Business acceptance belongs to the Task; a past discussion keeps its own outcome and is not rewritten by the original task's acceptance. */
-export function taskRunDisplayStatus(task,run) {
-  if(run?.discussionDeliveryId)return run.status;
-  return ['done','awaiting_acceptance'].includes(task.status)?task.status:run?.status||task.status;
+import {executionProgress} from './execution-progress.js';
+/** Acceptance stays in the report/actions. A historical or discussion Run is not relabeled by the current task's waits. */
+export function taskRunDisplayStatus(task,run,request) {
+  return executionProgress({run,task,request}).state;
 }
 
 /** Execution details put only real tool calls on the tools page; status updates of the same tool are merged. */

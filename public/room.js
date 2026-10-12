@@ -2,6 +2,7 @@ import { t, dateLocale } from './i18n.js';
 import { agentIconEl, UI_ICON, workerDisplayName } from './role-icons.js';
 import { renderMarkdown, linkRunDocuments, localizeDocumentLinks } from './markdown.js';
 import {simplifiedCliOutput} from './output-language.js';
+import {executionProgress} from './execution-progress.js';
 import { createHistoryViewer } from './history-view.js';
 import {createRoleSwitchUI} from './role-switch.js';
 import {createRoleHistoryTabs} from './role-history.js';
@@ -432,7 +433,11 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     catch { setError('Not enough browser draft storage; the original text is still on this page. Copy a backup first and do not close the page'); return false; }
   };
   const draft = () => drafts[projectId] ||= { text: '', replyToId: null, replyLabel: '' };
-  const status = r => ({ queued: 'Preparing', starting: 'Starting', running: 'Running', waiting_user: 'Awaiting approval', stopping: 'Stopping', reconciling: 'Awaiting reconciliation', succeeded: 'Completed', interrupted: 'Stopped', failed: 'Failed' }[r?.status] || 'Waiting to run');
+  const taskProgress=(task,run)=>{
+    const request=run?.discussionDeliveryId?null:data.requests?.find(r=>r.id===(run?.requestId||task?.requestId));
+    const nodeId=run?.nodeId||task?.roleSnapshot?.nodeId;
+    return executionProgress({run,task:run?.discussionDeliveryId?null:task,request,online:!nodeId||Boolean(data.workers?.some(w=>w.id===nodeId&&w.online))});
+  };
   const button = (label, action, className = 'secondary compact') => {
     const b = create('button', className, label); b.type = 'button'; b.addEventListener('click', () => action(b)); return b;
   };
@@ -565,7 +570,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     const run=data.runs?.find(r=>r.id===view.runId);
     const message=histories.get(view.projectId)?.messages.find(m=>m.id===`result-${view.runId}`);
     const text=fullRunReply(run,liveText(view.runId),message);
-    const label=run?status(run):task?.waitingReason || (task?.status==='cancelled'?'Cancelled':'Waiting to start');
+    const label=t(taskProgress(task,run).label);
     view.heading.textContent=`${view.name || t('Role')} · ${label}`;
     view.copy.disabled=!text;
     if(text===view.text && view.label===label)return;
@@ -637,7 +642,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     const row = create('article', 'chat-row agent is-live');
     row.append(avatarFor(role, role.name));
     const col = create('div', 'chat-col');
-    const label = run ? status(run) : task.status === 'cancelled' ? 'Cancelled' : task.status === 'blocked' ? (task.error || 'Blocked') : task.waitingReason || 'Waiting to be scheduled';
+    const progress=taskProgress(task,run),label=t(progress.label);
     col.append(create('div', 'chat-name', `@${role.name || t('Role')} · ${label}`));
     const bubble = create('div', 'chat-bubble');
     const preview = run ? liveText(run.id) : '';
@@ -648,6 +653,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       bubble.append(typing, create('span', 'chat-typing-label', label));
     }
     col.append(bubble);
+    if(progress.reason||progress.detail)col.append(create('p','workspace-note',t(progress.reason||progress.detail)));
     const alert=run&&data.runAlerts?.find(a=>a.id===run.id);
     if(alert)col.append(create('p','run-alert',alert.reason));
     const approvals = run ? renderApprovalsInline(run) : null;
@@ -717,7 +723,8 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
         const target=data.roles?.find(r=>r.id===request.targetRoleId)?.name;
         const note=create('div',`message-progress${progress.attention?' needs-attention':''}`,`${target?`@${target} · `:''}${progress.label}`);
         const times={registeredAt:'Registered',sentAt:'Sent',receivedAt:'Device acknowledged',startedAt:'Run started',resultAt:'Run ended',resumeStartedAt:'Initiator resumed'};
-        note.dataset.stage=progress.stage;note.title=[progress.reason,...Object.entries(progress.timestamps||{}).filter(([,v])=>v).map(([k,v])=>t('{v}: {time}', { v: times[k]||k, time: formatTime(v) }))].filter(Boolean).join('\n');
+        note.dataset.stage=progress.stage;note.dataset.state=progress.state||'';note.title=[progress.reason,...Object.entries(progress.timestamps||{}).filter(([,v])=>v).map(([k,v])=>t('{v}: {time}', { v: times[k]||k, time: formatTime(v) }))].filter(Boolean).join('\n');
+        if(progress.reason&&['waiting','error'].includes(progress.state))note.append(create('span','message-progress-reason',` · ${progress.reason}`));
         bubble.append(note);
       }
     }
@@ -738,11 +745,6 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     actions.push(copyMessageButton(handoff ? m.handoff.summary || m.text : m.text));
     actions.push(fullscreenMessageButton(handoff ? m.handoff.summary || m.text : m.text, m.senderName, agent || Boolean(handoff), m.attachments, null, m.runId));
     actions.push(iconAction('original','Original',()=>{void historyViewer.open(m.projectId,m.runId&&!discussion?'result':'message',m.runId&&!discussion?m.runId:m.id).catch(e=>setError(e.message));}));
-    if(m.runId&&!discussion) {
-      const report=data.runReports?.find(r=>r.id===m.runId);
-      const run=data.runs?.find(r=>r.id===m.runId);
-      if(!run?.discussionWaiting&&(report||run?.reportRequired)) bubble.append(create('div','report-verdict',t('Business verdict: {v}', { v: ({passed:t('Passed'),failed:t('Not passed'),blocked:t('Blocked'),needs_input:t('User decision needed')}[report?.verdict])||t('To verify') })));
-    }
     if (m.runId) {
       const run = data.runs?.find(r => r.id === m.runId);
       if (run) actions.push(iconAction('log', 'Log', () => openTask(run.taskId,run.id)));

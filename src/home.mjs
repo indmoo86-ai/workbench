@@ -927,6 +927,7 @@ const server = http.createServer(async (req, res) => {
     files['/workspace-inspector.js']='workspace-inspector.js';
     files['/source-sync.js']='source-sync.js';
     files['/state-data.js']='state-data.js';
+    files['/execution-progress.js']='execution-progress.js';
     files['/browser-token.js']='browser-token.js';
     files['/role-switch.js']='role-switch.js';
     files['/role-history.js']='role-history.js';

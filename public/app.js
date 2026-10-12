@@ -1,5 +1,6 @@
 import { t, getLanguage, setLanguage, onLanguageChange, syncLanguageWithBackend, dateLocale } from './i18n.js';
 import {simplifiedCliOutput} from './output-language.js';
+import {executionProgressLabels} from './execution-progress.js';
 import { createRoomUI, createRoleRefresh } from './room.js';
 import { projectSettings } from './project-settings.js';
 import { agentIconEl, machineIconEl, quotaForRole, roleActivity, roleNameQuota, UI_ICON, deviceIconEl, workerDisplayName, workerKind, setActionIcon, projectIconAssignments, projectIconEl } from './role-icons.js';
@@ -394,7 +395,7 @@ function formatTime(value) {
 }
 
 function statusChip(status) {
-  return create('span', `status-chip ${status || ''}`, statusLabels[status] || status || 'Unknown');
+  return create('span', `status-chip ${{error:'failed',stopped:'cancelled',waiting:'waiting_user'}[status]||status||''}`, executionProgressLabels[status] || status || 'Unknown');
 }
 
 function getCurrentProject() {
@@ -429,9 +430,9 @@ function selectProject(projectId) {
   if(dom.runDialog.open)dom.runDialog.close();
 }
 
-/** Manual acceptance status belongs to the Task and must override a Run status that only reflects the process outcome. */
+/** Execution progress is independent of acceptance; report details and the acceptance action retain their own records. */
 function taskDisplayStatus(task, latestRun) {
-  return taskRunDisplayStatus(task,latestRun);
+  return taskRunDisplayStatus(task,latestRun,app.data.requests?.find(r=>r.id===(latestRun?.requestId||task?.requestId)));
 }
 
 function reconcileSelection() {
@@ -590,11 +591,15 @@ function renderExecutionPlans() {
   panel.dataset.projectId=app.selectedProjectId;
   const details=document.createElement('details');details.open=open;
   const summary=document.createElement('summary');
-  const status={running:'Running',succeeded:'Completed',blocked:'Blocked',cancelled:'Cancelled',pending:'Not started',failed:'Failed',completed_with_issues:'Ended · with issues'};
-  const activity=plan=>planStageActivity(plan.stages?.find(stage=>stage.status==='running'),app.data.requests||[],app.data.runs||[],app.data.tasks||[]);
+  const activity=plan=>{
+    if(plan.status==='blocked')return {label:'Waiting',reason:plan.error||plan.waitingReason||'Waiting to advance'};
+    if(plan.status==='cancelled')return {label:'Stopped',reason:plan.error||''};
+    const stage=plan.status==='running'?plan.stages?.find(s=>s.status==='running'):{members:(plan.stages||[]).flatMap(s=>s.members||[]),status:plan.status};
+    return planStageActivity(stage,app.data.requests||[],app.data.runs||[],app.data.tasks||[]);
+  };
   const title=document.createElement('strong');title.textContent=t('Supervisor plan · {currentStage}', { currentStage: t(state.currentStage) });
   const progress=document.createElement('span');progress.className='execution-progress';progress.textContent=`${state.completed}/${state.total}`;
-  const badge=document.createElement('span');badge.className='execution-status';badge.textContent=t(state.current.status==='running'?activity(state.current).label:status[state.current.status]||state.current.status);
+  const badge=document.createElement('span');badge.className='execution-status';badge.textContent=t(activity(state.current).label);
   summary.append(title,progress,badge);details.append(summary);panel.append(details);
   if(state.dismissible.some(plan=>plan.id===state.current.id)) {
     const close=create('button','execution-plan-close');close.type='button';close.title='Close finished plan';close.setAttribute('aria-label','Close finished plan');
@@ -611,8 +616,8 @@ function renderExecutionPlans() {
   list.append(count);
   for(const plan of state.plans) {
     const item=document.createElement('section');item.className='execution-plan-item';
-    const progress=plan.status==='running'?activity(plan):null;
-    const heading=document.createElement('h3');heading.textContent=`${plan.reason} · ${t(progress?.label||status[plan.status]||plan.status)}`;
+    const progress=activity(plan);
+    const heading=document.createElement('h3');heading.textContent=`${plan.reason} · ${t(progress.label)}`;
     item.append(heading);
     const note=plan.error||plan.waitingReason||progress?.reason||plan.fallbackReason;
     if(note){const p=document.createElement('p');p.textContent=note;item.append(p);}
@@ -626,7 +631,7 @@ function renderExecutionPlans() {
       const row=document.createElement('div');row.className='execution-stage';
       const label=document.createElement('span');
       const mode=stage.exclusive?'Exclusive serial':stage.mode==='parallel' && plan.isolated!==false?'Parallel':'Sequential';
-      label.textContent=`${stage.index+1}. ${stage.title} · ${t(mode)} · ${stage.status==='running'?t(planStageActivity(stage,app.data.requests||[],app.data.runs||[],app.data.tasks||[]).label):plan.failurePolicy==='collect_reviews'&&stage.status==='failed'?t('Some failed or missing'):t(status[stage.status]||stage.status)}`;
+      label.textContent=`${stage.index+1}. ${stage.title} · ${t(mode)} · ${t(planStageActivity(stage,app.data.requests||[],app.data.runs||[],app.data.tasks||[]).label)}`;
       const members=document.createElement('small');
       members.textContent=(stage.members||[]).map(m=>{
         let request=(app.data.requests||[]).find(r=>r.id===m.requestId);
@@ -1709,7 +1714,8 @@ function renderRunArtifacts(run) {
   const section = create('section', 'run-log-content');
   if (run?.report) {
     const report = create('div', 'run-artifact-report');
-    report.append(create('h3', '', 'Delivery Report'), create('p', '', run.report.summary || ''));
+    const verdict={passed:'Passed',failed:'Not passed',blocked:'Blocked',needs_input:'User decision needed'}[run.report.verdict]||'To verify';
+    report.append(create('h3', '', 'Delivery Report'),create('p','',t('Business verdict: {v}',{v:t(verdict)})), create('p', '', run.report.summary || ''));
     if (run.report.evidence?.length) report.append(create('pre', 'run-log-pre', run.report.evidence.join('\n')));
     section.append(report);
   }

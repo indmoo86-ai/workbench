@@ -37,7 +37,7 @@ export function saveRunReport(db,run,input) {
   return {runId:run.id,verdict:report.verdict,revision:report.revision,note:tr('runReports.businessVerdictRecordedEndTurn')};
 }
 
+/** No report means unverified; process failures remain in runStatus/error, not fabricated business verdicts. */
 export function outcomeFor(db,run) {
-  if(run.status!=='succeeded') return 'failed';
   return db.get('runReports',run.id)?.verdict || 'unverified';
 }

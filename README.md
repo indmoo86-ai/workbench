@@ -46,6 +46,8 @@ Managed dialogue inputs for Codex, Claude Code, Grok and Antigravity use English
 
 ## Key features
 
+Task progress uses six labels: **Pending execution, In progress, Waiting, Completed, Stopped, Execution error**. A normally delivered review is completed even when its business verdict is negative; verdicts remain in the reply and delivery report. Waiting reasons and execution errors stay visible, and process stop must be confirmed. Existing plan policies and acceptance actions are unchanged; old records are not rewritten or automatically retried.
+
 CLI prose is displayed in Simplified Chinese in chat, live/fullscreen replies and execution output. This browser-only conversion uses a bundled OpenCC dictionary without a model or CDN request. User messages, quoted input, code, commands, paths, original-text views, copies and stored records retain their original content.
 
 All items below exist in the current code. Items that are only designed are listed separately under [Limitations and roadmap](#limitations-and-roadmap).

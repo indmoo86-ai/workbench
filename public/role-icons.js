@@ -1,4 +1,5 @@
 import { t, getLanguage } from './i18n.js';
+import {executionProgress} from './execution-progress.js';
 /** Product marks and CLI icons are all SVG so they stay crisp at small sizes. */
 /** Project marks differ in both shape and color, so they are recognizable in the collapsed sidebar without text or color alone. */
 export const PROJECT_ICONS = [
@@ -110,7 +111,7 @@ export function workerDisplayName(worker) {
   return `${kind} · ${worker?.name || worker?.id || t('Unnamed device')}`;
 }
 
-/** The role bar shows only states that need user judgment; Runtime details and logs are not spread across the list. */
+/** Active task progress and idle CLI availability are separate; a report verdict never becomes the role's execution status. */
 export function roleActivity(role, tasks = [], runs = [], {requests=[],warm=false,worker,check}={}) {
   const configured = role?.configured !== false && Boolean(role?.nodeId && role?.runtime && role?.model);
   if (!configured) return { tone: 'setup', label: 'Setup needed', detail: 'Select a device, CLI and model' };
@@ -118,27 +119,11 @@ export function roleActivity(role, tasks = [], runs = [], {requests=[],warm=fals
   const ownTasks=tasks.filter(item=>!item.switchOperationId && (item.roleId===role.id || item.roleSnapshot?.id===role.id));
   const queued=ownTasks.filter(t=>t.status==='ready');
   const discussionRun=runs.find(r=>r.roleId===role.id&&r.discussionDeliveryId&&['queued','starting','running','waiting_user','stopping','reconciling'].includes(r.status));
-  if(discussionRun)return {tone:discussionRun.status==='reconciling'?'blocked':'working',label:discussionRun.status==='reconciling'?'To reconcile':discussionRun.turnPurpose==='clarification'?'Clarifying':'Handling reply',detail:ownTasks.some(t=>t.discussionWait)?'Business task still waiting · this round only handles discussion':'This round only handles peer discussion and does not change business task status'};
+  if(discussionRun){const p=executionProgress({run:discussionRun,online:worker===undefined||Boolean(worker?.online)});return {...p,detail:p.reason||p.detail||'This round only handles peer discussion and does not change business task status'};}
   const task = ownTasks.find(t=>runs.some(r=>r.id===t.currentRunId&&['queued','starting','running','waiting_user','stopping','reconciling'].includes(r.status))) || queued[0] || ownTasks.at(-1);
   const run = task?.currentRunId ? runs.find(item => item.id === task.currentRunId) : null;
-  if (run?.status === 'waiting_user') return { tone: 'waiting', label: 'Awaiting approval', detail: task.title || 'Needs user action' };
-  if (run?.status === 'reconciling') return { tone: 'blocked', label: 'To reconcile', detail: task.title || 'Execution state needs reconciling' };
-  if (['queued', 'starting', 'running', 'stopping'].includes(run?.status)) {
-    return { tone: 'working', label: run.status === 'stopping' ? 'Stopping' : 'Working', detail: `${task.title || t('Running')}${queued.length?t(' · {v} queued', { v: queued.length }):''}` };
-  }
-  if (task?.status === 'ready') return { tone: 'waiting', label: 'Waiting', detail: t('{v} queued · {v2}', { v: queued.length, v2: task.waitingReason || t('Waiting to be scheduled') }) };
-  if(task?.status==='waiting_discussion')return {tone:'waiting',label:task.discussionWait?'Awaiting reply':'Awaiting continuation',detail:task.waitingReason||'Waiting for the current question to be handled'};
-  // A Task's blocked status is a legacy summary state; it must not override the real Run final state or reuse a pre-start lock wait reason.
-  if (run?.status === 'failed') return currentRuntimeActivity(role,worker,check,run.updatedAt||run.createdAt) || { tone: 'blocked', label: 'Execution failed', detail: run.error || 'This round failed; see the logs' };
-  if (run?.status === 'interrupted') return currentRuntimeActivity(role,worker,check,run.updatedAt||run.createdAt) || { tone: 'idle', label: 'Stopped', detail: 'This round was stopped' };
   const request=task?requests.find(r=>r.targetRoleId===role.id&&(r.taskId===task.id||(run&&r.currentRunId===run.id))):null;
-  if(request?.status==='waiting_call'&&!request.continuationRequestId)return {tone:'waiting',label:'Awaiting reply',detail:warm?'Awaiting reply · CLI ready':'Waiting for other roles to reply'};
-  if(request?.status==='cancelled'||task?.status==='cancelled')return {tone:'idle',label:'Stopped',detail:'This round was cancelled'};
-  if (run?.status === 'succeeded') {
-    const outcome=request?.outcome||run.report?.verdict;
-    if(['failed','blocked','needs_input'].includes(outcome))return {tone:'waiting',label:{failed:'Verdict: not passed',blocked:'Verdict: blocked',needs_input:'Awaiting answer'}[outcome],detail:(request?.reportSummary||'Execution finished; see this round\'s verdict').slice(0,160)};
-  // A start-up block with no Run may come from the workspace/scheduler; a CLI probe does not prove it is resolved, and the creation time is not the failure time.
-  } else if (task?.status === 'blocked') return { tone: 'blocked', label: 'Not started', detail: task.error || 'Task did not start; see the logs' };
+  if(task){const p=executionProgress({run,task,request,online:worker===undefined||Boolean(worker?.online)});return {...p,detail:p.reason||p.detail||task.title||'Execution finished; see the reply and report'};}
   const detected=currentRuntimeActivity(role,worker,check);
   if(detected)return detected;
   if(warm)return {tone:'idle',label:'Idle',detail:'CLI ready · conversation can continue'};
