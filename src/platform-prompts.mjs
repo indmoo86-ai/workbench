@@ -5,8 +5,8 @@ import { createHash } from 'node:crypto';
 
 export const defaultPlatformPrompt = () => tr('minimal.platformDefault');
 
-// Supervisors use the shared platform context unless the user explicitly adds an execution prompt.
-export const defaultSupervisorPrompt = () => '';
+// The supervisor has its own editable coordination template; it is not a shared rule for other roles.
+export const defaultSupervisorPrompt = () => tr('minimal.supervisorTemplate');
 
 const PROMPT_LIMIT = 6000;
 /** Runtime rules are always English; UI-localized defaults and user-saved prompts stay independent. */
@@ -56,7 +56,7 @@ export function customExecutionPrompt(value,kind='platform') {
 /** Rolling upgrades keep the old wrapping contract for Workers that have not negotiated minimal instructions. */
 export function legacyExecutionPrompt(value,kind='platform') {
   if(typeof value==='string'&&!value.trim())return value;
-  return customExecutionPrompt(value,kind)===''?runWithLanguage('en',()=>tr(kind==='supervisor'?'collaboration.supervisor':'collaboration.platform')):value;
+  return customExecutionPrompt(value,kind)===''?runWithLanguage('en',()=>kind==='supervisor'?defaultSupervisorPrompt():tr('collaboration.platform')):value;
 }
 
 export function normalizePlatformSettings(record = {}) {

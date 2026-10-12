@@ -12,6 +12,8 @@ Optional bilingual role templates describe responsibilities for planning, execut
 
 The CLI chooses whether and how to collaborate. Explicit user authorization may extend the instruction scope beyond the default workspace; actual runtime permissions remain enforced. A prompt change does not expand Codex writable roots automatically. Essential isolation boundaries and repositories outside the current directory remain disclosed; ordinary device and repository inventories are queried on demand.
 
+The editable supervisor template in `minimal.supervisorTemplate` covers goals, requirements, team coordination, evidence-based follow-up and unified delivery. It respects named assignments and independent reviews, refers to actual remaining quota proportions among suitable members and counts a shared account's quota once. It adds no quota allocator, mandatory team query or new dispatch policy. Work-role templates remain responsibility-only with empty execution prompts; the saved supervisor text is a separate component frozen at next-turn admission. An explicit clear stays empty, and changing UI language does not translate user-saved text.
+
 ### Managed input language
 
 The separate browser module `public/output-language.js` converts CLI prose display copies from Traditional to Simplified Chinese. `room.js` applies it before rendering agent Markdown; `app.js` applies it to execution text/results. Shared Markdown document rendering, original/history views, copy sources, persisted events and model-facing input are unchanged. The browser uses the pinned `opencc-js` 1.4.2 `t2cn` ESM distribution under `public/vendor/`, registered in Home static assets and the service-worker cache. Executable and exact-match text is preserved conservatively.

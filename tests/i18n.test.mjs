@@ -121,9 +121,7 @@ test('language switch changes platform prompts and default roles', async () => {
     templates: roles.defaultRoleTemplates()
   }));
   const a = await snapshot('en'), b = await snapshot('zh');
-  assert.equal(a.supervisor, '');
-  assert.equal(b.supervisor, '');
-  for (const k of ['platform', 'rules', 'composed']) {
+  for (const k of ['platform', 'supervisor', 'rules', 'composed']) {
     assert.notEqual(a[k], b[k], k);
     assert.ok(!hasCjk(a[k]), `${k} (en) has CJK`);
     assert.ok(hasCjk(b[k]), `${k} (zh) has no CJK`);
