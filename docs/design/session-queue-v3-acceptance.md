@@ -26,4 +26,6 @@ node scripts/session-queue-acceptance.mjs --project <testProjectId> --busy <role
 5. Lease: kill the Worker right after a reservation (status *Pending verification* or back to *Queued*). After restart, there is no second start for the same batch.
 6. Old Worker: with a Worker from before this build, messages stay *Queued* with "Worker upgrade required".
 
-Only after every row passes: phase 4 may add `wb pass` to the prompts (both locales) and remove the acceptance-only broadcast switch.
+The runner marks the project as a test project (the broadcast switch is refused elsewhere) and sets a 2-batch budget.
+
+Only after every row passes: phase 4 may add `wb pass` to the prompts (both locales).
