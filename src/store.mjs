@@ -17,6 +17,7 @@ import {syncError} from './source-sync-manifest.mjs';
 import {sourceInputWaitReason,sourceConflictContext} from './source-sync-input.mjs';
 import {ProactiveFollowup,followupFor,privateFollowup} from './proactive-followup.mjs';
 import {reviewView} from './collaboration-sessions.mjs';
+import {tagMessage} from './session-queue.mjs';
 
 export const terminal = new Set(['succeeded', 'failed', 'interrupted']);
 const now = () => new Date().toISOString();
@@ -41,6 +42,7 @@ export class Store {
   put(kind, value) {
     if(kind==='roomMessages')return this.transaction(()=>{
       const previous=this.get(kind,value.id);
+      if(!previous)value=tagMessage(this,value); // Session tagging from existing links; no-op while the project flag is off.
       if(!previous)this.db.prepare('INSERT OR IGNORE INTO room_message_receipts(message_id,project_id,received_at) VALUES(?,?,?)').run(value.id,value.projectId,now());
       this.db.prepare('INSERT INTO records VALUES(?,?,?) ON CONFLICT(kind,id) DO UPDATE SET data=excluded.data').run(kind,value.id,JSON.stringify(value));return value;
     });

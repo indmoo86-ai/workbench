@@ -1705,4 +1705,11 @@ wb 表示这个完整前缀；每次调用都使用本轮前缀，不复用历�
   'collabSessions.sessionClosed': "该协作会话已结束。",
   'collabSessions.notIndependentReview': "只有独立审核会话可以释放意见。",
   'collabSessions.readOnlyView': "审核隔离视图为只读。",
+  'sessionQueue.secondsMustBeInteger': "合并时间必须是 0 到 3600 秒之间的整数。",
+  'sessionQueue.maxBelowQuiet': "最长收集时间不能小于合并等待时间。",
+  'sessionQueue.reservationMismatch': "预留与该批次不匹配。",
+  'sessionQueue.invalidOutcome': "批次结果只能是 replied、passed 或 blocked。",
+  'sessionQueue.batchNotFound': "批次不存在。",
+  'sessionQueue.reservationInvalid': "预留已失效，批次继续在平台排队。",
+  'sessionQueue.reservationExpired': "预留已过期，批次继续在平台排队。",
 });
