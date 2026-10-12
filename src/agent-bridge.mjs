@@ -20,9 +20,16 @@ export function canSendAgentOperation({paused,quitting,connected,status},pathnam
 }
 
 /** Sender identity belongs to the persisted Run; target role/session identifiers remain valid tool input. */
+const identityKeys=['sender','senderId','senderName','senderRoleId','fromRoleId','sourceRoleId','ownerRoleId','author','authorId','authorRoleId','authorName','speaker','speakerRoleId','collaborationSessionId','batchId','runtimeIdentity'];
+/** Project, role, Run and (later) batch come from the trusted runtime; identity-looking fields are rejected at any nesting depth. */
 export function assertAgentSender(input) {
-  if (['sender','senderId','senderName','senderRoleId','fromRoleId','sourceRoleId','ownerRoleId','projectId','nodeId'].some(key=>Object.hasOwn(input||{},key)))
+  if (['projectId','nodeId'].some(key=>Object.hasOwn(input||{},key)) || hasIdentityKey(input,0))
     throw new Error(tr('agentBridge.toolRequestCannotImpersonateAnother'));
+}
+function hasIdentityKey(value,depth) {
+  if(!value||typeof value!=='object'||depth>6)return false;
+  if(Array.isArray(value))return value.some(item=>hasIdentityKey(item,depth+1));
+  return Object.keys(value).some(key=>identityKeys.includes(key)||hasIdentityKey(value[key],depth+1));
 }
 
 /** A managed CLI may be bridged through the current Run, but must not inherit the Worker's control-plane token. */
