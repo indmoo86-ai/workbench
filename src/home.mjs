@@ -46,7 +46,7 @@ import { TokenUsage, createTokenUsageBackgroundCollector } from './token-usage.m
 import { Attachments, AttachmentTransfers } from './attachments.mjs';
 import { ExecutionPlans, schedulingRules } from './execution-plans.mjs';
 import { History } from './history.mjs';
-import { saveRunReport } from './run-reports.mjs';
+import { saveRunReport,readReportSubmission } from './run-reports.mjs';
 import { ScheduledJobs } from './scheduled-jobs.mjs';
 import {ProactiveFollowup} from './proactive-followup.mjs';
 import {CliRecoveryHome} from './cli-session-recovery-home.mjs';
@@ -525,6 +525,12 @@ const server = http.createServer(async (req, res) => {
         const b = await body(req);
         assertAgentSender(b);
         const run = db.get('runs', b.runId);
+        if(pathname==='/api/agent/report') {
+          if(!run)throw new Error(tr('home.currentExecutionHasEndedStopping'));
+          if(run.switchOperationId)throw new Error('CLI handoff maintenance permits history reads only.');
+          if(b.action==='status')return json(res,readReportSubmission(db,run,b));
+          const result=saveRunReport(db,run,b);if(!result.replayed&&!result.ignored)change();return json(res,result);
+        }
         if (!run || terminal.has(run.status) || ['stopping', 'reconciling'].includes(run.status)) throw new Error(tr('home.currentExecutionHasEndedStopping'));
         if(db.get('settings','main')?.paused&&!allowsPausedAgentOperation(pathname,b))throw new Error(tr('home.remoteExecutionPaused'));
         if(run.switchOperationId&&!['/api/agent/setup/catalog','/api/agent/history/search','/api/agent/history/read','/api/agent/sessions/current','/api/agent/sessions/list','/api/agent/sessions/summary','/api/agent/sessions/read','/api/agent/conversation/summary'].includes(pathname))throw new Error('CLI handoff maintenance permits history reads only.');
@@ -539,7 +545,6 @@ const server = http.createServer(async (req, res) => {
           const result=b.action==='budget_extend'?discussions.extendBudget({kind:'agent',runId:run.id},b.input):reader[b.action](run,b.input||{});
           scheduleChat();change();return json(res,result);
         }
-        if (pathname === '/api/agent/report') { const result=saveRunReport(db,run,b);change();return json(res,result); }
         // Independent-review isolation is applied to the data the read tools see, before search, pagination or summaries.
         const readView=reviewView(db,{projectId:run.projectId,roleId:run.roleId});
         if (pathname === '/api/agent/history/search') return json(res,new History(readView).search(run.projectId,b));

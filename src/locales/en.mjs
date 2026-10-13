@@ -1,6 +1,10 @@
 // English message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'runReports.invalidSubmissionId': 'Invalid report submission ID.',
+  'runReports.superseded': 'This submission was saved as revision {revision}; revision {currentRevision} is now current. The older conclusion was not restored.',
+  'runReports.submissionConflict': 'This report submission ID already belongs to different content. Query the original receipt or use a new ID for an intentional revision.',
+  'runReports.pendingConfirmation': 'Report submission result is pending confirmation. A timeout does not prove failure. Query the receipt with the command below; resubmitting identical content reuses the same ID and must not start a new task.',
   'roleSwitch.crossDevice': 'You selected another device. Cross-device handoff and CLI switching are not currently supported. Original device: {from}; selected device: {to}. To switch only the CLI, keep the original device. These changes were not saved; the original session is unaffected.',
   'followup.configChanged': 'Follow-up settings changed; reload before saving.',
   'followup.noSupervisor': 'Waiting for an enabled project supervisor.',
@@ -1479,6 +1483,8 @@ wb chat summary       Show the conversation digest of the current project
 wb history read ID [offset] [version]  Read the original message text in segments
 wb result read ID [offset] [version]   Read a full run/call report in segments
 wb report JSON       Submit the verdict/summary/evidence/next business conclusion
+wb report status ID  Read this Run's submission receipt without writing a report
+Report timeouts query the receipt before one same-ID retry. pending_confirmation means unknown, not failed; query it before deciding next steps. Identical content reuses its ID; an explicit new submissionId requests a deliberate new revision.
 wb docs              List documents
 wb docs read PATH     Read a file inside .workbench
 wb git               Show repository status and origin (read-only)

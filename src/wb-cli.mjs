@@ -73,6 +73,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (cmd === 'chat' && sub === 'summary') return out(await agentRequest('/api/agent/conversation/summary',{runId:process.env.WB_RUN_ID,...sessionOptions(rest)}));
     if (cmd === 'setup' && sub === 'catalog') return out(await setupCatalog());
     if (cmd === 'pass') return out(await agentRequest('/api/agent/pass',{runId:process.env.WB_RUN_ID}));
+    if(cmd==='report'&&sub==='status'){if(rest.length!==1)throw new Error(tr('runReports.invalidSubmissionId'));return out(await agentRequest('/api/agent/report',{runId:process.env.WB_RUN_ID,action:'status',submissionId:rest[0]}));}
     if (cmd === 'report') return out(await agentRequest('/api/agent/report',{...JSON.parse(tail.join(' ')),runId:process.env.WB_RUN_ID}));
     if (cmd === 'history' && sub === 'search') return out(await agentRequest('/api/agent/history/search',{runId:process.env.WB_RUN_ID,query:rest.join(' ')}));
     if ((cmd === 'history' || cmd === 'result') && sub === 'read') return out(await agentRequest('/api/agent/history/read',{runId:process.env.WB_RUN_ID,kind:cmd==='history'?'message':'result',id:rest[0],offset:rest[1]===undefined?0:Number(rest[1]),version:rest[2]}));

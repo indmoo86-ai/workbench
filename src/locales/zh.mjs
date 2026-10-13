@@ -1,6 +1,10 @@
 // Simplified Chinese message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'runReports.invalidSubmissionId': '报告提交编号无效。',
+  'runReports.superseded': '此次提交已保存为第 {revision} 版；当前已有第 {currentRevision} 版。未将旧结论覆盖回去。',
+  'runReports.submissionConflict': '此报告提交编号已用于不同内容。请查询原回执；确需修订报告时使用新的编号。',
+  'runReports.pendingConfirmation': '报告提交结果待确认，超时不代表提交失败。请用下方命令查询回执；再次提交相同内容会复用原编号，不应因此重新派工。',
   'roleSwitch.crossDevice': '你已选择另一台设备，当前不支持跨设备交接并切换 CLI。原设备：{from}；所选设备：{to}。如只需切换 CLI，请保留原设备。此次修改未保存，原会话不受影响。',
   'followup.configChanged': '主动跟进设置已变更，请刷新后再保存。',
   'followup.noSupervisor': '等待可用且已启用的项目总管。',
@@ -1479,6 +1483,8 @@ wb chat summary       查看当前项目对话整理结果
 wb history read 编号 [offset] [version]  分段读消息原文
 wb result read 编号 [offset] [version]   分段读执行/调用完整报告
 wb report JSON       提交 verdict/summary/evidence/next 业务结论
+wb report status 编号  只读查询本轮报告提交回执
+报告超时后先查回执，确认未保存才复用原编号重试一次。pending_confirmation 表示结果待确认，不代表失败，请查询后再决定下一步。相同内容复用原编号；确需新版本可显式指定新的 submissionId。
 wb docs              列出文档
 wb docs read 路径     读取 .workbench 内文件
 wb git               查看仓库状态和 origin（只读）

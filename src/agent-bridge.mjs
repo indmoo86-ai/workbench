@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, writeFile, rename, lstat, unlink, rmdir } fro
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { tr } from './i18n.mjs';
+import {submitReport} from './report-submission.mjs';
 
 const allowed = new Set(['/api/agent/setup/catalog', '/api/agent/setup/propose', '/api/agent/roles/prompt', '/api/agent/schedule', '/api/agent/timers', '/api/agent/note', '/api/agent/calls', '/api/agent/ask', '/api/agent/wait', '/api/agent/deliveries', '/api/agent/report', '/api/agent/history/search', '/api/agent/history/read', '/api/agent/sessions/current', '/api/agent/sessions/list', '/api/agent/sessions/summary', '/api/agent/sessions/read', '/api/agent/conversation/summary']);
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -20,7 +21,8 @@ export function allowsPausedAgentOperation(pathname,input={}) {
 
 /** Pause is not cancellation: retained identity, connection and live process checks still apply to every tool call. */
 export function canSendAgentOperation({paused,quitting,connected,status},pathname,input) {
-  return !quitting&&connected&&['running','starting'].includes(status)&&(!paused||allowsPausedAgentOperation(pathname,input));
+  const reportStatus=pathname==='/api/agent/report'&&input?.action==='status'&&['running','starting','succeeded','failed','interrupted','stopping','reconciling'].includes(status);
+  return !quitting&&connected&&(reportStatus||['running','starting'].includes(status))&&(!paused||allowsPausedAgentOperation(pathname,input));
 }
 
 /** Sender identity belongs to the persisted Run; target role/session identifiers remain valid tool input. */
@@ -45,6 +47,10 @@ export function agentProcessEnv(base, additions) {
 
 /** The CLI sandbox needs no network access; requests can only land in this workspace and are sent on its behalf by the Worker that holds the connection. */
 export async function agentRequest(pathname, payload) {
+  if(pathname==='/api/agent/report'&&payload.action!=='status')return submitReport(input=>agentRequestOnce(pathname,input),payload);
+  return agentRequestOnce(pathname,payload);
+}
+async function agentRequestOnce(pathname,payload) {
   if (!allowed.has(pathname)) throw new Error(tr('agentBridge.operationNotAgentTool'));
   const directory = process.env.WB_BRIDGE;
   if (!directory) return homeRequest(process.env.WB_HOME, process.env.WB_TOKEN, pathname, payload);
@@ -55,22 +61,24 @@ export async function agentRequest(pathname, payload) {
   while (Date.now() < deadline) {
     try {
       const response = JSON.parse(await readFile(join(directory, `${id}.response`), 'utf8'));
-      if (response.error) throw new Error(response.error);
+      if (response.error) throw Object.assign(new Error(response.error),{status:response.status,outcomeUnknown:response.outcomeUnknown});
       return response.result;
     } catch (e) { if (e.code !== 'ENOENT') throw e; }
     await delay(150);
   }
-  throw new Error(tr('agentBridge.workerCommunicationTimedOutOutcome'));
+  throw Object.assign(new Error(tr('agentBridge.workerCommunicationTimedOutOutcome')),{outcomeUnknown:true});
 }
 
 /** Only allowlisted Agent endpoints can pass through the bridge; there is no user-confirmation, arbitrary-URL, or Shell endpoint. */
 export async function homeRequest(home, token, pathname, payload) {
   if (!home || !allowed.has(pathname)) throw new Error(tr('agentBridge.invalidHomeToolPath'));
+  try {
   const response = await fetch(new URL(pathname, home), { method: 'POST', signal: AbortSignal.timeout(20000),
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token || ''}` }, body: JSON.stringify(payload) });
   const data = await response.json();
-  if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+  if (!response.ok) throw Object.assign(new Error(data.error || `HTTP ${response.status}`),{status:response.status,outcomeUnknown:response.status>=500});
   return data;
+  }catch(error){if(!error.status)error.outcomeUnknown=true;throw error;}
 }
 
 /** Each Run gets its own bridge directory, and on exit only the communication files it created are cleaned up. */
@@ -96,7 +104,7 @@ export async function startAgentBridge({ workspace, runId, home, token, canSend 
             if (!canSend(input.pathname,input.payload)) throw new Error(tr('agentBridge.executionHasStoppedRemoteOperations'));
             if(input.payload?.runId&&input.payload.runId!==runId)throw new Error(tr('agentBridge.toolRequestCannotImpersonateAnother'));
             response = { result: await homeRequest(home, token, input.pathname, { ...input.payload, runId }) };
-          } catch (error) { response = { error: error.message }; }
+          } catch (error) { response = { error: error.message,status:error.status,outcomeUnknown:error.outcomeUnknown }; }
           await writeFile(join(directory, file.replace('.request', '.response')), JSON.stringify(response), { flag: 'wx', mode: 0o600 }).catch(() => {});
         };
         const task = handle(); pending.add(task); void task.finally(() => pending.delete(task));
