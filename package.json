@@ -6,7 +6,7 @@
     "node": ">=22.16"
   },
   "scripts": {
-    "precheck": "node --check src/agent-calls.mjs && node --check src/report-submission.mjs && node --check src/http-response.mjs && node --check src/proactive-followup.mjs && node --check src/input-language.mjs && node --check public/output-language.js && node --check public/execution-progress.js && node --check src/message-progress.mjs && node --check public/plan-dock.js && node --check public/run-log-data.js && node --check public/live-scene.js && node --check src/cli-session-recovery.mjs && node --check src/cli-session-recovery-home.mjs && node --check public/cli-recovery.js",
+    "precheck": "node --check src/native-sessions.mjs && node --check public/native-sessions.js && node --check src/agent-calls.mjs && node --check src/report-submission.mjs && node --check src/http-response.mjs && node --check src/proactive-followup.mjs && node --check src/input-language.mjs && node --check public/output-language.js && node --check public/execution-progress.js && node --check src/message-progress.mjs && node --check public/plan-dock.js && node --check public/run-log-data.js && node --check public/live-scene.js && node --check src/cli-session-recovery.mjs && node --check src/cli-session-recovery-home.mjs && node --check public/cli-recovery.js",
     "start": "node src/home.mjs",
     "worker": "node src/worker.mjs",
     "dev": "node src/dev.mjs",

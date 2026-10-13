@@ -324,6 +324,34 @@ input:focus, textarea:focus, select:focus { border-color: #66b996; box-shadow: 0
 .detail-title-row > div { min-width: 0; }
 .detail-header h2 { margin: 4px 0 7px; font-size: 20px; overflow-wrap: anywhere; }
 .detail-header .prompt { margin: 14px 0 0; color: #48534d; font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
+.navigation-mode { width: auto; max-width: 150px; border: 0; background: transparent; color: var(--muted); font-weight: 700; padding: 4px; }
+body[data-navigation-mode="sessions"] #project-list,
+body[data-navigation-mode="sessions"] #content-grid,
+body[data-navigation-mode="sessions"] #empty-state,
+body[data-navigation-mode="sessions"] #project-form-panel,
+body[data-navigation-mode="sessions"] #project-repository,
+body[data-navigation-mode="sessions"] #show-project-settings,
+body[data-navigation-mode="sessions"] #show-history,
+body[data-navigation-mode="sessions"] #show-plan-history,
+body[data-navigation-mode="sessions"] #node-sidebar > :not(#native-session-sidebar) { display: none !important; }
+.native-session-filters { display: grid; gap: 8px; padding: 12px 16px; }
+.native-session-filters select { width: 100%; min-width: 0; }
+.native-session-note { margin: 0; padding: 8px 16px; font-size: 12px; }
+.native-session-content { min-height: 0; flex: 1; overflow: auto; padding: 24px; }
+.native-empty { color: var(--muted); padding: 30px 0; }
+.native-title { font-size: 18px; overflow-wrap: anywhere; }
+.native-history-message { padding: 16px; border: 1px solid var(--line); background: white; border-radius: 14px; margin: 14px 0; }
+.native-history-message.user { background: #e7f1ff; }
+.native-history-message pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.65; margin: 10px 0 0; }
+.native-session-sidebar { padding: 24px; overflow: auto; min-height: 0; }
+.native-session-sidebar h2 { margin-top: 0; font-size: 18px; }
+.native-session-meta dt { color: var(--muted); margin-top: 20px; font-size: 12px; }
+.native-session-meta dd { margin: 6px 0; overflow-wrap: anywhere; }
+.native-session-dialog { width: min(650px,calc(100vw - 32px)); }
+.native-session-dialog .form-grid { grid-template-columns: 1fr; }
+.native-folder-browser { display: grid; gap: 5px; max-height: 200px; overflow: auto; }
+.native-launch-result { display: flex; flex-wrap: wrap; gap: 8px; }
+.native-launch-result a { display: inline-block; text-decoration: none; padding: 10px 16px; }
 .detail-meta { display: flex; flex-wrap: wrap; gap: 6px 15px; color: var(--muted); font-size: 11px; }
 .run-toolbar { display: flex; align-items: end; gap: 9px; padding: 15px 24px; border-bottom: 1px solid var(--line); background: #fafbfa; }
 .run-toolbar label { display: grid; flex: 1; gap: 5px; color: var(--muted); font-size: 10px; font-weight: 700; }

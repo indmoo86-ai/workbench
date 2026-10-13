@@ -1,6 +1,6 @@
-const CACHE = 'agent-workbench-static-multi-call-cards-v65';
+const CACHE = 'agent-workbench-static-native-sessions-v66';
 const STATIC = [
-  '/', '/styles.css', '/app.js', '/manifest.webmanifest', '/app-icon.png', '/app-icon-192.png',
+  '/', '/styles.css', '/app.js', '/native-sessions.js', '/manifest.webmanifest', '/app-icon.png', '/app-icon-192.png',
   '/platform-admin.js', '/project-space.js', '/token-usage.js', '/run-log-data.js', '/room.js',
   '/markdown.js', '/project-settings.js', '/role-icons.js', '/settings-page.js',
   '/supervisor-settings.js', '/role-switch.js', '/role-history.js', '/project-setup.js', '/history-view.js', '/scheduled-jobs.js',
