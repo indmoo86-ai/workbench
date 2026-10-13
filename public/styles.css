@@ -327,8 +327,10 @@ input:focus, textarea:focus, select:focus { border-color: #66b996; box-shadow: 0
 .detail-title-row > div { min-width: 0; }
 .detail-header h2 { margin: 4px 0 7px; font-size: 20px; overflow-wrap: anywhere; }
 .detail-header .prompt { margin: 14px 0 0; color: #48534d; font-size: 13px; line-height: 1.65; white-space: pre-wrap; }
-.navigation-mode { display: inline-flex; align-items: center; gap: 2px; padding: 3px; border: 1px solid #d4e3fa; border-radius: 9px; background: #e7f0ff; letter-spacing: 0; text-transform: none; }
-.navigation-mode button { margin: 0; padding: 5px 8px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 12px; line-height: 18px; font-weight: 700; white-space: nowrap; }
+.navigation-mode { display: inline-flex; align-items: center; gap: 0; padding: 0; border: 0; background: transparent; letter-spacing: 0; text-transform: none; }
+.navigation-mode button { margin: 0; padding: 5px 8px; border: 0; border-radius: 0; background: #f8fbff; color: var(--muted); font-size: 12px; line-height: 18px; font-weight: 700; white-space: nowrap; }
+.navigation-mode button:first-child { border-radius: 6px 0 0 6px; }
+.navigation-mode button:last-child { border-radius: 0 6px 6px 0; }
 .navigation-mode button:hover { background: #f5f9ff; }
 .navigation-mode button[aria-pressed="true"] { background: var(--accent); color: #fff; }
 .navigation-mode button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
