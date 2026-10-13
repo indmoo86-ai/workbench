@@ -744,7 +744,10 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     const header = create('div', 'chat-message-header');
     const time = create('time', '', formatTime(m.createdAt));
     if (m.createdAt) time.dateTime = m.createdAt;
-    header.append(create('div', 'chat-name', agent ? m.senderName : 'Me'), time);
+    const sender=create('div', 'chat-name', agent ? m.senderName : 'Me');
+    // Saved role names are identities, not UI dictionary keys.
+    if(agent)sender.setAttribute('translate','no');
+    header.append(sender, time);
     col.append(header);
     const bubble = create('div', `chat-bubble${handoff || replyDirection ? ' handoff-card' : ''}`);
     if (m.replyToId) {
