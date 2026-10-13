@@ -784,7 +784,8 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
       try{await api(`/api/runs/${encodeURIComponent(discussion.stopRunId)}/stop`,{method:'POST',json:{commandId:`discussion-owner-stop:${discussion.stopRunId}:${discussion.questionId}`}});await refreshState({quiet:true});}catch(e){setError(e.message);b.disabled=false;}
     }));
     actions.push(copyMessageButton(handoff ? m.handoff.summary || m.text : m.text));
-    actions.push(iconAction('original','Original',()=>{const result=m.runId&&!discussion&&!handoff;void historyViewer.open(m.projectId,result?'result':'message',result?m.runId:m.id).catch(e=>setError(e.message));}));
+    // Execution originals live in the Run details; ordinary messages still resolve to their own stored text.
+    if(!m.runId||discussion||handoff)actions.push(iconAction('original','Original',()=>void historyViewer.open(m.projectId,'message',m.id).catch(e=>setError(e.message))));
     if (m.runId) {
       const run = data.runs?.find(r => r.id === m.runId);
       if (run) actions.push(iconAction('log', 'Log', () => openTask(run.taskId,run.id)));

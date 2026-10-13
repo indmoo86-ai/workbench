@@ -3,6 +3,7 @@ import {simplifiedCliOutput} from './output-language.js';
 import {createNativeSessionUI} from './native-sessions.js';
 import {roleContextRing} from './context-usage.js';
 import {latestTerminalRun} from './role-history.js';
+import {createHistoryViewer} from './history-view.js';
 import {executionProgressLabels} from './execution-progress.js';
 import {createLiveScene} from './live-scene.js';
 import { createRoomUI, createRoleRefresh } from './room.js';
@@ -127,6 +128,8 @@ for (const [id, name, label] of [
 const roleRefresh=createRoleRefresh({api,refreshState,getData:()=>({...app.data,roles:[...(app.data.supervisorRoles||[]),...app.data.roles]}),getProject:getCurrentProject,
   button:document.querySelector('#refresh-role-status'),feedback:document.querySelector('#role-refresh-feedback'),onUpdate:()=>renderRoles()});
 const liveScene=createLiveScene({api,getProjectId:()=>app.selectedProjectId});
+const runOriginal=createHistoryViewer({api,inline:true});
+let originalRunSnapshot=null;
 const room = createRoomUI({ api, refreshState, openTask, openLiveScene:run=>liveScene.open(run.id,{projectId:run.projectId,name:run.roleSnapshot?.name}), stopRun, decideApproval, create, formatTime, setError, configureDevice(projectId, nodeId) {
   if (app.data.projects.some(p => p.id === projectId)) { app.selectedProjectId=projectId;openSettings('project'); }
 } });
@@ -281,6 +284,7 @@ function closeSettings() {
 function openTask(taskId,runId=null) {
   const task = app.data.tasks.find(t => t.id === taskId && t.projectId === app.selectedProjectId);
   if (!task) return;
+  runOriginal.close();originalRunSnapshot=null;
   app.selectedTaskId = taskId; app.events = []; app.files = []; app.detailTab = 'output'; app.detailRunId = null; app.loadedRunId = null; app.requestVersion++;
   app.pinnedDetailRunId=app.data.runs.some(r=>r.id===runId&&r.taskId===taskId)?runId:null;
   document.querySelector('#history-dialog').close();
@@ -1622,14 +1626,15 @@ function renderRunSummary(run) {
   return summary;
 }
 
-/** The conversation log groups input, output, tools and artifacts of the same Run, and keeps the current tab on refresh. */
+/** The conversation log groups input, output, tools, artifacts and stored original text of the same Run. */
 function renderRunTabs(task, run) {
   const logs = partitionRunLog(app.events);
   const tabs = [
     ['input', 'Prompt input'],
     ['output', t('CLI output{v}', { v: logs.output.length ? ` ${logs.output.length}` : '' })],
     ['tools', t('Tool calls{v}', { v: logs.tools.length ? ` ${logs.tools.length}` : '' })],
-    ['artifacts', 'Artifacts']
+    ['artifacts', 'Artifacts'],
+    ['original', 'Original']
   ];
   const wrapper = create('div', 'run-log-tabs');
   const navigation = create('div', 'run-tab-list');
@@ -1657,6 +1662,17 @@ function renderRunTabs(task, run) {
   if (app.detailTab === 'output') panel.append(renderRunOutput(run, logs.output));
   if (app.detailTab === 'tools') panel.append(renderRunTools(run, logs.tools));
   if (app.detailTab === 'artifacts') panel.append(renderRunArtifacts(run));
+  if (app.detailTab === 'original') {
+    if(!run)panel.append(create('p','run-log-note','Task has not started yet'));
+    else {
+      panel.append(runOriginal.element());
+      const snapshot={id:run.id,result:run.result,error:run.error,status:run.status};
+      if(!originalRunSnapshot||Object.keys(snapshot).some(key=>snapshot[key]!==originalRunSnapshot[key])) {
+        originalRunSnapshot=snapshot;
+        void runOriginal.open(run.projectId,'result',run.id);
+      }
+    }
+  }
   wrapper.append(navigation, panel);
   return wrapper;
 }
@@ -2110,6 +2126,7 @@ document.querySelector('#close-history').addEventListener('click', () => documen
 document.querySelector('#close-device-edit').addEventListener('click', () => document.querySelector('#device-edit-dialog').close());
 document.querySelector('#device-edit-dialog').addEventListener('close', () => document.querySelector('#device-edit-content').replaceChildren());
 document.querySelector('#close-run').addEventListener('click', () => { dom.runDialog.close(); app.requestVersion++; });
+dom.runDialog.addEventListener('close',()=>{runOriginal.close();originalRunSnapshot=null;});
 document.querySelector('#refresh-state').addEventListener('click', () => {if(nativeSessionUI.active()){nativeSessionUI.refresh();return;}void roleRefresh.refreshTerminals().catch(error=>setError(error.message));});
 document.querySelector('#close-file-dialog').addEventListener('click', () => dom.fileDialog.close());
 dom.fileDialog.addEventListener('close', () => { app.fileReadVersion++; });

@@ -28,6 +28,9 @@
 .history-viewer { width: min(880px, 92vw); max-height: 85vh; padding: 22px; border: 1px solid #d5e0ee; border-radius: 12px; }
 .history-viewer-content { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 55vh; overflow: auto; font: 13px/1.65 ui-monospace, monospace; }
 .history-viewer-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.run-original { min-width: 0; }
+.run-original .dialog-heading { margin-bottom: 12px; }
+.run-original .history-viewer-title { margin: 0; font-size: 15px; }
 .history-open { width: auto; padding: 2px 6px; font-size: 11px; }
 .report-verdict { margin-top: 10px; padding-top: 6px; border-top: 1px solid #e5ecf5; font-size: 12px; color: #5f738c; }
 .run-alert { padding: 8px 12px; border-radius: 8px; color: #996418; background: #fff6e6; font-size: 12px; }
