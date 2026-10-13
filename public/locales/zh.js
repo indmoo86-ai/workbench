@@ -622,6 +622,7 @@ export default {
   'Loaded {offset} / {totalLength} characters': '已加载 {offset} / {totalLength} 字符',
   'Original message': '消息原文',
   'Original execution result': '执行结果原文',
+  'Result original': '结果原文',
   'Loading…': '正在加载…',
   'Full text copied, {totalLength} characters': '已复制全文，共 {totalLength} 字符',
   // plan-dock.js

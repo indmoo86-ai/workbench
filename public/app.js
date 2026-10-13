@@ -1634,7 +1634,7 @@ function renderRunTabs(task, run) {
     ['output', t('CLI output{v}', { v: logs.output.length ? ` ${logs.output.length}` : '' })],
     ['tools', t('Tool calls{v}', { v: logs.tools.length ? ` ${logs.tools.length}` : '' })],
     ['artifacts', 'Artifacts'],
-    ['original', 'Original']
+    ['original', 'Result original']
   ];
   const wrapper = create('div', 'run-log-tabs');
   const navigation = create('div', 'run-tab-list');
