@@ -1,6 +1,7 @@
 // English message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'roleSwitch.crossDevice': 'You selected another device. Cross-device handoff and CLI switching are not currently supported. Original device: {from}; selected device: {to}. To switch only the CLI, keep the original device. These changes were not saved; the original session is unaffected.',
   'followup.configChanged': 'Follow-up settings changed; reload before saving.',
   'followup.noSupervisor': 'Waiting for an enabled project supervisor.',
   'followup.waitingSilence': 'Waiting for the updated chat silence duration.',

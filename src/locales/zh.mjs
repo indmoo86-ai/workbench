@@ -1,6 +1,7 @@
 // Simplified Chinese message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'roleSwitch.crossDevice': '你已选择另一台设备，当前不支持跨设备交接并切换 CLI。原设备：{from}；所选设备：{to}。如只需切换 CLI，请保留原设备。此次修改未保存，原会话不受影响。',
   'followup.configChanged': '主动跟进设置已变更，请刷新后再保存。',
   'followup.noSupervisor': '等待可用且已启用的项目总管。',
   'followup.waitingSilence': '等待达到更新后的静默时长。',

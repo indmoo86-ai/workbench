@@ -3,6 +3,7 @@ import {Rooms} from './rooms.mjs';
 import {Coordinator} from './coordinator.mjs';
 import {RoleSessions} from './role-sessions.mjs';
 import {activeRoleSwitch, belongsToDrain, switchSettled} from './role-switch-policy.mjs';
+import {tr} from './i18n.mjs';
 
 const terminal = new Set(['succeeded','failed','interrupted']);
 const planTerminal = new Set(['succeeded','completed_with_issues','completed','cancelled','blocked']);
@@ -44,7 +45,10 @@ export class RoleSwitches {
   preview(projectId,roleId,draft) {
     const role=this.db.get('roles',roleId);
     if(!role||role.projectId!==projectId||role.archivedAt||role.platformAssistant)throw new Error('Role unavailable for CLI switch.');
-    if(draft.nodeId!==role.nodeId)throw new Error('CLI switch only supports the same device.');
+    if(draft.nodeId!==role.nodeId)throw new Error(tr('roleSwitch.crossDevice',{
+      from:this.db.get('workers',role.nodeId)?.name||role.nodeId,
+      to:this.db.get('workers',draft.nodeId)?.name||draft.nodeId||'—'
+    }));
     if(!draft.runtime||draft.runtime===role.runtime)throw new Error('Select a different CLI.');
     if(![role.runtime,draft.runtime].every(runtime=>['codex','grok'].includes(runtime)))throw new Error('Safe CLI switching is not yet verified for this adapter. Supported: Codex and Grok.');
     if(this.db.get('workers',role.nodeId)?.capabilities?.roleSwitch!==1)throw new Error('Upgrade the Worker to support CLI handoff and switch.');
