@@ -91,15 +91,15 @@ body[data-workspace-view="settings"] #show-project-settings { display: none; }
   height: 36px;
   padding: 0;
   border: 0;
-  border-radius: 11px;
+  border-radius: 0;
   color: #102019;
-  background: #6ddeae;
+  background: transparent;
   font-weight: 800;
   font-size: inherit;
   line-height: 1;
   flex-shrink: 0;
   cursor: pointer;
-  overflow: hidden;
+  overflow: visible;
 }
 .brand-icon { display: block; width: 100%; height: 100%; object-fit: cover; }
 .brand-mark:hover { filter: brightness(1.05); }
@@ -722,7 +722,7 @@ body[data-project-sidebar="collapsed"] .app-shell { grid-template-columns: 64px 
 body[data-project-sidebar="hidden"] .app-shell { grid-template-columns: minmax(0, 1fr) 264px; }
 .project-sidebar { color: #263c30; border-right: 1px solid var(--line); background: #f6f8f7; }
 .brand span, .sidebar-heading, .project-item small { color: #6a7b71; }
-.brand .brand-mark { display: grid; border: 0; color: #fff; background: #12845b; font-size: 18px; border-radius: 4px; }
+.brand .brand-mark { display: grid; border: 0; color: #fff; background: transparent; font-size: 18px; border-radius: 0; }
 .project-item { color: #43584b; border-radius: 4px; }
 .project-item.active, .project-item:hover { color: #176443; background: #e7f1eb; box-shadow: none; }
 .sidebar-footer { border-color: var(--line); }
@@ -1062,7 +1062,8 @@ dialog::backdrop { background: rgb(18 33 24 / 32%); backdrop-filter: none; }
 body { color: var(--ink); background: #f7faff; }
 .project-sidebar { color: var(--ink); border-color: var(--line); background: var(--sidebar); }
 .brand span, .sidebar-heading, .project-item small { color: var(--muted); }
-.brand .brand-mark { background: var(--accent-gradient); }
+/* Logo 自带圆角蓝底，透明留白直接透出页面，不再叠加按钮底板。 */
+.brand .brand-mark { background: transparent; box-shadow: none; }
 .project-item { color: #344f73; }
 .project-item:hover { color: var(--accent-dark); background: #deecff; }
 .project-item.active { color: #fff; background: var(--accent); }

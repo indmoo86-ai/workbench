@@ -87,3 +87,8 @@
 
 - Extended the approved dialog visual language to Basic Settings, Token Usage, Project Settings and Scheduled Jobs. Global/project tablists now share the sticky title bar rather than a separate row. Full-page layouts, section saves and nested modal behavior remain intact; changes are limited to frontend markup, styles and cache revision.
 - Real Edge checks against an isolated Home covered all five global tabs and the three other pages at desktop/mobile sizes. Seeded usage remained 8,000 tokens, project drafts survived tab switches, pages had no horizontal overflow and browsing/querying issued no configuration or dispatch writes. No production services or running tasks were touched; pre-existing quota-statistics changes remain separate.
+
+## 2026-10-13 — Logo transparent container
+
+- Removed the sidebar logo button's legacy gradient backing and corner clipping. The approved raster asset, dimensions and placement remain unchanged; transparent image margins now reveal the page instead of a second colored frame.
+- Real Edge verification against an isolated Home reproduced the gradient before the fix and confirmed transparent, borderless rendering afterward, including hover, sidebar toggle and visible keyboard focus. No backend changes, service restart or deployment.
