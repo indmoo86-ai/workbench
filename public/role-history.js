@@ -1,5 +1,11 @@
 import {t,getLanguage} from './i18n.js';
 
+/** The terminal picker is a shortcut, not history retention: never mutate or delete the source Runs. */
+export function latestTerminalRun(role,runs=[]) {
+  return runs.filter(r=>r.projectId===role.projectId&&r.roleId===role.id&&!r.historyClearedAt&&/^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/.test(r.nativeSession?.id||r.threadId||''))
+    .sort((a,b)=>(Date.parse(b.createdAt)||0)-(Date.parse(a.createdAt)||0))[0]||null;
+}
+
 /** Reuse the role editor as the history host; tab changes preserve unsaved configuration. */
 export function createRoleHistoryTabs({host,settings,getData,getRole,api,refreshState,create,formatTime,openTask}) {
   const nav=create('div','role-history-tabs');nav.setAttribute('role','tablist');nav.setAttribute('aria-label','Role Details');

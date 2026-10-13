@@ -4,6 +4,7 @@
  * Brand and product names (Codex, Gitee, GitHub, Windows App, iTerm, ...) are intentionally left as they are inside sentences.
  */
 export default {
+  'Only the latest resumable session is listed. Older execution records remain in role history.': '这里只展示最近一次可恢复的会话。旧执行记录仍保留在角色历史中。',
   'Context usage': '上下文占用',
   'Context used: {pct}%': '上下文已用：{pct}%',
   'Context usage unknown': '上下文占用未知',

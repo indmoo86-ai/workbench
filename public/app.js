@@ -2,6 +2,7 @@ import { t, getLanguage, setLanguage, onLanguageChange, syncLanguageWithBackend,
 import {simplifiedCliOutput} from './output-language.js';
 import {createNativeSessionUI} from './native-sessions.js';
 import {roleContextRing} from './context-usage.js';
+import {latestTerminalRun} from './role-history.js';
 import {executionProgressLabels} from './execution-progress.js';
 import {createLiveScene} from './live-scene.js';
 import { createRoomUI, createRoleRefresh } from './room.js';
@@ -1023,11 +1024,13 @@ function openRoleTerminal(role) {
   let returning=false,lastSignature='';
   const claimFor=mode=>{const r=app.data.runs.find(r=>r.id===mode),nodeId=r?.nodeId||role.nodeId;return (app.data.terminalSessions||[]).find(s=>s.projectId===role.projectId&&s.nodeId===nodeId);};
   const signature=mode=>{const c=claimFor(mode),r=app.data.runs.find(r=>r.id===mode),nodeId=c?.nodeId||r?.nodeId||role.nodeId,w=app.data.workers.find(w=>w.id===nodeId);return JSON.stringify([c?.id,c?.status,c?.processState,c?.lastCheckedAt,c?.processError,w?.online,w?.capabilities?.terminalControl,w?.capacity,w?.organizerBusy,app.data.settings?.paused,app.data.runs.filter(r=>r.nodeId===nodeId&&activeStatuses.has(r.status)).map(r=>[r.id,r.status]),(app.data.roleSwitches||[]).filter(s=>s.roleId===role.id).map(s=>[s.id,s.status])]);};
-  const render=(selectedMode='')=>{
+  const render=(selectedMode=null)=>{
     terminalDialog.replaceChildren();
-    const claim=claimFor(selectedMode);
-    const runs=app.data.runs.filter(r=>r.projectId===role.projectId&&r.roleId===role.id&&!r.historyClearedAt).slice().reverse();
-    const mode=claim?(claim.kind==='new'?'':claim.runId||''):selectedMode;
+    const latest=latestTerminalRun(role,app.data.runs),claim=claimFor(selectedMode??latest?.id??'');
+    // An existing takeover must keep its actual binding even if a newer execution was recorded.
+    const held=claim?.runId?app.data.runs.find(r=>r.id===claim.runId):null;
+    const runs=held?[held]:latest?[latest]:[];
+    const mode=claim?(claim.kind==='new'?'':claim.runId||''):selectedMode===''?'':latest?.id||'';
     lastSignature=signature(mode);
     const heading=create('div','dialog-heading');
     const close=create('button','secondary compact','Close');close.type='button';close.onclick=()=>terminalDialog.close();
@@ -1035,9 +1038,10 @@ function openRoleTerminal(role) {
     terminalDialog.append(create('p','workspace-note','Choose New session to start a fresh native CLI session, or select a past run to resume its exact native session. While the terminal is open, project dispatch on this device is paused; return it to the platform after closing the CLI. Terminal conversation is not posted back to the chat automatically, and managed wb tools are unavailable.'));
     const select=create('select');select.setAttribute('aria-label','Select terminal session');
     const freshOption=create('option','','New session');freshOption.value='';select.append(freshOption);
-    for(const run of runs){const option=create('option','',`${formatTime(run.createdAt)} · ${run.status} · ${(run.nativeSession?.id||run.threadId||t('no native ID')).slice(0,16)}`);option.value=run.id;select.append(option);}
+    for(const run of runs){const option=create('option','',`${formatTime(run.createdAt)} · ${(run.nativeSession?.id||run.threadId||t('no native ID')).slice(0,16)}`);option.value=run.id;select.append(option);}
     select.value=mode;select.disabled=!!claim;
     terminalDialog.append(select);
+    terminalDialog.append(create('p','workspace-note','Only the latest resumable session is listed. Older execution records remain in role history.'));
     const run=claim&&claim.kind!=='new'?app.data.runs.find(r=>r.id===claim.runId):runs.find(r=>r.id===select.value);
     select.onchange=()=>render(select.value);
     const info=create('p','workspace-note');
