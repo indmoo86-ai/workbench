@@ -127,7 +127,7 @@ for (const [id, name, label] of [
 }
 const roleRefresh=createRoleRefresh({api,refreshState,getData:()=>({...app.data,roles:[...(app.data.supervisorRoles||[]),...app.data.roles]}),getProject:getCurrentProject,
   button:document.querySelector('#refresh-role-status'),feedback:document.querySelector('#role-refresh-feedback'),onUpdate:()=>renderRoles()});
-const liveScene=createLiveScene({api,getProjectId:()=>app.selectedProjectId});
+const liveScene=createLiveScene({api,getProjectId:()=>app.selectedProjectId,onNewSession:role=>nativeSessionUI.openNew({nodeId:role.nodeId,runtime:role.runtime}),onResumeSession:role=>openRoleTerminal(role)});
 const runOriginal=createHistoryViewer({api,inline:true});
 let originalRunSnapshot=null;
 const room = createRoomUI({ api, refreshState, openTask, stopRun, decideApproval, create, formatTime, setError, configureDevice(projectId, nodeId) {
@@ -875,15 +875,10 @@ function renderRoles() {
       title.append(device);
     }
     head.append(title);
-    const terminalButton=create('button','chat-icon-btn role-terminal');
-    terminalButton.type='button';terminalButton.innerHTML=UI_ICON.terminal;
-    terminalButton.title='Continue the original session in iTerm';terminalButton.setAttribute('aria-label',t('Terminal session {name}', { name: displayName }));
-    terminalButton.addEventListener('click',e=>{e.stopPropagation();openRoleTerminal(role);});
-    head.append(terminalButton);
     const sceneButton=create('button','chat-icon-btn role-live-scene');sceneButton.type='button';sceneButton.innerHTML=UI_ICON.live;
     sceneButton.title=t('Live execution (read-only)');sceneButton.setAttribute('aria-label',t('Live execution for {name}',{name:displayName}));
     const candidates=(app.data.runs||[]).filter(r=>r.roleId===role.id&&!r.switchOperationId).sort((a,b)=>Number(!['succeeded','failed','interrupted'].includes(b.status))-Number(!['succeeded','failed','interrupted'].includes(a.status))||Date.parse(b.createdAt)-Date.parse(a.createdAt));
-    sceneButton.disabled=!candidates.length;sceneButton.addEventListener('click',event=>{event.stopPropagation();void liveScene.open(candidates[0].id,{projectId:role.projectId,name:displayName});});head.append(sceneButton);
+    sceneButton.addEventListener('click',event=>{event.stopPropagation();void liveScene.open(candidates[0]?.id,{projectId:role.projectId,name:displayName,role});});head.append(sceneButton);
     if (activity.label !== 'Idle') head.append(create('span', `role-badge is-${activity.tone}`, activity.label));
     const ids = create('div', 'role-id-row');
     if (configured) {
@@ -1020,7 +1015,7 @@ function renderProjectGitVersion() {
 }
 
 let terminalDialog;
-/** Resume the latest exact role session, or open the independent native-session form without group context. */
+/** Confirm resuming the latest exact role session; existing takeover ownership and safety gates are preserved. */
 function openRoleTerminal(role) {
   if(!terminalDialog){terminalDialog=create('dialog','terminal-dialog');terminalDialog.setAttribute('aria-label','Terminal session');document.body.append(terminalDialog);}
   const useLocalSshKey=['localhost','127.0.0.1','[::1]'].includes(location.hostname);
@@ -1039,8 +1034,8 @@ function openRoleTerminal(role) {
     lastSignature=viewSignature();
     const heading=create('div','dialog-heading');
     const close=create('button','icon-button');setActionIcon(close,'close','Close');close.type='button';close.onclick=()=>terminalDialog.close();
-    heading.append(create('h2','',t('{name} · Terminal Session', { name: role.name })),close);terminalDialog.append(heading);
-    terminalDialog.append(create('p','workspace-note','Start an independent native session, or verify and resume this role’s latest session. Terminal conversations do not automatically appear in the group chat.'));
+    heading.append(create('h2','',t('{name} · Resume session', { name: role.name })),close);terminalDialog.append(heading);
+    terminalDialog.append(create('p','workspace-note','Verify and resume this role’s latest session. Terminal conversations do not automatically appear in the group chat.'));
     const summary=create('section','terminal-session-summary');
     const summaryHeading=create('div','terminal-session-heading');summaryHeading.append(create('strong','',claim?'Current terminal session':'Latest historical session'));
     if(run)summaryHeading.append(create('time','',formatTime(run.createdAt)));
@@ -1087,13 +1082,11 @@ function openRoleTerminal(role) {
       release.onclick=()=>void returnControl('release');stop.onclick=()=>{if(confirm(t('Stop this terminal CLI and return control to Workbench? Unfinished terminal work will be interrupted.')))void returnControl('stop');};
       actions.append(release,stop);
     } else {
-      const fresh=create('button','secondary','Open new session');fresh.type='button';
-      fresh.onclick=()=>{terminalDialog.close();nativeSessionUI.openNew({nodeId:role.nodeId,runtime:role.runtime});};
       const prepare=create('button','primary','Verify and resume history');prepare.type='button';prepare.disabled=!!gate;
       prepare.onclick=async()=>{prepare.disabled=true;try{
         await api(`/api/runs/${encodeURIComponent(run.id)}/terminal`,{method:'POST',json:{action:'prepare',useLocalSshKey}});await refreshState({quiet:true});render();
       }catch(e){try{await refreshState({quiet:true});}catch{}render();const active=(app.data.terminalSessions||[]).find(item=>item.projectId===role.projectId&&item.nodeId===nodeId);if(!active){const status=terminalDialog.querySelector('[role="status"]');status.hidden=false;status.textContent=e.message;}}};
-      actions.append(fresh,prepare);
+      actions.append(prepare);
     }
   };
   terminalDialog.languageCleanup?.();

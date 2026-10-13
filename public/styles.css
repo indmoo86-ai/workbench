@@ -1580,9 +1580,9 @@ button.action-icon-button { display: inline-flex; align-items: center; justify-c
 .live-scene-warning { color: #956017; font-size: 12px; }
 @media (max-width: 600px) {
   .live-scene { width: 98vw; max-width: 98vw; height: 94dvh; border-radius: 12px; }
-  .live-scene-heading { padding: 13px; align-items: flex-start; gap: 8px; }
+  .live-scene-heading { padding: 13px; align-items: flex-start; gap: 8px; flex-wrap: wrap; }
   .live-scene-heading h2 { font-size: 17px; }
-  .live-scene-actions { gap: 6px; }
+  .live-scene-actions { gap: 6px; flex-wrap: wrap; margin-left: auto; }
   .live-scene-actions button { padding: 5px 7px; font-size: 12px; }
   .live-scene-connection, .live-scene-body { padding-left: 13px; padding-right: 13px; }
 }
