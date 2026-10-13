@@ -42,12 +42,22 @@ export function normalizeCcusageDaily(report,nodeId,collectedAt=new Date().toISO
   const result=new Map();
   for(const row of report?.daily||report?.data||[]){
     const date=row.period||row.date;if(!DATE.test(date||''))continue;
-    const current=result.get(date)||{id:`${nodeId}:${date}`,nodeId,date,inputTokens:0,outputTokens:0,cacheCreationTokens:0,cacheReadTokens:0,totalTokens:0,costUSD:0,agents:[],models:[],collectedAt};
+    const current=result.get(date)||{id:`${nodeId}:${date}`,nodeId,date,inputTokens:0,outputTokens:0,cacheCreationTokens:0,cacheReadTokens:0,totalTokens:0,costUSD:0,agents:[],models:[],modelBreakdowns:[],collectedAt};
     for(const key of ['inputTokens','outputTokens','cacheCreationTokens','cacheReadTokens'])current[key]+=number(row[key]);
     current.totalTokens+=number(row.totalTokens)||number(row.inputTokens)+number(row.outputTokens)+number(row.cacheCreationTokens)+number(row.cacheReadTokens);
     current.costUSD+=number(row.totalCost??row.costUSD);
     current.agents=[...new Set([...current.agents,...(row.metadata?.agents||[]),...(row.agent&&row.agent!=='all'?[row.agent]:[])])].sort();
     current.models=[...new Set([...current.models,...(row.modelsUsed||row.models||[])])].sort();
+    // ccusage already supplies per-model bytes of usage; retain them rather than guessing a split from modelsUsed.
+    for(const breakdown of row.modelBreakdowns||[]) {
+      if(typeof breakdown.modelName!=='string'||!breakdown.modelName.trim())continue;
+      let model=current.modelBreakdowns.find(model=>model.modelName===breakdown.modelName);
+      if(!model){model={modelName:breakdown.modelName,...total([])};current.modelBreakdowns.push(model);}
+      for(const key of ['inputTokens','outputTokens','cacheCreationTokens','cacheReadTokens'])model[key]+=number(breakdown[key]);
+      model.totalTokens+=number(breakdown.totalTokens)||number(breakdown.inputTokens)+number(breakdown.outputTokens)+number(breakdown.cacheCreationTokens)+number(breakdown.cacheReadTokens);
+      model.costUSD+=number(breakdown.totalCost??breakdown.costUSD??breakdown.cost);
+    }
+    current.modelBreakdowns.sort((a,b)=>a.modelName.localeCompare(b.modelName));
     result.set(date,current);
   }
   return [...result.values()].sort((a,b)=>a.date.localeCompare(b.date));
