@@ -76,3 +76,9 @@
 - Integrated the session-filter-controls and terminal-dialog-actions branches with the four Project Settings tabs and approved logo. Resolved the shared settings layout to retain full-width headers and sticky category tabs without resetting drafts.
 - Session filters default to all devices and Agents. The read-only live scene is entered from role cards; new/resume session actions open their existing confirmation forms. An integration review found that offline devices lost cached independent entries under All; Home now returns those entries with an explicit partial/offline result, without permitting offline history reads or terminal actions.
 - Real isolated browser checks passed for settings drafts, icon assets, offline cached entries, session filters and live-scene/native-entry routing. Controlled terminal/catalog responses were used only for action routing and failure cases; offline cache, settings and icon checks used actual Home APIs. The existing 56 tests passed. Release checks and private evidence remain outside Git; unrelated quota work is excluded.
+
+## 2026-10-13 — Unified frontend dialogs
+
+- Applied the approved compact white dialog style to application modals and the new-project panel. Role/supervisor tabs now occupy the header directly; draft preservation, existing saves and cancellation semantics remain unchanged. Browser-native confirmations are not replaced.
+- Isolated Edge checks covered twelve static dialog types at desktop/mobile sizes, role/supervisor header geometry and pinned actions, history scrolling, native session/file picking and live-scene entries. Regression checks protect inline original-text actions from modal footer styling. The native picker used an isolated Home/Worker with a controlled CLI; no real tasks were started or stopped. All 56 existing tests passed.
+- Frontend and documentation changes only. No backend edits, service restart, deployment or push; pre-existing quota work remains separate.

@@ -8,10 +8,10 @@ const prefix='wb.cli-switch.';
 export function createRoleSwitchUI({api,refreshState}) {
   let active=null,timer=null,heartbeat=null,sequence=0;
   const dialog=document.createElement('dialog');dialog.className='role-switch-dialog';
-  dialog.style.cssText='max-width:640px;width:90%;padding:28px;border:1px solid #cddcef;border-radius:18px;';
+  const heading=document.createElement('div'),actions=document.createElement('div');heading.className='dialog-heading';actions.className='form-actions';
   const title=document.createElement('h2'),status=document.createElement('p'),detail=document.createElement('p'),cancelButton=document.createElement('button');
-  title.textContent=t('Handoff and switch');status.setAttribute('role','status');detail.style.whiteSpace='pre-wrap';cancelButton.type='button';cancelButton.textContent=t('Cancel switch');
-  dialog.append(title,status,detail,cancelButton);document.body.append(dialog);
+  title.textContent=t('Handoff and switch');status.setAttribute('role','status');detail.style.whiteSpace='pre-wrap';cancelButton.type='button';cancelButton.className='secondary';cancelButton.textContent=t('Cancel switch');
+  heading.append(title);actions.append(cancelButton);dialog.append(heading,status,detail,actions);document.body.append(dialog);
   const key=(projectId,roleId)=>`${prefix}${projectId}.${roleId}`;
   const path=a=>`/api/projects/${encodeURIComponent(a.projectId)}/roles/${encodeURIComponent(a.roleId)}/cli-switches`;
   const lock=(host)=>{const fields=[...(host?.querySelectorAll('input,select,textarea,button')||[])].map(el=>[el,el.disabled]);for(const[el]of fields)el.disabled=true;return()=>{for(const[el,disabled]of fields)el.disabled=disabled;};};

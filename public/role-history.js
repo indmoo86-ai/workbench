@@ -10,11 +10,14 @@ export function latestTerminalRun(role,runs=[]) {
 export function createRoleHistoryTabs({host,settings,getData,getRole,api,refreshState,create,formatTime,openTask}) {
   const nav=create('div','role-history-tabs');nav.setAttribute('role','tablist');nav.setAttribute('aria-label','Role Details');
   const panel=create('section','role-history-panel');panel.id=`${settings.id}-history`;panel.setAttribute('role','tabpanel');
+  const heading=host.querySelector(':scope > .dialog-heading'),headingTitle=heading?.querySelector('h2'),close=heading?.querySelector('.icon-button');
   const settingsTab=create('button','secondary compact','Role settings'),historyTab=create('button','secondary compact','History records');
   settingsTab.type=historyTab.type='button';settingsTab.setAttribute('role','tab');historyTab.setAttribute('role','tab');
   settingsTab.id=`${settings.id}-settings-tab`;historyTab.id=`${settings.id}-history-tab`;
   settingsTab.setAttribute('aria-controls',settings.id);historyTab.setAttribute('aria-controls',panel.id);panel.setAttribute('aria-labelledby',historyTab.id);
-  nav.append(settingsTab,historyTab);host.insertBefore(nav,settings);host.append(panel);
+  nav.append(settingsTab,historyTab);
+  if(heading)heading.insertBefore(nav,close||null);else host.insertBefore(nav,settings);
+  host.append(panel);
   let active='settings',busy=false,signature='';
   function select(value) {
     active=value;settings.hidden=value!=='settings';panel.hidden=value!=='history';
@@ -22,9 +25,13 @@ export function createRoleHistoryTabs({host,settings,getData,getRole,api,refresh
     if(value==='history')render();
   }
   settingsTab.onclick=()=>select('settings');historyTab.onclick=()=>select('history');
-  nav.addEventListener('keydown',event=>{if(['ArrowLeft','ArrowRight'].includes(event.key)){event.preventDefault();select(active==='settings'?'history':'settings');(active==='settings'?settingsTab:historyTab).focus();}});
+  nav.addEventListener('keydown',event=>{
+    const value=event.key==='Home'?'settings':event.key==='End'?'history':['ArrowLeft','ArrowRight'].includes(event.key)?(active==='settings'?'history':'settings'):null;
+    if(value){event.preventDefault();select(value);(value==='settings'?settingsTab:historyTab).focus();}
+  });
   function render(force=false) {
-    const role=getRole(),data=getData();nav.hidden=!role?.id;
+    const role=getRole(),data=getData(),available=Boolean(role?.id);nav.hidden=!available;
+    if(headingTitle)headingTitle.hidden=available;
     if(!role?.id){select('settings');return;}
     if(active!=='history')return;
     const sessions=(data.roleSessions||[]).filter(s=>s.projectId===role.projectId&&s.roleId===role.id&&!s.historyClearedAt).slice().reverse();

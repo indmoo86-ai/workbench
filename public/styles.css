@@ -1649,3 +1649,133 @@ button.action-icon-button { display: inline-flex; align-items: center; justify-c
 .session-queue-strip{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0;padding:6px 10px;border:1px dashed var(--border,#ccc);border-radius:8px;font-size:12px}
 .session-queue-strip .pill{padding:1px 8px;border-radius:999px;background:var(--surface-2,#f2f2f2)}
 .session-queue-row{display:flex;flex-wrap:wrap;gap:6px;align-items:center;width:100%}
+
+/* 统一应用内弹窗的视觉层；不改变提交、关闭、权限确认及执行逻辑。 */
+:is(dialog, #project-form-panel) {
+  --dialog-space: 24px;
+  --dialog-line: #e6e8eb;
+  --dialog-blue: #3f6bff;
+  color: #262626;
+  background: #fff;
+  border: 1px solid var(--dialog-line);
+  border-radius: 4px;
+  box-shadow: 0 12px 40px rgb(0 0 0 / 18%);
+  padding: var(--dialog-space);
+  max-width: calc(100vw - 32px);
+  max-height: calc(var(--app-height, 100dvh) - 40px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #c7cbd1 transparent;
+}
+:is(dialog, #role-dialog, #run-dialog) { margin: auto; }
+dialog::backdrop { background: rgb(0 0 0 / 42%); backdrop-filter: none; }
+:is(dialog, #project-form-panel) *, :is(dialog, #project-form-panel) *::before { box-sizing: border-box; }
+:is(dialog, #project-form-panel) :is(form, label, fieldset, section, article, .full-width) { min-width: 0; }
+:is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) {
+  position: sticky; top: calc(-1 * var(--dialog-space)); z-index: 3;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin: calc(-1 * var(--dialog-space)) calc(-1 * var(--dialog-space)) 24px;
+  padding: 18px var(--dialog-space); min-height: 64px;
+  border: 0; border-bottom: 1px solid var(--dialog-line); background: #fff;
+}
+:is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) > div { min-width: 0; }
+:is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .live-scene-heading) :is(h2, h3), dialog > .message-fullscreen-heading > strong { margin: 0; color: #262626; font-size: 20px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
+:is(dialog, #project-form-panel) :is(.dialog-heading, .panel-heading) .eyebrow { display: none; }
+:is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) :is(.icon-button, .chat-icon-btn) {
+  display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px;
+  width: 32px; height: 32px; min-height: 32px; padding: 6px;
+  border: 0; border-radius: 3px; color: #70757d; background: transparent; box-shadow: none; font-size: 24px;
+}
+:is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) :is(.icon-button, .chat-icon-btn):hover { background: #f2f3f5; color: #262626; }
+:is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) :is(.icon-button, .chat-icon-btn) svg { width: 20px; height: 20px; }
+:is(dialog, #project-form-panel) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) {
+  max-width: 100%; border: 1px solid #d9dce1; border-radius: 3px; color: #262626; background: #fff;
+  font-size: 14px; font-weight: 400; box-shadow: none;
+}
+:is(dialog, #project-form-panel) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select) { height: 36px; padding-inline: 10px; }
+:is(dialog, #project-form-panel) :is(input, select, textarea):focus { border-color: var(--dialog-blue); outline: 0; box-shadow: 0 0 0 2px rgb(63 107 255 / 10%); }
+:is(dialog, #project-form-panel) :is(input, textarea)::placeholder { color: #a1a5ad; }
+:is(dialog, #project-form-panel) :is(input, select, textarea):disabled { background: #f6f7f8; color: #9298a1; }
+:is(dialog, #project-form-panel) input:is([type="checkbox"], [type="radio"]) { width: 16px; height: 16px; min-height: 16px; flex-shrink: 0; accent-color: var(--dialog-blue); }
+:is(dialog, #project-form-panel) :is(.form-grid, .native-session-form) { gap: 18px 24px; }
+:is(dialog, #project-form-panel) :is(label, .native-field) { color: #42464d; font-size: 14px; font-weight: 400; line-height: 1.5; }
+:is(dialog, #project-form-panel) :is(.workspace-note, .native-picker-note, .native-form-feedback) { color: #858c96; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+:is(dialog, #project-form-panel) :is(button.primary, a.primary, button.secondary, button.danger) { min-height: 36px; padding: 7px 16px; border: 1px solid #d9dce1; border-radius: 3px; font-size: 14px; font-weight: 400; line-height: 20px; box-shadow: none; }
+:is(dialog, #project-form-panel) :is(button.primary, a.primary) { background: var(--dialog-blue); border-color: var(--dialog-blue); color: #fff; }
+:is(dialog, #project-form-panel) :is(button.primary, a.primary):hover { background: #315de8; border-color: #315de8; }
+:is(dialog, #project-form-panel) button.secondary { color: #444a53; background: #fff; }
+:is(dialog, #project-form-panel) button.secondary:hover { color: var(--dialog-blue); border-color: var(--dialog-blue); }
+:is(dialog, #project-form-panel) button:focus-visible { outline: 2px solid var(--dialog-blue); outline-offset: 2px; }
+:is(dialog, #project-form-panel) button:disabled { opacity: .48; cursor: not-allowed; }
+
+/* 仅固定现有表单操作栏，不把历史清理/中途工具操作误当作提交按钮。 */
+:is(dialog, #project-form-panel) > .form-actions,
+:is(dialog, #project-form-panel) form > .form-actions,
+dialog :is(.native-session-actions, .native-picker-actions, .folder-browser-actions),
+dialog.history-viewer > .history-viewer-actions {
+  position: sticky; bottom: calc(-1 * var(--dialog-space)); z-index: 2;
+  display: flex; justify-content: flex-end; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 12px calc(-1 * var(--dialog-space)) calc(-1 * var(--dialog-space));
+  padding: 16px var(--dialog-space); border: 0; border-top: 1px solid var(--dialog-line); background: #fff;
+}
+:is(dialog, #project-form-panel) :is(.settings-block, .terminal-session-summary, fieldset) { border-color: var(--dialog-line); border-radius: 3px; background: #fff; box-shadow: none; }
+:is(dialog, #project-form-panel) pre { border-radius: 3px; color: #444a53; background: #f7f8fa; }
+dialog :is(.native-picker-path, .selected-path) { padding-inline: 0; border-radius: 0; background: transparent; }
+dialog :is(.native-picker-list, .folder-list) { border-radius: 3px; border-color: var(--dialog-line); }
+dialog :is(.native-picker-item, .folder-row) { border-radius: 2px; }
+dialog :is(.native-picker-item, .folder-row):hover { background: #f5f7fb; }
+dialog :is(.native-picker-item[aria-pressed="true"], .folder-row[aria-selected="true"]) { background: #edf3ff; }
+dialog .native-picker-actions { margin-top: 16px; }
+dialog .native-launch-result { padding-top: 20px; }
+
+/* 这些窗口已有独立滚动正文，继续保留其布局，不引入第二个页面滚动层。 */
+dialog:is(#role-dialog, #supervisor-settings, #run-dialog, .live-scene, .message-fullscreen) { padding: 0; overflow: hidden; }
+dialog:is(#role-dialog, #supervisor-settings, #run-dialog, .live-scene, .message-fullscreen) > :is(.dialog-heading, .live-scene-heading, .message-fullscreen-heading) { position: static; flex-shrink: 0; top: 0; margin: 0; }
+dialog:is(.live-scene, .message-fullscreen) { margin: auto; }
+dialog.message-fullscreen { display: flex; flex-direction: column; }
+dialog.message-fullscreen:not([open]) { display: none; }
+dialog .message-fullscreen-body { min-height: 0; flex: 1; overflow: auto; padding: var(--dialog-space); }
+dialog .message-fullscreen-content { max-width: 1040px; margin-inline: auto; }
+dialog .live-scene-body { scrollbar-color: #c7cbd1 transparent; }
+dialog .live-scene-event { border-color: var(--dialog-line); border-left-color: #8299bc; border-radius: 0; }
+dialog .live-scene-event.is-tool { border-left-color: #48b0aa; }
+dialog .live-scene-event.is-error { border-left-color: #f3948d; }
+dialog .live-scene-input { border-color: var(--dialog-line); border-radius: 3px; }
+
+/* 标题栏 Tab 使用原来的表单/历史节点，仅切换可见性。 */
+:is(#role-dialog, #supervisor-settings) > .dialog-heading:has(.role-history-tabs:not([hidden])) { padding-block: 0; }
+:is(#role-dialog, #supervisor-settings) .dialog-heading > .role-history-tabs { align-self: stretch; align-items: stretch; flex: 1; gap: 24px; padding: 0; border: 0; min-width: 0; }
+:is(#role-dialog, #supervisor-settings) .role-history-tabs > button { min-height: 64px; padding: 0 4px; border: 0; border-radius: 0; background: transparent; color: #737b87; box-shadow: none; font-size: 18px; font-weight: 500; white-space: nowrap; }
+:is(#role-dialog, #supervisor-settings) .role-history-tabs > button[aria-selected="true"] { color: var(--dialog-blue); box-shadow: inset 0 -2px var(--dialog-blue); background: transparent; }
+:is(#role-dialog, #supervisor-settings) .role-history-tabs > button:hover { color: var(--dialog-blue); background: transparent; }
+:is(#role-form, #supervisor-form) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+:is(#role-form, #supervisor-form) .role-field-row { display: contents; }
+#supervisor-form .role-field-row:first-child > label:first-child { grid-column: auto; }
+:is(#role-form, #supervisor-settings-body, .role-history-panel) { padding: 22px var(--dialog-space) var(--dialog-space); }
+:is(#role-form, #supervisor-form) textarea { min-height: 78px; }
+#role-form textarea[name="instructions"], #project-supervisor-prompt-preview { height: 100px; }
+#role-archive { margin-right: auto; border-color: transparent; color: #6d7480; background: transparent; }
+
+/* 历史列表去掉逐条大边框，长标题最多两行，不允许把弹窗撑宽。 */
+#history-dialog { width: min(960px, calc(100vw - 32px)); }
+#history-dialog .task-list { gap: 0; min-width: 0; }
+#history-dialog .task-card { display: block; min-width: 0; border: 0; border-bottom: 1px solid var(--dialog-line); border-radius: 0; padding: 18px 8px; color: #262626; background: #fff; box-shadow: none; }
+#history-dialog .task-card:hover, #history-dialog .task-card.active { background: #f0f5ff; }
+#history-dialog .task-card h3 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; overflow-wrap: anywhere; font-size: 14px; font-weight: 500; line-height: 1.6; }
+#history-dialog .task-card .meta { color: #858c96; font-size: 12px; }
+dialog.role-switch-dialog { width: min(640px, calc(100vw - 32px)); }
+
+@media (max-width: 600px) {
+  :is(dialog, #role-dialog):not(.live-scene):not(.message-fullscreen):not(#run-dialog) { height: fit-content; }
+  :is(dialog, #project-form-panel) { --dialog-space: 16px; max-width: calc(100vw - 20px); max-height: calc(var(--app-height, 100dvh) - 24px); }
+  :is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) { min-height: 56px; padding-block: 12px; gap: 10px; }
+  :is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .live-scene-heading) :is(h2, h3), dialog > .message-fullscreen-heading > strong { font-size: 18px; }
+  :is(dialog, #project-form-panel) :is(.form-grid, .native-session-form), :is(#role-form, #supervisor-form) { grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  :is(#role-dialog, #supervisor-settings) .role-history-tabs > button { min-height: 56px; font-size: 16px; }
+  :is(#role-dialog, #supervisor-settings) .dialog-heading > .role-history-tabs { gap: 18px; }
+  :is(dialog, #project-form-panel) :is(button.primary, button.secondary) { min-height: 40px; }
+  dialog .native-workspace-row { flex-wrap: wrap; }
+  dialog .native-workspace-row input { flex-basis: 100%; }
+  dialog .live-scene-heading { flex-wrap: wrap; }
+}
