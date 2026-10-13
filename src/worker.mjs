@@ -358,7 +358,9 @@ async function command(m) {
         const tracking=watched.length?watched.map(s=>({id:s.repositoryId,localRoot:s.root,scopeKind:s.scopeKind,scopePolicy:s.scopePolicy})):executionRepositories;
         provenance=new SourceProvenanceTracker({db,run:{...m.run,workspace:folder},repositories:tracking,blobRoot:sourceSync.blobRoot,
           publish:proof=>emit(c.runId,'source_provenance',proof)});
-        await provenance.start();
+        const preparationScan=await provenance.start();
+        emit(c.runId,'status',{preparationScan});
+        emit(c.runId,'log',{text:tr('sourceSync.preparationScan',{scopes:preparationScan.scopes,files:preparationScan.files,seconds:(preparationScan.elapsedMs/1000).toFixed(2),unavailable:preparationScan.unavailableScopes})});
       }
       emit(c.runId, 'status', { nativeSession: native });
       // The turn purpose goes into the dynamic input, so switching between Q&A and business stages does not needlessly recycle the warm process.

@@ -1,6 +1,7 @@
 // English message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'sourceSync.preparationScan': 'Pre-input file verification: {scopes} scopes, {files} files, {seconds}s; {unavailable} unavailable scopes (no attribution evidence).',
   'runReports.invalidSubmissionId': 'Invalid report submission ID.',
   'runReports.superseded': 'This submission was saved as revision {revision}; revision {currentRevision} is now current. The older conclusion was not restored.',
   'runReports.submissionConflict': 'This report submission ID already belongs to different content. Query the original receipt or use a new ID for an intentional revision.',

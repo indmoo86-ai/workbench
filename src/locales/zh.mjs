@@ -1,6 +1,7 @@
 // Simplified Chinese message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'sourceSync.preparationScan': '启动前文件核验：{scopes} 个范围，{files} 个文件，耗时 {seconds} 秒；{unavailable} 个范围不可用（不生成修改归属证据）。',
   'runReports.invalidSubmissionId': '报告提交编号无效。',
   'runReports.superseded': '此次提交已保存为第 {revision} 版；当前已有第 {currentRevision} 版。未将旧结论覆盖回去。',
   'runReports.submissionConflict': '此报告提交编号已用于不同内容。请查询原回执；确需修订报告时使用新的编号。',
