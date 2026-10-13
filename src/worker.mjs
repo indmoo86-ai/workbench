@@ -813,7 +813,8 @@ async function query(m) {
     if (m.action === 'runtimes') { send({ type: 'reply', id: m.id, result: { runtimes: await refreshRuntimes() } }); return; }
     if (m.action === 'token_usage') { send({type:'reply',id:m.id,result:await collectCcusageReport({base,since:m.path?.since||null,until:m.path?.until||null,timezone:m.path?.timezone||SYSTEM_TIME_ZONE})}); return; }
     if (m.action === 'directories') {
-      send({ type: 'reply', id: m.id, result: await browseFolders(roots, m.path?.path, m.path?.offset || 0) }); return;
+      send({ type: 'reply', id: m.id, result: await browseFolders(roots, m.path?.path, m.path?.offset ?? 0,
+        { includeFiles: m.path?.includeFiles === true }) }); return;
     }
     if (m.action === 'git_check') {
       const root = await projectRoot(m.path?.localRoot);

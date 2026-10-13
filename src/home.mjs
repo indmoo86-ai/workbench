@@ -506,7 +506,8 @@ const server = http.createServer(async (req, res) => {
           return json(res,result);
         }
         if(!online(nodeId))throw Error('Device is offline');
-        if(req.method==='GET'&&nativeMatch[2]==='folders')return json(res,await workerQuery({nodeId},'directories',{path:url.searchParams.get('path')||null},15000));
+        if(req.method==='GET'&&nativeMatch[2]==='folders')return json(res,await workerQuery({nodeId},'directories',{
+          path:url.searchParams.get('path')||null,offset:Number(url.searchParams.get('offset')||0),includeFiles:true},15000));
         if(req.method!=='POST'||nativeMatch[2]!=='terminal')throw Error('Invalid session action');
         const b=await body(req);
         if(b.action==='release'){const claim=db.get('terminalSessions',b.operationId);if(claim?.kind!=='native'||claim.nodeId!==nodeId)throw Error('Invalid native terminal binding');return json(res,await returnTerminal(claim,'release'));}

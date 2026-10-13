@@ -365,9 +365,48 @@ body[data-navigation-mode="sessions"] #node-sidebar > :not(#native-session-sideb
 .native-session-sidebar h2 { margin-top: 0; font-size: 18px; }
 .native-session-meta dt { color: var(--muted); margin-top: 20px; font-size: 12px; }
 .native-session-meta dd { margin: 6px 0; overflow-wrap: anywhere; }
-.native-session-dialog { width: min(650px,calc(100vw - 32px)); }
-.native-session-dialog .form-grid { grid-template-columns: 1fr; }
-.native-folder-browser { display: grid; gap: 5px; max-height: 200px; overflow: auto; }
+.settings-edit-dialog.native-session-dialog, .settings-edit-dialog.native-file-picker { width: min(680px,calc(100vw - 32px)); height: fit-content; min-height: 0; margin: auto; box-sizing: border-box; }
+.native-session-dialog .native-session-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin-top: 4px; }
+.native-session-form .native-field { display: grid; min-width: 0; gap: 7px; color: #425a73; font-size: 13px; font-weight: 600; }
+.native-session-form .native-full { grid-column: 1 / -1; min-width: 0; }
+.native-session-form input:not([type="checkbox"]), .native-session-form select { height: 40px; min-width: 0; border-radius: 8px; font-size: 13px; font-weight: 400; }
+.native-session-form input[readonly] { color: #667c93; background: #f4f7fb; }
+.native-session-form .workspace-note { margin: 0; font-size: 12px; line-height: 1.6; }
+.native-workspace-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.native-workspace-row input { flex: 1; width: 0; }
+.native-workspace-row button { flex: none; padding: 0 12px; height: 40px; font-size: 12px; border-radius: 8px; font-weight: 500; }
+.native-session-form .native-permissions { display: flex; align-items: flex-start; gap: 9px; margin: 2px 0 -8px; font-size: 13px; font-weight: 400; line-height: 20px; }
+.native-session-form .native-permissions input { flex: 0 0 16px; width: 16px; height: 16px; min-height: 16px; padding: 0; margin: 2px 0; accent-color: var(--accent); }
+.native-session-actions { display: flex; justify-content: flex-end; padding-top: 16px; border-top: 1px solid var(--line); }
+.native-session-actions button, .native-picker-actions button { padding: 10px 18px; border-radius: 8px; }
+.native-form-feedback { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.native-form-feedback:empty, .native-launch-result:empty { display: none; }
+.native-session-dialog .dialog-heading h2, .native-file-picker .dialog-heading h2 { margin: 0; font-size: 20px; }
+.native-session-dialog .native-close, .native-file-picker .native-close { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px; width: 32px; height: 32px; min-height: 32px; padding: 6px; border-radius: 8px; }
+.native-close svg { display: block; width: 20px; height: 20px; }
+.native-file-picker { width: min(680px,calc(100vw - 32px)); }
+.native-picker-toolbar { display: flex; gap: 8px; }
+.native-picker-toolbar button { font-size: 12px; padding: 7px 10px; border-radius: 7px; }
+.native-picker-path { margin: 12px 0; padding: 10px; border-radius: 8px; background: #f1f6fd; font-size: 12px; overflow-wrap: anywhere; }
+.native-picker-list { min-height: 160px; max-height: min(320px,40dvh); overflow: auto; border: 1px solid var(--line); border-radius: 9px; scrollbar-width: thin; scrollbar-color: #b2c4dc transparent; }
+.native-picker-row { display: flex; align-items: center; padding: 2px 4px; border-bottom: 1px solid #eef3fa; }
+.native-picker-row:last-child { border-bottom: 0; }
+.native-picker-item { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 10px 8px; border: 0; background: transparent; color: var(--ink); text-align: left; font-size: 13px; font-weight: 400; border-radius: 6px; }
+.native-picker-item > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.native-picker-item:hover { background: #edf4ff; }
+.native-picker-item[aria-pressed="true"] { background: #e1edff; color: #075cdb; }
+.native-picker-glyph { display: flex; color: #5890dc; flex: 0 0 20px; }
+.native-picker-glyph svg { width: 20px; height: 20px; }
+.native-picker-row .native-picker-enter { flex: 0 0 30px; height: 30px; width: 30px; padding: 0; border: 0; background: transparent; font-size: 22px; }
+.native-picker-selection { margin-top: 12px; font-size: 12px; overflow-wrap: anywhere; color: #425a73; }
+.native-picker-note { color: var(--muted); margin: 8px 0 14px; font-size: 12px; line-height: 1.5; }
+.native-picker-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 600px) {
+  .native-session-dialog .native-session-form { grid-template-columns: minmax(0,1fr); gap: 14px; }
+  .native-workspace-row { flex-wrap: wrap; }
+  .native-workspace-row input { flex-basis: 100%; }
+  .native-workspace-row button { margin-left: auto; }
+}
 .native-launch-result { display: flex; flex-wrap: wrap; gap: 8px; }
 .native-launch-result a { display: inline-block; text-decoration: none; padding: 10px 16px; }
 .detail-meta { display: flex; flex-wrap: wrap; gap: 6px 15px; color: var(--muted); font-size: 11px; }

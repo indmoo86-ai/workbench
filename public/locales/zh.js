@@ -4,6 +4,14 @@
  * Brand and product names (Codex, Gitee, GitHub, Windows App, iTerm, ...) are intentionally left as they are inside sentences.
  */
 export default {
+  'Select file or folder': '选择文件或文件夹',
+  'Select {name}': '选择 {name}',
+  'Open folder {name}': '打开文件夹 {name}',
+  'Allowed folders': '允许访问的目录',
+  'Only the containing folder is used; the file is not read.': '仅使用文件所在文件夹，不读取文件内容。',
+  'Select an item, then choose Use.': '选中文件或文件夹后，点击“使用”。',
+  'An existing session keeps its original working folder.': '继续已有会话时保留原工作目录。',
+  'Use': '使用',
   'Created sessions': '新增会话',
   'Local machine': '本机',
   'Servers': '服务器',
