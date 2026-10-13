@@ -1,4 +1,5 @@
 import { t } from './i18n.js';
+import {setActionIcon} from './role-icons.js';
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -20,10 +21,11 @@ export function createHistoryViewer({ api }) {
     const actions = element('div', 'history-viewer-actions');
     const next = element('button', 'secondary', 'Load next segment');
     const copy = element('button', 'secondary', 'Copy full text');
-    const close = element('button', 'secondary', 'Close');
+    const close = element('button', 'icon-button');setActionIcon(close,'close','Close');
     for (const button of [next, copy, close]) button.type = 'button';
-    actions.append(next, copy, close);
-    dialog.append(title, content, status, actions);
+    const heading=element('div','dialog-heading');heading.append(title,close);
+    actions.append(next, copy);
+    dialog.append(heading, content, status, actions);
     document.body.append(dialog);
     dialog.parts = { title, content, status, next, copy, close };
     close.addEventListener('click', () => { activeState = null; dialog.close(); });

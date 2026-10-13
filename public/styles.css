@@ -885,10 +885,16 @@ dialog::backdrop { background: rgb(18 33 24 / 32%); backdrop-filter: none; }
 .role-session-dialog { width: min(780px, calc(100vw - 28px)); max-height: min(88vh, 900px); overflow: auto; }
 .role-session-dialog .settings-block { margin-bottom: 12px; }
 .role-session-dialog .prompt-preview { max-height: 48vh; font-size: 12px; line-height: 1.6; }
-.terminal-dialog { width: min(620px, 94vw); max-height: 90vh; overflow: auto; }
-.terminal-dialog select { width: 100%; }
+.terminal-dialog { width: min(680px, calc(100vw - 32px)); height: fit-content; min-height: 0; max-height: 90vh; margin: auto; overflow: auto; padding: 24px; border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 24px 72px rgb(25 55 90 / 20%); }
+.terminal-dialog .dialog-heading { align-items: center; gap: 16px; padding-bottom: 16px; border-bottom: 1px solid var(--line); }
+.terminal-dialog .dialog-heading h2 { min-width: 0; overflow-wrap: anywhere; font-size: 22px; }
+.terminal-session-summary { margin: 20px 0; padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: linear-gradient(135deg, #edf5ff, #fafcff); }
+.terminal-session-heading { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.terminal-session-heading time { color: var(--muted); font-size: 12px; }
+.terminal-session-info { margin-bottom: 0; line-height: 1.8; }
 .terminal-dialog .workspace-note { overflow-wrap: anywhere; }
-.terminal-dialog .form-actions { flex-wrap: wrap; }
+.terminal-dialog .form-actions { flex-wrap: wrap; padding-top: 16px; border-top: 1px solid var(--line); gap: 12px; }
+@media (max-width: 600px) { .terminal-dialog { padding: 18px; } .terminal-dialog .form-actions > button { flex: 1 1 180px; } }
 .role-card-title { display: flex; align-items: center; gap: 5px; flex: 0 1 auto; min-width: 0; }
 .role-card-name {
   min-width: 0; font-size: 15px; font-weight: 750; color: var(--ink);

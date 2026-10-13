@@ -8,6 +8,7 @@ Status: implemented on the feature branch, not deployed. This is a native CLI en
 - Sessions selects a device and one of its available Codex, Claude Code, Grok or Agy installations. Its left list shows recent native conversations.
 - Selecting a conversation shows read-only user/assistant history in the middle and device/tool/native ID/folder in the right pane. There is no web message composer.
 - The + dialog chooses a device, tool and allowed working folder. Permission bypass is an explicit checkbox, initially off; otherwise the CLI's own defaults apply.
+- The role terminal dialog also opens this same new-session form, preselecting only its device and tool. It does not supply the group folder, history or role prompt. The separate history action verifies the latest resumable Run; older records remain stored, and active terminal claims keep their original binding and return controls.
 - Continue prepares an exact native resume, not latest/continue/fork. Known original working folders cannot be silently changed. Unknown folders must be selected explicitly.
 - The final link opens iTerm. A registered remote device uses the existing SSH command builder and the Worker's original user/environment. Copying the command is also available.
 

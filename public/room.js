@@ -253,7 +253,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
           previewDialog.setAttribute('aria-label', 'Image preview');
           previewDialog.replaceChildren();
           const image = create('img'); image.src = url; image.alt = item.name;
-          previewDialog.append(button('Close',()=>previewDialog.close()), image, create('p','',item.name));
+          previewDialog.append(iconAction('close','Close',()=>previewDialog.close()), image, create('p','',item.name));
           previewDialog.showModal();
         } else if (/\.(md|markdown|txt)$/i.test(item.name)) {
           const response = await fetch(url);
@@ -295,7 +295,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
   function openAttachmentTransfer(item) {
     if(!transferDialog){transferDialog=create('dialog','attachment-transfer-dialog');transferDialog.setAttribute('aria-label','Send to device');document.body.append(transferDialog);}
     transferDialog.replaceChildren();
-    const header=create('div','dialog-heading');header.append(create('h2','','Send to device'),button('Close',()=>transferDialog.close()));
+    const header=create('div','dialog-heading');header.append(create('h2','','Send to device'),iconAction('close','Close',()=>transferDialog.close()));
     const select=create('select');select.setAttribute('aria-label','Target device');
     const bindings=(data.workspaces||[]).filter(w=>w.projectId===item.projectId);
     const workers=(data.workers||[]).filter(w=>bindings.some(b=>b.nodeId===w.id)).sort((a,b)=>Number(b.nodeKind==='cloud')-Number(a.nodeKind==='cloud'));

@@ -1,6 +1,6 @@
 import {t,dateLocale} from './i18n.js';
 import {simplifiedCliOutput} from './output-language.js';
-import {agentIconEl} from './role-icons.js';
+import {agentIconEl,setActionIcon} from './role-icons.js';
 
 const names={codex:'Codex',claude:'Claude Code',grok:'Grok',agy:'Agy'};
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
@@ -34,11 +34,11 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
   }catch(e){if(ticket===version)content.replaceChildren(el('p','global-error',e.message));}
  }
  const dialog=el('dialog','settings-edit-dialog native-session-dialog');dialog.id='native-session-dialog';document.body.append(dialog);
- function openForm(session=null){populate();dialog.replaceChildren();const heading=el('div','dialog-heading'),close=button('Close',()=>dialog.close(),'icon-button');close.dataset.close='';heading.append(el('h2','',t(session?'Continue native session':'New native session')),close);dialog.append(heading);
+ function openForm(session=null,defaults={}){populate();dialog.replaceChildren();const heading=el('div','dialog-heading'),close=button('Close',()=>dialog.close(),'icon-button');setActionIcon(close,'close',t('Close'));close.dataset.close='';heading.append(el('h2','',t(session?'Continue native session':'New native session')),close);dialog.append(heading);
   const form=el('form','form-grid'),d=el('select'),r=el('select'),folder=el('input'),all=el('input');d.required=r.required=folder.required=true;folder.type='text';folder.value=session?.workspace||'';folder.placeholder=t('Select a working folder');all.type='checkbox';all.id='native-allow-all';all.checked=false;
   const field=(label,input)=>{const l=el('label','',t(label));l.append(input);form.append(l);};
-  options(d,(getData().workers||[]).map(w=>[w.id,`${w.name||w.id}${w.online?'':` · ${t('Offline')}`}`]));d.value=device.value;
-  const updateTools=()=>{options(r,(getData().workers?.find(w=>w.id===d.value)?.runtimes||[]).filter(x=>x.available&&x.supported!==false&&names[x.type]).map(x=>[x.type,names[x.type]]));};updateTools();r.value=tool.value;d.disabled=r.disabled=Boolean(session);if(session?.workspace)folder.readOnly=true;
+  options(d,(getData().workers||[]).map(w=>[w.id,`${w.name||w.id}${w.online?'':` · ${t('Offline')}`}`]));d.value=defaults.nodeId||device.value;
+  const updateTools=()=>{options(r,(getData().workers?.find(w=>w.id===d.value)?.runtimes||[]).filter(x=>x.available&&x.supported!==false&&names[x.type]).map(x=>[x.type,names[x.type]]));};updateTools();r.value=defaults.runtime||tool.value;d.disabled=r.disabled=Boolean(session);if(session?.workspace)folder.readOnly=true;
   field('Device',d);field('Agent tool',r);field('Working folder',folder);
   const folders=el('div','native-folder-browser'),feedback=el('p','workspace-note'),launch=el('div','native-launch-result');
   const browse=async path=>{try{const result=await api(`/api/native-sessions/${encodeURIComponent(d.value)}/folders?${new URLSearchParams(path?{path}:{})}`);folders.replaceChildren();if(result.parent)folders.append(button('Parent folder',()=>browse(result.parent)));if(result.path)folders.append(button('Use this folder',()=>{folder.value=result.path;folders.replaceChildren();}));for(const item of result.folders||[])folders.append(button(item.name,()=>browse(item.path)));}catch(e){feedback.textContent=e.message;}};
@@ -59,5 +59,5 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
  mode.addEventListener('change',()=>{document.body.dataset.navigationMode=mode.value;onModeChange();if(active()){populate();void load();}else{version++;dialog.close();}});
  device.addEventListener('change',()=>{tools();void load();});tool.addEventListener('change',()=>load());
  list.hidden=filters.hidden=note.hidden=content.hidden=side.hidden=true;
- return {active,openNew:()=>openForm(),sync(){populate();const visible=active();list.hidden=filters.hidden=note.hidden=side.hidden=!visible;content.hidden=!visible||document.body.dataset.workspaceView==='settings';if(visible&&document.body.dataset.workspaceView!=='settings'){document.querySelector('#workspace-title').textContent=t('Native sessions');document.querySelector('#show-project-form').setAttribute('aria-label',t('New native session'));}else document.querySelector('#show-project-form').setAttribute('aria-label',t('New project'));},refresh:()=>{if(active()&&!loading)void load();}};
+ return {active,openNew:(defaults={})=>openForm(null,defaults),sync(){populate();const visible=active();list.hidden=filters.hidden=note.hidden=side.hidden=!visible;content.hidden=!visible||document.body.dataset.workspaceView==='settings';if(visible&&document.body.dataset.workspaceView!=='settings'){document.querySelector('#workspace-title').textContent=t('Native sessions');document.querySelector('#show-project-form').setAttribute('aria-label',t('New native session'));}else document.querySelector('#show-project-form').setAttribute('aria-label',t('New project'));},refresh:()=>{if(active()&&!loading)void load();}};
 }
