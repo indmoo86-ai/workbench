@@ -13,8 +13,8 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
  document.querySelector('#project-list').after(list);document.querySelector('main.workspace').append(content);document.querySelector('#node-sidebar').append(side);
  const filters=el('div','native-session-filters'),device=el('select'),tool=el('select');device.setAttribute('aria-label',t('Session device'));tool.setAttribute('aria-label',t('Agent tool'));filters.append(device,tool,button('Refresh sessions',()=>load()));list.before(filters);
  const note=el('p','workspace-note');list.before(note);note.classList.add('native-session-note');
- let selected=null,items=[],version=0,lastCatalog='',loading=false;
- const active=()=>mode.value==='sessions';
+ let selected=null,items=[],version=0,lastCatalog='',loading=false,modeValue='groups';
+ const active=()=>modeValue==='sessions';
  const endpoint=()=>`/api/native-sessions/${encodeURIComponent(device.value)}`;
  function options(select,values){const old=select.value;select.replaceChildren(...values.map(([value,label])=>{const o=el('option','',label);o.value=value;return o;}));if(values.some(([v])=>v===old))select.value=old;}
  function populate(){const workers=getData().workers||[],signature=JSON.stringify(workers.map(w=>[w.id,w.name,w.online,w.runtimes]));if(signature===lastCatalog)return;const oldDevice=device.value,oldTool=tool.value;lastCatalog=signature;options(device,workers.map(w=>[w.id,`${w.name||w.id}${w.online?'':` · ${t('Offline')}`}`]));tools();if(oldDevice&&(device.value!==oldDevice||tool.value!==oldTool)){version++;items=[];resetDetail();renderList();note.textContent=t('Refresh sessions');}}
@@ -56,7 +56,11 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
    try{const result=await api(`/api/native-sessions/${encodeURIComponent(d.value)}/terminal`,{method:'POST',json:{...input,operationId}});prepared={nodeId:d.value,operationId};opened=false;if(!dialog.open||!dialog.contains(form)){await releaseUnused();return;}feedback.textContent=t('Ready. Open iTerm to start or resume the native CLI.');const a=el('a','primary',t('Open iTerm'));a.href=result.url;a.addEventListener('click',()=>{opened=true;});launch.append(a,button('Copy terminal command',async()=>{await navigator.clipboard.writeText(result.command);opened=true;feedback.textContent=t('Copied');}));}catch(error){feedback.textContent=error.message;}finally{submit.disabled=false;d.disabled=r.disabled=Boolean(session);folder.disabled=all.disabled=false;browseButton.disabled=Boolean(session?.workspace);}
   });dialog.showModal();
  }
- mode.addEventListener('change',()=>{document.body.dataset.navigationMode=mode.value;onModeChange();if(active()){populate();void load();}else{version++;dialog.close();}});
+ /** Segmented buttons share one mode transition; selecting the active side does not reload history. */
+ const switches=[...mode.querySelectorAll('button[data-mode]')];
+ function selectMode(value){if(!['groups','sessions'].includes(value)||value===modeValue)return;modeValue=value;for(const control of switches)control.setAttribute('aria-pressed',String(control.dataset.mode===value));document.body.dataset.navigationMode=value;onModeChange();if(active()){populate();void load();}else{version++;dialog.close();}}
+ for(const control of switches)control.addEventListener('click',()=>selectMode(control.dataset.mode));
+ mode.addEventListener('keydown',event=>{const index=event.key==='ArrowLeft'||event.key==='Home'?0:event.key==='ArrowRight'||event.key==='End'?1:null;if(index===null)return;event.preventDefault();switches[index].focus();selectMode(switches[index].dataset.mode);});
  device.addEventListener('change',()=>{tools();void load();});tool.addEventListener('change',()=>load());
  list.hidden=filters.hidden=note.hidden=content.hidden=side.hidden=true;
  return {active,openNew:()=>openForm(),sync(){populate();const visible=active();list.hidden=filters.hidden=note.hidden=side.hidden=!visible;content.hidden=!visible||document.body.dataset.workspaceView==='settings';if(visible&&document.body.dataset.workspaceView!=='settings'){document.querySelector('#workspace-title').textContent=t('Native sessions');document.querySelector('#show-project-form').setAttribute('aria-label',t('New native session'));}else document.querySelector('#show-project-form').setAttribute('aria-label',t('New project'));},refresh:()=>{if(active()&&!loading)void load();}};

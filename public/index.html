@@ -25,7 +25,10 @@
         </div>
 
         <div class="sidebar-heading">
-          <select id="navigation-mode" class="navigation-mode" aria-label="Navigation mode"><option value="groups">Group chats</option><option value="sessions">Sessions</option></select>
+          <div id="navigation-mode" class="navigation-mode" role="group" aria-label="Navigation mode">
+            <button type="button" data-mode="groups" aria-pressed="true">Group chats</button>
+            <button type="button" data-mode="sessions" aria-pressed="false">Sessions</button>
+          </div>
           <button class="icon-button inverse" id="show-project-form" type="button" aria-label="New project">+</button>
         </div>
         <nav class="project-list" id="project-list" aria-live="polite"></nav>
