@@ -98,7 +98,9 @@ export function createLiveScene({api,getProjectId}) {
     close();ensureDialog();const generation=version;
     const heading=node('h2','',t('Live execution')),status=node('p','live-scene-status',''),connection=node('p','live-scene-connection',t('Loading recorded events…'));
     const body=node('div','live-scene-body'),header=node('div','live-scene-heading'),titles=node('div','');titles.append(heading,status);
-    const actions=node('div','live-scene-actions'),follow=node('button','secondary compact',t('Follow latest reply')),exit=node('button','icon-button','×');
+    const actions=node('div','live-scene-actions'),follow=node('button','icon-button'),exit=node('button','icon-button','×');
+    follow.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 20h14"/></svg>';
+    follow.title=t('Jump to bottom');follow.setAttribute('aria-label',t('Jump to bottom'));
     follow.type=exit.type='button';exit.setAttribute('aria-label',t('Close'));exit.onclick=close;
     const v={runId,projectId:projectId||getProjectId(),name,heading,status,connection,body,events:[],after:0,follow:true,run:{},task:{}};view=v;
     follow.setAttribute('aria-pressed','true');follow.onclick=()=>{v.follow=true;follow.setAttribute('aria-pressed','true');body.scrollTop=body.scrollHeight;};

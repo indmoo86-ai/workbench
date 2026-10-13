@@ -894,6 +894,7 @@ export default {
   'Full reply': '完整回复',
   '{v} · Full reply': '{v} · 完整回复',
   'Follow latest reply': '跟随最新回复',
+  'Jump to bottom': '跳到底部',
   'File change': '文件变更',
   'Action': '操作',
   'Confirmation needed: {method}': '需要确认：{method}',
