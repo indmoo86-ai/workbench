@@ -37,6 +37,8 @@ Project Settings uses four sticky tabs: Basic information, Repositories and work
 
 Application dialogs share a compact white style with small corners, neutral close icons and blue primary actions. Role settings and history tabs sit directly in the header and preserve unsaved inputs when switching. Long forms retain visible actions; browser-native confirmation and system file dialogs keep their original behavior.
 
+Basic Settings, Token Usage, Project Settings and Scheduled Jobs use the same visual language with flat white cards. Settings tabs sit in the sticky title bar instead of a separate row and scroll horizontally on narrow screens. These remain full pages with their existing saves and statistics; this styling does not change collection, dispatch or backend behavior.
+
 The **Basic Settings** tab groups language (English / 简体中文), browser API Token, WeChat notifications and the remote execution switch. The verified Home access token is saved in this browser and reused after closing and reopening it; edit it in Basic Settings when needed. Use a trusted browser profile: clearing site data, private browsing or switching to a different browser/address can require setup again. Language localizes the UI and displayed defaults, independently of model-facing instruction language. This README and the [operating guide](docs/OPERATING-GUIDE.md) are also available in Simplified Chinese: [README.zh-CN.md](README.zh-CN.md) and [docs/OPERATING-GUIDE.zh-CN.md](docs/OPERATING-GUIDE.zh-CN.md).
 
 Project names remain user-defined text in the sidebar, its accessible labels and the workspace heading; switching the interface language does not rename them.

@@ -125,21 +125,21 @@
             <div>
               <h2 id="settings-page-title">Settings</h2>
             </div>
+            <nav id="global-settings-tabs" class="settings-tabs" role="tablist" aria-label="Settings categories">
+              <button type="button" role="tab" data-settings-tab="general">Basic Settings</button>
+              <button type="button" role="tab" data-settings-tab="devices">Devices, CLIs and Models</button>
+              <button type="button" role="tab" data-settings-tab="hosting">Code Hosting Accounts</button>
+              <button type="button" role="tab" data-settings-tab="assistant">Configuration Assistant</button>
+              <button type="button" role="tab" data-settings-tab="prompts">Platform Prompts</button>
+            </nav>
+            <nav id="project-settings-tabs" class="settings-tabs" role="tablist" aria-label="Project settings categories" hidden>
+              <button id="project-tab-basic" type="button" role="tab" data-project-settings-tab="basic" aria-controls="project-panel-basic" aria-selected="true">Basic information</button>
+              <button id="project-tab-workspace" type="button" role="tab" data-project-settings-tab="workspace" aria-controls="project-panel-workspace" aria-selected="false" tabindex="-1">Repositories and workspace</button>
+              <button id="project-tab-sync" type="button" role="tab" data-project-settings-tab="sync" aria-controls="project-panel-sync" aria-selected="false" tabindex="-1">File sync</button>
+              <button id="project-tab-coordination" type="button" role="tab" data-project-settings-tab="coordination" aria-controls="project-panel-coordination" aria-selected="false" tabindex="-1">Collaboration and scheduling</button>
+            </nav>
             <button class="secondary" id="close-settings-page" type="button">Close</button>
           </div>
-          <nav id="global-settings-tabs" class="settings-tabs" role="tablist" aria-label="Settings categories">
-            <button type="button" role="tab" data-settings-tab="general">Basic Settings</button>
-            <button type="button" role="tab" data-settings-tab="devices">Devices, CLIs and Models</button>
-            <button type="button" role="tab" data-settings-tab="hosting">Code Hosting Accounts</button>
-            <button type="button" role="tab" data-settings-tab="assistant">Configuration Assistant</button>
-            <button type="button" role="tab" data-settings-tab="prompts">Platform Prompts</button>
-          </nav>
-          <nav id="project-settings-tabs" class="settings-tabs" role="tablist" aria-label="Project settings categories" hidden>
-            <button id="project-tab-basic" type="button" role="tab" data-project-settings-tab="basic" aria-controls="project-panel-basic" aria-selected="true">Basic information</button>
-            <button id="project-tab-workspace" type="button" role="tab" data-project-settings-tab="workspace" aria-controls="project-panel-workspace" aria-selected="false" tabindex="-1">Repositories and workspace</button>
-            <button id="project-tab-sync" type="button" role="tab" data-project-settings-tab="sync" aria-controls="project-panel-sync" aria-selected="false" tabindex="-1">File sync</button>
-            <button id="project-tab-coordination" type="button" role="tab" data-project-settings-tab="coordination" aria-controls="project-panel-coordination" aria-selected="false" tabindex="-1">Collaboration and scheduling</button>
-          </nav>
           <div class="settings-page-body">
             <section class="settings-panel" data-settings-panel="project" id="settings-project-panel" hidden>
               <div class="settings-panel-heading"><p>Manage the current project's description, repositories, workspace and scheduling. To manage devices and CLIs, use Basic Settings at the bottom left.</p></div>

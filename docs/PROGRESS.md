@@ -82,3 +82,8 @@
 - Applied the approved compact white dialog style to application modals and the new-project panel. Role/supervisor tabs now occupy the header directly; draft preservation, existing saves and cancellation semantics remain unchanged. Browser-native confirmations are not replaced.
 - Isolated Edge checks covered twelve static dialog types at desktop/mobile sizes, role/supervisor header geometry and pinned actions, history scrolling, native session/file picking and live-scene entries. Regression checks protect inline original-text actions from modal footer styling. The native picker used an isolated Home/Worker with a controlled CLI; no real tasks were started or stopped. All 56 existing tests passed.
 - Frontend and documentation changes only. No backend edits, service restart, deployment or push; pre-existing quota work remains separate.
+
+## 2026-10-13 — Unified standalone settings pages
+
+- Extended the approved dialog visual language to Basic Settings, Token Usage, Project Settings and Scheduled Jobs. Global/project tablists now share the sticky title bar rather than a separate row. Full-page layouts, section saves and nested modal behavior remain intact; changes are limited to frontend markup, styles and cache revision.
+- Real Edge checks against an isolated Home covered all five global tabs and the three other pages at desktop/mobile sizes. Seeded usage remained 8,000 tokens, project drafts survived tab switches, pages had no horizontal overflow and browsing/querying issued no configuration or dispatch writes. No production services or running tasks were touched; pre-existing quota-statistics changes remain separate.
