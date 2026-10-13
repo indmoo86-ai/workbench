@@ -47,6 +47,8 @@ Task progress uses six labels: **Pending execution, In progress, Waiting, Comple
 
 CLI prose is displayed in Simplified Chinese in chat, live/fullscreen replies and execution output. This browser-only conversion uses a bundled OpenCC dictionary without a model or CDN request. User messages, quoted input, code, commands, paths, original-text views, copies and stored records retain their original content.
 
+Directed role questions and published replies appear as individual chat bubbles with sender → recipient, content and time. Replies after a wait retain the original recipient even when the question is on an older history page. The question's Original button opens that message, not its sender's Run result. This display does not change dispatch, waiting, independent-review visibility or explicit-publication rules.
+
 All items below exist in the current code. Items that are only designed are listed separately under [Limitations and roadmap](#limitations-and-roadmap).
 
 **Collaboration**

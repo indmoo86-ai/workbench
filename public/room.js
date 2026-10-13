@@ -124,6 +124,7 @@ export function discussionDisplay(message,data) {
 /** Identify the reply target from the real call relationship; when history pagination lacks the question card, call records can still locate it. */
 export function dialogueReplyDirection(message,messages,data) {
   if(message.sender!=='agent'||message.kind==='handoff'||message.id!==`result-${message.runId}`)return null;
+  if(message.dialogue)return message.dialogue;
   const call=messages.find(m=>m.id===message.replyToId&&m.projectId===message.projectId)?.handoff;
   if(call)return {from:message.senderName,to:call.fromRole};
   const run=data.runs?.find(r=>r.id===message.runId&&r.projectId===message.projectId);
@@ -691,6 +692,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     const agent = m.sender === 'agent';
     const handoff = m.kind === 'handoff' && m.handoff;
     const replyDirection=dialogueReplyDirection(m,messages,data);
+    const direction=handoff?{from:handoff.fromRole,to:handoff.toRole}:replyDirection;
     const discussion=discussionDisplay(m,data);
     const row = create('article', `chat-row ${agent ? 'agent' : 'human'}${handoff || replyDirection ? ' is-handoff' : ''}`);
     const role = agent ? (data.roles || []).find(r => r.id === m.roleId) || (data.runs || []).find(r => r.id === m.runId)?.roleSnapshot : null;
@@ -699,24 +701,17 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     const header = create('div', 'chat-message-header');
     const time = create('time', '', formatTime(m.createdAt));
     if (m.createdAt) time.dateTime = m.createdAt;
-    header.append(create('div', 'chat-name', agent ? `@${m.senderName}` : m.broadcast ? 'Me · notify everyone' : 'Me'), time);
+    header.append(create('div', 'chat-name', direction ? `@${direction.from} → @${direction.to}` : agent ? `@${m.senderName}` : m.broadcast ? 'Me · notify everyone' : 'Me'), time);
     col.append(header);
     const bubble = create('div', `chat-bubble${handoff || replyDirection ? ' handoff-card' : ''}`);
     if(discussion){const title=create('div','handoff-title');title.append(create('strong','',`${m.senderName||t('Me')} → @${discussion.to}`));bubble.append(title,create('div','handoff-label',t('Peer discussion · {state}', { state: discussion.state })));}
-    if (m.replyToId) {
+    if (m.replyToId && !direction) {
       const source = messages.find(q => q.id === m.replyToId);
       bubble.append(create('div', 'quoted-message', source ? t('{senderName}: {v}', { senderName: source.senderName, v: source.text.slice(0, 180) }) : 'Quoting an earlier message'));
     }
     if (handoff) {
-      const title = create('div', 'handoff-title');
-      title.append(create('strong', '', `@${m.handoff.fromRole}`), create('span', '', '→'), create('strong', '', `@${m.handoff.toRole}`));
-      bubble.append(title, create('div', 'handoff-label', m.handoff.kind==='consult'?'Role conversation · question':'Collaboration handoff'), replyPreview(m.handoff.summary || m.text,true,m.runId));
+      bubble.append(replyPreview(m.handoff.summary || m.text,true,m.runId));
     } else {
-      if(replyDirection) {
-        const title=create('div','handoff-title');
-        title.append(create('strong','',`@${replyDirection.from}`),create('span','','→'),create('strong','',`@${replyDirection.to}`));
-        bubble.append(title,create('div','handoff-label','Role conversation · reply'));
-      }
       bubble.append(replyPreview(m.text, agent, m.runId));
     }
     if (m.attachments?.length) {
@@ -724,8 +719,8 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
       for(const item of m.attachments) files.append(attachmentCard(item));
       bubble.append(files);
     }
-    if(!discussion && (handoff||!agent)) {
-      const ids=handoff?[m.requestId]:(m.taskIds||[]).map(id=>data.tasks?.find(t=>t.id===id)?.requestId).filter(Boolean);
+    if(!discussion && !agent) {
+      const ids=(m.taskIds||[]).map(id=>data.tasks?.find(t=>t.id===id)?.requestId).filter(Boolean);
       for(const id of ids) {
         const request=data.requests?.find(r=>r.id===id),progress=request?.messageProgress;
         if(!progress)continue;
@@ -752,7 +747,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
       try{await api(`/api/runs/${encodeURIComponent(discussion.stopRunId)}/stop`,{method:'POST',json:{commandId:`discussion-owner-stop:${discussion.stopRunId}:${discussion.questionId}`}});await refreshState({quiet:true});}catch(e){setError(e.message);b.disabled=false;}
     }));
     actions.push(copyMessageButton(handoff ? m.handoff.summary || m.text : m.text));
-    actions.push(iconAction('original','Original',()=>{void historyViewer.open(m.projectId,m.runId&&!discussion?'result':'message',m.runId&&!discussion?m.runId:m.id).catch(e=>setError(e.message));}));
+    actions.push(iconAction('original','Original',()=>{const result=m.runId&&!discussion&&!handoff;void historyViewer.open(m.projectId,result?'result':'message',result?m.runId:m.id).catch(e=>setError(e.message));}));
     if (m.runId) {
       const run = data.runs?.find(r => r.id === m.runId);
       if (run) actions.push(iconAction('log', 'Log', () => openTask(run.taskId,run.id)));

@@ -415,6 +415,8 @@ input:focus, textarea:focus, select:focus { border-color: #66b996; box-shadow: 0
 .chat-name { color: #6f675c; font-size: 11px; font-weight: 650; }
 .chat-message-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; width: 100%; min-width: 0; }
 .chat-message-header .chat-name { min-width: 0; overflow-wrap: anywhere; }
+.chat-row.is-handoff .chat-message-header { flex-wrap: wrap; column-gap: 12px; row-gap: 2px; }
+.chat-row.is-handoff .chat-name { color: #28567f; }
 .chat-row .chat-message-header time { flex-shrink: 0; white-space: nowrap; margin: 0 0 0 auto; }
 .chat-bubble { min-width: 0; max-width: 100%; padding: 10px 12px; border-radius: 4px 12px 12px 12px; background: #fff; color: var(--ink); box-shadow: 0 1px 1px rgb(0 0 0 / 6%); box-sizing: border-box; overflow: hidden; }
 .chat-row.human .chat-bubble { border-radius: 12px 4px 12px 12px; background: #95ec69; box-shadow: none; }

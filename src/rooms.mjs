@@ -250,8 +250,40 @@ export class Rooms {
     const all = this.db.list('roomMessages').filter(m => m.projectId === projectId&&m.visibility!=='internal');
     const end = before ? all.findIndex(m => m.id === before) : all.length;
     if (end < 0) throw new Error(tr('rooms.historyCursorNotFound'));
-    const start = Math.max(0, end - 60), messages = all.slice(start, end);
+    const start = Math.max(0, end - 60), messages = all.slice(start, end).map(message => {
+      const dialogue = this.messageDialogue(message);
+      return dialogue ? { ...message, dialogue } : message;
+    });
     return { messages, hasMore: start > 0, nextBefore: messages[0]?.id || null };
+  }
+
+  /** Resolve display-only recipients before pagination loses their source; never rewrite history or publish private Run output. */
+  messageDialogue(message) {
+    if (message.sender !== 'agent') return null;
+    if (message.kind === 'handoff' && message.handoff?.fromRole && message.handoff?.toRole)
+      return { from: message.handoff.fromRole, to: message.handoff.toRole };
+    if (message.id !== `result-${message.runId}`) return null;
+    const get = (kind, id) => {
+      const record = id ? this.db.get(kind, id) : null;
+      return record?.projectId === message.projectId ? record : null;
+    };
+    const run = get('runs', message.runId);
+    let request = get('coordinationRequests', run?.requestId);
+    const seen = new Set();
+    while (request?.kind === 'continuation') {
+      if (seen.has(request.id)) return null;
+      seen.add(request.id);
+      const previous = get('coordinationRequests', request.continuationOf);
+      if (!previous || previous.targetRoleId !== request.targetRoleId) return null;
+      request = previous;
+    }
+    if (!request?.parentRequestId) return null;
+    const call = get('roomMessages', `call:${request.id}`);
+    const source = get('runs', request.sourceRunId);
+    const parent = get('coordinationRequests', request.parentRequestId);
+    const role = get('roles', source?.roleId || parent?.targetRoleId);
+    const to = call?.handoff?.fromRole || source?.roleSnapshot?.name || role?.name;
+    return to ? { from: message.senderName, to } : null;
   }
 
   cancel(taskId) {
