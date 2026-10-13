@@ -499,7 +499,11 @@ const server = http.createServer(async (req, res) => {
         if(req.method==='GET'&&!nativeMatch[2]){
           const runtime=url.searchParams.get('runtime'),sessionId=url.searchParams.get('sessionId'),scope=url.searchParams.get('scope')||'created';
           if(!['created','group','all'].includes(scope))throw Error('Invalid native session scope');
-          if(!online(nodeId)){if(!sessionId&&scope==='created')return json(res,{items:nativeCatalogRecords(nodeId,runtime).map(nativeCatalogItem),partial:false,offline:true});throw Error('Device is offline');}
+          if(!online(nodeId)){
+            // Offline All can show cached independent entries, but must not imply complete native history.
+            if(!sessionId&&['created','all'].includes(scope))return json(res,{items:nativeCatalogRecords(nodeId,runtime).map(nativeCatalogItem),partial:scope==='all',offline:true});
+            throw Error('Device is offline');
+          }
           const result=await workerQuery({nodeId},sessionId?'native_session':'native_sessions',{runtime,sessionId,scope,managedSessions:['group','all'].includes(scope)?managedNativeSessions(nodeId,runtime):[]},30000);
           if(!sessionId&&['created','all'].includes(scope))cacheNativeCatalog(result.items,nodeId,runtime);
           if(!sessionId&&scope==='created'){const merged=new Map(nativeCatalogRecords(nodeId,runtime).map(entry=>[entry.id,nativeCatalogItem(entry)]));for(const item of result.items||[])merged.set(item.entryId||item.id,item);return json(res,{...result,items:[...merged.values()]});}

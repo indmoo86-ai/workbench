@@ -187,7 +187,7 @@ function createMessageQueue({api,refreshState,create,setError}) {
 }
 
 /** The chat only handles display and user actions; role selection, idempotency and scheduling are validated by Home. */
-export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopRun, decideApproval, create, formatTime, setError, configureDevice }) {
+export function createRoomUI({ api, refreshState, openTask, stopRun, decideApproval, create, formatTime, setError, configureDevice }) {
   const historyViewer=createHistoryViewer({api});
   const messageQueue=createMessageQueue({api,refreshState,create,setError});
   const cliRecoveryUI=createCliRecoveryUI({api,refreshState,getData:()=>data,create});
@@ -725,7 +725,6 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
       }));
     }
     if (run) actions.push(iconAction('log', 'Log', () => openTask(task.id,run.id)));
-    if (run&&openLiveScene) actions.push(iconAction('live', 'Live execution (read-only)', () => openLiveScene(run)));
     if (actions.length) col.append(chatMeta('', actions));
     row.append(col);
     if (run && ['starting', 'running', 'waiting_user', 'stopping'].includes(run.status)) void pullLive(run.id);
@@ -791,7 +790,6 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
       if (run) actions.push(iconAction('log', 'Log', () => openTask(run.taskId,run.id)));
     }
     actions.push(fullscreenMessageButton(handoff ? m.handoff.summary || m.text : m.text, m.senderName, agent || Boolean(handoff), m.attachments, null, m.runId));
-    if(m.runId&&openLiveScene){const run=data.runs?.find(r=>r.id===m.runId);if(run)actions.push(iconAction('live','Live execution (read-only)',()=>openLiveScene(run)));}
     actions.push(...discussionActions);
     const cardMeta=messageCardMeta(m),footer=create('div','chat-card-footer');
     footer.append(create('span','chat-card-kind',t('{kind} · {status}',{kind:t(cardMeta.kind),status:t(cardMeta.status)})));

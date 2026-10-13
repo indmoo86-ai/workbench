@@ -70,3 +70,9 @@
 
 - Replaced the raster source with the user-approved preview and regenerated transparent, centered 192px and 512px application icons. Updated page, favicon, Apple touch icon, PWA manifest and service-worker cache references together.
 - Real browser verification against an isolated Home confirmed image loading, matching versioned URLs, expected dimensions, transparent corners and centered margins. The saved source is byte-identical to the approved image. Existing services and running tasks were not restarted or paused; this records a local asset update, not deployment.
+
+## 2026-10-13 — Session UI integration
+
+- Integrated the session-filter-controls and terminal-dialog-actions branches with the four Project Settings tabs and approved logo. Resolved the shared settings layout to retain full-width headers and sticky category tabs without resetting drafts.
+- Session filters default to all devices and Agents. The read-only live scene is entered from role cards; new/resume session actions open their existing confirmation forms. An integration review found that offline devices lost cached independent entries under All; Home now returns those entries with an explicit partial/offline result, without permitting offline history reads or terminal actions.
+- Real isolated browser checks passed for settings drafts, icon assets, offline cached entries, session filters and live-scene/native-entry routing. Controlled terminal/catalog responses were used only for action routing and failure cases; offline cache, settings and icon checks used actual Home APIs. The existing 56 tests passed. Release checks and private evidence remain outside Git; unrelated quota work is excluded.

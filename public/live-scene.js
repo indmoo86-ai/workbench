@@ -27,7 +27,7 @@ export function liveSceneRows(events,run={}) {
 }
 
 /** Viewing issues GETs only. Closing aborts reads, never the Run; the dialog stays pinned to its original project and Run. */
-export function createLiveScene({api,getProjectId}) {
+export function createLiveScene({api,getProjectId,onNewSession,onResumeSession}) {
   let dialog,view,version=0,timer,controller;
   function close(){version++;clearTimeout(timer);controller?.abort();controller=null;view=null;if(dialog?.open)dialog.close();}
   function ensureDialog(){
@@ -94,16 +94,30 @@ export function createLiveScene({api,getProjectId}) {
       timer=setTimeout(()=>void poll(generation),3000);
     }finally{clearTimeout(timeout);if(controller===currentController)controller=null;}
   }
-  async function open(runId,{projectId,name}={}){
+  async function open(runId,{projectId,name,role}={}){
     close();ensureDialog();const generation=version;
     const heading=node('h2','',t('Live execution')),status=node('p','live-scene-status',''),connection=node('p','live-scene-connection',t('Loading recorded events…'));
     const body=node('div','live-scene-body'),header=node('div','live-scene-heading'),titles=node('div','');titles.append(heading,status);
-    const actions=node('div','live-scene-actions'),follow=node('button','secondary compact',t('Follow latest reply')),exit=node('button','icon-button','×');
+    const actions=node('div','live-scene-actions'),follow=node('button','icon-button'),exit=node('button','icon-button','×');
+    // These entries only open confirmation forms; viewing the scene never acquires a terminal.
+    for(const [label,handler] of [['New session',onNewSession],['Resume session',onResumeSession]]){
+      if(!role||!handler)continue;
+      const button=node('button','secondary compact',t(label));button.type='button';
+      button.onclick=()=>{close();handler(role);};actions.append(button);
+    }
+    follow.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 20h14"/></svg>';
+    follow.title=t('Jump to bottom');follow.setAttribute('aria-label',t('Jump to bottom'));
     follow.type=exit.type='button';exit.setAttribute('aria-label',t('Close'));exit.onclick=close;
     const v={runId,projectId:projectId||getProjectId(),name,heading,status,connection,body,events:[],after:0,follow:true,run:{},task:{}};view=v;
     follow.setAttribute('aria-pressed','true');follow.onclick=()=>{v.follow=true;follow.setAttribute('aria-pressed','true');body.scrollTop=body.scrollHeight;};
     body.addEventListener('scroll',()=>{v.follow=body.scrollHeight-body.scrollTop-body.clientHeight<48;follow.setAttribute('aria-pressed',String(v.follow));});
     actions.append(follow,exit);header.append(titles,actions);dialog.replaceChildren(header,connection,body);dialog.showModal();exit.focus();
+    if(!runId){
+      heading.textContent=t('Live execution · {name}',{name:name||role?.name||''});
+      status.textContent=[role?.runtime,role?.model].filter(Boolean).join(' · ');
+      connection.textContent=t('No recorded execution yet.');follow.disabled=true;
+      return;
+    }
     await load(generation);
   }
   async function load(generation){
