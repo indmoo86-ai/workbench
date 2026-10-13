@@ -391,7 +391,7 @@ function refreshProjectTerminals(projectId,{automatic=false}={}) {
         if(!Array.isArray(checked)||checked.length!==members.length||members.some(s=>!checked.some(c=>c.id===s.id&&['released','active','unknown',...(automatic?['prepared']:[])].includes(c.processState)&&c.checkedAt)))throw new Error(tr('terminalControl.stopPending'));
       }catch(error){checked=members.map(s=>({id:s.id,processState:'unknown',checkedAt:new Date().toISOString(),reason:error.message}));}
       for(const result of checked){db.transaction(()=>{const current=db.get('terminalSessions',result.id);if(!current||current.projectId!==projectId||current.nodeId!==nodeId||['released','cancelled'].includes(current.status))return;
-        db.put('terminalSessions',{...current,processState:result.processState,lastCheckedAt:result.checkedAt,processError:result.reason||null,...(result.processState==='released'?{status:'released',releasedAt:result.checkedAt}:result.processState==='active'?{status:result.status==='stopping'?'stopping':'active'}:{})});});results.push({...result,nodeId});}
+        db.put('terminalSessions',{...current,processState:result.processState,lastCheckedAt:result.checkedAt,processError:result.reason||null,...(result.processState==='released'?{status:'released',releasedAt:result.checkedAt}:result.processState==='active'?{status:result.status==='stopping'?'stopping':'active'}:{})});if(result.catalogEntry?.id===current.catalogEntryId){const cached=db.get('nativeCatalogEntries',result.catalogEntry.id);if(cached?.nodeId===nodeId)db.put('nativeCatalogEntries',{...cached,...result.catalogEntry,nodeId});}});results.push({...result,nodeId});}
     }));
     if(results.length||!automatic){change();scheduleChat();}return {results,released:results.filter(s=>s.processState==='released').length,active:results.filter(s=>s.processState==='active').length,unknown:results.filter(s=>s.processState==='unknown').length};
   })().finally(()=>terminalRefreshes.delete(key));
@@ -402,6 +402,18 @@ function reconcileTerminals(nodeId) {
   const projects=new Set(db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)&&(!nodeId||s.nodeId===nodeId)).map(s=>s.projectId));
   return Promise.all([...projects].filter(terminalScopeExists).map(id=>refreshProjectTerminals(id,{automatic:true}))).catch(error=>console.error('Terminal reconciliation failed:',error.message));
 }
+const nativeCatalogRecords=(nodeId,runtime)=>db.list('nativeCatalogEntries').filter(entry=>entry.nodeId===nodeId&&entry.runtime===runtime);
+const nativeCatalogItem=entry=>({id:entry.id,entryId:entry.id,nodeId:entry.nodeId,runtime:entry.runtime,sessionId:entry.sessionId||null,title:entry.title,createdAt:entry.createdAt,modifiedAt:entry.modifiedAt||entry.createdAt,workspace:entry.workspace||null,origin:'dialog',status:entry.status||'awaiting_native_id',hasHistory:entry.hasHistory===true,previewAvailable:entry.previewAvailable===true,canReopen:entry.status==='draft',canResume:entry.hasHistory===true&&!['active','prepared'].includes(entry.status),exactLastScan:entry.exactLastScan||null});
+function managedNativeSessions(nodeId,runtime){
+  const items=new Map();for(const session of db.list('roleSessions')){
+    if(session.nodeId!==nodeId||session.runtime!==runtime||session.historyClearedAt||!session.nativeSessionId)continue;
+    const role=db.get('roles',session.roleId),project=db.get('projects',session.projectId),title=[project?.name,role?.name].filter(Boolean).join(' · ')||session.nativeSessionId;
+    items.set(session.nativeSessionId,{sessionId:session.nativeSessionId,title,workspace:session.workspace||session.workspaceRoot||null,createdAt:session.createdAt||null});
+  }return [...items.values()];
+}
+function cacheNativeCatalog(items,nodeId,runtime){
+  db.transaction(()=>{for(const item of items||[]){if(item.origin!=='dialog'||item.nodeId!==nodeId||item.runtime!==runtime||!item.entryId)continue;const current=db.get('nativeCatalogEntries',item.entryId);if(current?.nodeId!==nodeId||current.runtime!==runtime)continue;db.put('nativeCatalogEntries',{...current,sessionId:item.sessionId||null,title:item.title,workspace:item.workspace||current.workspace,status:item.status,hasHistory:item.hasHistory===true,previewAvailable:item.previewAvailable===true,exactLastScan:item.exactLastScan||current.exactLastScan||null,modifiedAt:item.modifiedAt||current.modifiedAt});}});
+}
 /** Stopping is an explicit human action, scoped to the saved lease rather than arbitrary browser-supplied PIDs. */
 async function returnTerminal(claim,action) {
   let result;
@@ -410,7 +422,7 @@ async function returnTerminal(claim,action) {
     result=await workerQuery(claim,'terminal_stop',{id:claim.id,projectId:claim.projectId,nodeId:claim.nodeId},30000);
     if(result?.released!==true||result.id!==claim.id)throw new Error(tr('terminalControl.stopPending'));
   }else result=await workerQuery(claim,'terminal_release',{id:claim.id});
-  db.transaction(()=>{const current=db.get('terminalSessions',claim.id);if(current&&current.projectId===claim.projectId&&current.nodeId===claim.nodeId)db.put('terminalSessions',{...current,status:'released',processState:'released',releasedAt:new Date().toISOString()});});
+  db.transaction(()=>{const current=db.get('terminalSessions',claim.id);if(current&&current.projectId===claim.projectId&&current.nodeId===claim.nodeId)db.put('terminalSessions',{...current,status:'released',processState:'released',releasedAt:new Date().toISOString()});if(result.catalogEntry&&result.catalogEntry.id===claim.catalogEntryId){const cached=db.get('nativeCatalogEntries',result.catalogEntry.id);if(cached?.nodeId===claim.nodeId)db.put('nativeCatalogEntries',{...cached,...result.catalogEntry,nodeId:claim.nodeId});}});
   change();scheduleChat();return {released:true,forced:result.forced===true};
 }
 const server = http.createServer(async (req, res) => {
@@ -482,35 +494,48 @@ const server = http.createServer(async (req, res) => {
       const nativeMatch=pathname.match(/^\/api\/native-sessions\/([^/]+)(?:\/(terminal|folders))?$/);
       if(nativeMatch){
         const nodeId=decodeURIComponent(nativeMatch[1]),worker=db.get('workers',nodeId);
-        if(!worker||!online(nodeId))throw Error('Device is offline');
-        if(worker.capabilities?.nativeSessions!==1)throw Error('Upgrade this Worker to browse native sessions');
-        if(req.method==='GET'&&!nativeMatch[2])return json(res,await workerQuery({nodeId},url.searchParams.get('sessionId')?'native_session':'native_sessions',{runtime:url.searchParams.get('runtime'),sessionId:url.searchParams.get('sessionId')},30000));
+        if(!worker)throw Error('Device is unavailable');
+        if(worker.capabilities?.nativeSessions!==2)throw Error('Upgrade this Worker to use the native session catalog');
+        if(req.method==='GET'&&!nativeMatch[2]){
+          const runtime=url.searchParams.get('runtime'),sessionId=url.searchParams.get('sessionId'),scope=url.searchParams.get('scope')||'created';
+          if(!['created','group','all'].includes(scope))throw Error('Invalid native session scope');
+          if(!online(nodeId)){if(!sessionId&&scope==='created')return json(res,{items:nativeCatalogRecords(nodeId,runtime).map(nativeCatalogItem),partial:false,offline:true});throw Error('Device is offline');}
+          const result=await workerQuery({nodeId},sessionId?'native_session':'native_sessions',{runtime,sessionId,scope,managedSessions:['group','all'].includes(scope)?managedNativeSessions(nodeId,runtime):[]},30000);
+          if(!sessionId&&['created','all'].includes(scope))cacheNativeCatalog(result.items,nodeId,runtime);
+          if(!sessionId&&scope==='created'){const merged=new Map(nativeCatalogRecords(nodeId,runtime).map(entry=>[entry.id,nativeCatalogItem(entry)]));for(const item of result.items||[])merged.set(item.entryId||item.id,item);return json(res,{...result,items:[...merged.values()]});}
+          return json(res,result);
+        }
+        if(!online(nodeId))throw Error('Device is offline');
         if(req.method==='GET'&&nativeMatch[2]==='folders')return json(res,await workerQuery({nodeId},'directories',{path:url.searchParams.get('path')||null},15000));
         if(req.method!=='POST'||nativeMatch[2]!=='terminal')throw Error('Invalid session action');
         const b=await body(req);
         if(b.action==='release'){const claim=db.get('terminalSessions',b.operationId);if(claim?.kind!=='native'||claim.nodeId!==nodeId)throw Error('Invalid native terminal binding');return json(res,await returnTerminal(claim,'release'));}
         if(typeof b.operationId!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(b.operationId)||typeof b.allowAll!=='boolean')throw Error('Invalid terminal request');
-        const fingerprint=JSON.stringify({nodeId,runtime:b.runtime,sessionId:b.sessionId||null,workspace:b.workspace||null,allowAll:b.allowAll});
-        const prior=db.get('terminalSessions',b.operationId);
+        const fresh=!b.sessionId,catalogEntryId=b.entryId||(fresh?b.operationId:nativeCatalogRecords(nodeId,b.runtime).find(entry=>entry.sessionId===b.sessionId)?.id||null),entry=catalogEntryId?db.get('nativeCatalogEntries',catalogEntryId):null,prior=db.get('terminalSessions',b.operationId);
+        if(fresh&&(typeof b.title!=='string'||!b.title.trim()||b.title.trim().length>120))throw Error('Session title is required and must be at most 120 characters');
+        if(b.entryId&&(typeof b.entryId!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(b.entryId)))throw Error('Invalid native catalog entry');
+        if(fresh&&entry&&(entry.nodeId!==nodeId||entry.runtime!==b.runtime||entry.title!==b.title.trim()||entry.status!=='draft'&&!(prior?.catalogEntryId===entry.id&&prior.status==='prepared')))throw Error('Native catalog entry cannot be reused for a different or active session');
+        const freshSessionId=fresh&&['claude','grok'].includes(b.runtime)?entry?.sessionId||randomUUID():null;
+        const fingerprint=JSON.stringify({nodeId,runtime:b.runtime,sessionId:b.sessionId||null,freshSessionId,entryId:catalogEntryId,workspace:b.workspace||null,title:fresh?b.title.trim():null,allowAll:b.allowAll});
         if(prior){if(prior.nativeFingerprint!==fingerprint||prior.status!=='prepared')throw Error('Terminal request is already used or changed');return json(res,terminalLaunchView(prior));}
         if(db.get('settings','main')?.paused)throw Error('Remote execution is paused');
         const device=db.list('devices').find(d=>d.nodeId===nodeId);
         if(worker.nodeKind==='cloud'&&!device)throw Error('Register SSH access for this server first');
         const bindings=[...db.list('workspaces'),...db.list('repositoryWorkspaces')].filter(w=>w.nodeId===nodeId).map(w=>({projectId:w.projectId,localRoot:w.localRoot}));
-        const input={runtime:b.runtime,sessionId:b.sessionId||null,workspace:b.workspace,allowAll:b.allowAll,bindings};
+        const input={runtime:b.runtime,sessionId:b.sessionId||null,freshSessionId,entryId:catalogEntryId,title:fresh?b.title.trim():null,workspace:b.workspace,allowAll:b.allowAll,bindings};
         const preview=await workerQuery({nodeId},'native_terminal_preview',input,30000),projectId=preview.projectId||`native-tui:${b.operationId}`;
         // Share the existing reservation/return lifecycle when a native folder belongs to a group chat.
         if(db.get('settings','main')?.paused||projectTerminalLock(db,projectId,nodeId)||sourceSync.busy(projectId,nodeId)||db.list('runs').some(r=>r.nodeId===nodeId&&(r.status==='reconciling'||r.projectId===projectId&&!terminal.has(r.status))))throw Error('The related group chat is busy; finish its current work first');
         if(db.get('terminalSessions',b.operationId))throw Error('Terminal request is being prepared');
-        const claim={id:b.operationId,kind:'native',projectId,nodeId,runtime:b.runtime,sessionId:b.sessionId||null,nativeFingerprint:fingerprint,status:'preparing',createdAt:new Date().toISOString()};
-        db.put('terminalSessions',claim);change();
+        const createdAt=entry?.createdAt||new Date().toISOString(),claim={id:b.operationId,kind:'native',catalogEntryId,projectId,nodeId,runtime:b.runtime,sessionId:b.sessionId||null,nativeFingerprint:fingerprint,status:'preparing',createdAt:new Date().toISOString()};
+        db.transaction(()=>{if(fresh)db.put('nativeCatalogEntries',{...entry,id:catalogEntryId,nodeId,runtime:b.runtime,sessionId:freshSessionId,title:b.title.trim(),workspace:preview.workspace,origin:'dialog',status:'preparing',hasHistory:false,previewAvailable:false,createdAt,modifiedAt:new Date().toISOString()});db.put('terminalSessions',claim);});change();
         try{
           const info=await workerQuery(claim,'native_terminal_prepare',{...input,workspace:preview.workspace,id:claim.id,projectId,nodeId},30000);
           const identityFile=b.useLocalSshKey===true&&process.platform==='darwin'&&device?(await credentials.get(device.id))?.keyPath:null;
           const value=terminalLaunchView({...claim,...info,status:'prepared',command:terminalCommand(info,device||null,identityFile)});
           if(db.get('terminalSessions',claim.id)?.status!=='preparing')throw Error('Terminal preparation expired');
-          db.put('terminalSessions',value);change();return json(res,value,201);
-        }catch(error){let status='blocked';try{await workerQuery(claim,'terminal_release',{id:claim.id});status='released';}catch{}const current=db.get('terminalSessions',claim.id);if(!['released','cancelled'].includes(current?.status))db.put('terminalSessions',{...claim,status,error:error.message});change();throw error;}
+          db.transaction(()=>{db.put('terminalSessions',value);if(fresh){const current=db.get('nativeCatalogEntries',catalogEntryId);db.put('nativeCatalogEntries',{...current,sessionId:info.sessionId||current.sessionId,status:'prepared',workspace:info.workspace,modifiedAt:new Date().toISOString()});}});change();return json(res,value,201);
+        }catch(error){let status='blocked';try{await workerQuery(claim,'terminal_release',{id:claim.id});status='released';}catch{}const current=db.get('terminalSessions',claim.id);db.transaction(()=>{if(!['released','cancelled'].includes(current?.status))db.put('terminalSessions',{...claim,status,error:error.message});if(fresh){const catalog=db.get('nativeCatalogEntries',catalogEntryId);if(catalog)db.put('nativeCatalogEntries',{...catalog,status:'draft',modifiedAt:new Date().toISOString()});}});change();throw error;}
       }
       if (pathname === '/api/token-usage' && req.method === 'GET') {
         const nodeIds=(url.searchParams.get('nodeIds')||'').split(',').filter(Boolean);

@@ -634,11 +634,13 @@ async function query(m) {
     }
     if(['native_sessions','native_session','native_terminal_preview','native_terminal_prepare'].includes(m.action)) {
       const input=m.path||{},runtime=input.runtime;
-      if(!runtimes.some(r=>r.type===runtime&&r.available&&r.supported!==false))throw Error('CLI is not available on this device');
-      if(m.action==='native_sessions'){send({type:'reply',id:m.id,result:await listNativeSessions(runtime)});return;}
+      if(m.action!=='native_sessions'&&!runtimes.some(r=>r.type===runtime&&r.available&&r.supported!==false))throw Error('CLI is not available on this device');
+      if(m.action==='native_sessions'){send({type:'reply',id:m.id,result:await listNativeSessions(runtime,{scope:input.scope||'created',registry:db.list('nativeCatalogEntries'),managedSessions:input.managedSessions||[],nodeId:identity.nodeId})});return;}
       if(m.action==='native_session'){send({type:'reply',id:m.id,result:await readNativeSession(runtime,input.sessionId)});return;}
       if(paused)throw Error('Remote execution is paused');
-      nativeTuiArgs(runtime,{id:input.sessionId,allowAll:input.allowAll??false});
+      const freshId=input.sessionId?null:input.freshSessionId||null;
+      if(!input.sessionId&&['claude','grok'].includes(runtime)&&!freshId)throw Error('Upgrade Home to create an exact native session ID');
+      nativeTuiArgs(runtime,{id:input.sessionId,freshId,allowAll:input.allowAll??false});
       const history=input.sessionId?await readNativeSession(runtime,input.sessionId):null;
       if(history?.workspace&&input.workspace&&await realpath(input.workspace)!==await realpath(history.workspace))throw Error('Resume must use the original working folder');
       const workspace=await projectRoot(history?.workspace||input.workspace);
@@ -654,8 +656,14 @@ async function query(m) {
       assertIdle();
       if(db.get('terminalSessions',input.id)||projectTerminalLock(db,projectId,identity.nodeId)||db.get('sourceSyncReservations',projectId))throw Error('Session is occupied; no second CLI was started');
       if(occupiedSlots()>=capacity)throw Error('Device CLI capacity is full');
-      db.put('terminalSessions',{id:input.id,kind:'native',projectId,nodeId:identity.nodeId,status:'prepared',workspace,nativeSession,nativeOptions:{allowAll:input.allowAll===true},privateEnv:resumeEnvironment(process.env),createdAt:new Date().toISOString()});
-      reportCapacity();send({type:'reply',id:m.id,result:{id:input.id,kind:'native',workspace,user:nativeSession.user,runtime,sessionId:nativeSession.id,launcher:[process.execPath,join(base,'src','terminal-resume.mjs'),join(data,'worker.sqlite'),input.id]}});return;
+      const now=new Date().toISOString(),catalogEntryId=input.entryId||(!input.sessionId?input.id:null),priorEntry=catalogEntryId?db.get('nativeCatalogEntries',catalogEntryId):null;
+      if(!input.sessionId){
+        if(typeof input.title!=='string'||!input.title.trim()||input.title.trim().length>120)throw Error('Session title is required and must be at most 120 characters');
+        if(priorEntry&&(priorEntry.runtime!==runtime||priorEntry.workspace!==workspace||priorEntry.status!=='draft'))throw Error('Native catalog entry cannot be reused for a different or active session');
+      }
+      if(input.sessionId&&priorEntry&&(priorEntry.runtime!==runtime||priorEntry.sessionId!==input.sessionId))throw Error('Native catalog entry does not match this history');
+      db.transaction(()=>{if(!input.sessionId)db.put('nativeCatalogEntries',{...priorEntry,id:catalogEntryId,runtime,title:input.title.trim(),workspace,origin:'dialog',status:'prepared',sessionId:freshId,createdAt:priorEntry?.createdAt||now,modifiedAt:now,exactLastScan:priorEntry?.exactLastScan||null});db.put('terminalSessions',{id:input.id,kind:'native',catalogEntryId,projectId,nodeId:identity.nodeId,status:'prepared',workspace,nativeSession,nativeOptions:{allowAll:input.allowAll===true,freshId},privateEnv:resumeEnvironment(process.env),createdAt:now});});
+      reportCapacity();send({type:'reply',id:m.id,result:{id:input.id,entryId:catalogEntryId,kind:'native',workspace,user:nativeSession.user,runtime,sessionId:nativeSession.id||freshId,launcher:[process.execPath,join(base,'src','terminal-resume.mjs'),join(data,'worker.sqlite'),input.id]}});return;
     }
     if(m.action==='terminal_check') {
       const input=m.path;
@@ -676,9 +684,9 @@ async function query(m) {
       const prior=db.get('terminalSessions',id);
       if(m.action==='terminal_release') {
         // Even if the prepare request timed out, the revocation is recorded so that a delayed request cannot re-prepare an old link.
-        releaseTerminalSession(db,id);
+        const released=releaseTerminalSession(db,id),catalogEntry=released.catalogEntryId?db.get('nativeCatalogEntries',released.catalogEntryId):null;
         reportCapacity();
-        send({type:'reply',id:m.id,result:{released:true}});return;
+        send({type:'reply',id:m.id,result:{released:true,...(catalogEntry?{catalogEntry}: {})}});return;
       }
       if(paused)throw new Error(tr('worker.remoteExecutionPaused2'));
       if(m.action==='terminal_new') {
@@ -903,7 +911,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { nativeSessions:1,cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { nativeSessions:2,cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {

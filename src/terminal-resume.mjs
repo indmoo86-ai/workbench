@@ -1,7 +1,7 @@
 import { userInfo, homedir } from 'node:os';
-import { readdir, stat, access, realpath } from 'node:fs/promises';
+import { readdir, stat, access, realpath, readlink, readFile } from 'node:fs/promises';
 import { constants, readFileSync } from 'node:fs';
-import { join, resolve, delimiter } from 'node:path';
+import { join, resolve, delimiter, relative, isAbsolute, basename, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, execFileSync } from 'node:child_process';
 import { Store } from './store.mjs';
@@ -61,9 +61,67 @@ export function terminalProcessIdentity(pid) {
     return {pid:Number(m[1]),ppid:Number(m[2]),uid:Number(m[3]),pgid:Number(m[4]),start,zombie:m[6].startsWith('Z'),command:m[7]};
   }catch{return processAlive(pid)?{pid,unknown:true}:null;}
 }
+
+const inside=(root,path)=>{const r=relative(root,path);return !r||r!=='..'&&!r.startsWith('../')&&!isAbsolute(r);};
+const historyRoots=({runtime,home,env={}})=>({
+  codex:[join(env.CODEX_HOME||join(home,'.codex'),'sessions'),join(env.CODEX_HOME||join(home,'.codex'),'archived_sessions')],
+  claude:[join(env.CLAUDE_CONFIG_DIR||join(home,'.claude'),'projects')],grok:[join(home,'.grok','sessions')],agy:[join(home,'.gemini','antigravity-cli','conversations')]
+})[runtime]||[];
+
+/** Resolve an open vendor history path to its native ID without using cwd, timestamps or newest-file guesses. */
+async function nativeIdFromOpenPath(session,path){
+  path=String(path||'').replace(/ \(deleted\)$/,'');if(!isAbsolute(path))return null;
+  let file;try{file=await realpath(path);}catch{return null;}
+  let allowed=false;for(const root of historyRoots(session)){try{if(inside(await realpath(root),file)){allowed=true;break;}}catch{}}
+  if(!allowed)return null;
+  const id=session.runtime==='codex'?basename(file).match(/-([a-f0-9]{8}-[a-f0-9-]{27})\.jsonl$/i)?.[1]
+    :session.runtime==='grok'&&basename(file)==='chat_history.jsonl'?basename(dirname(file))
+    :['claude','agy'].includes(session.runtime)&&/\.(jsonl|db|pb)$/.test(file)?basename(file).replace(/\.(jsonl|db|pb)$/,''):null;
+  return typeof id==='string'&&sessionPattern.test(id)?id:null;
+}
+
+/** Inspect only the original child and its same-user descendants; unrelated CLIs cannot contribute files. */
+function exactProcessTree(rootIdentity){
+  const current=terminalProcessIdentity(rootIdentity?.pid);if(!sameProcess(current,rootIdentity)||current.zombie)return [];
+  const found=new Map([[current.pid,current]]);let rows=[];
+  try{rows=execFileSync('ps',['-axo','pid=,ppid=,uid='],{encoding:'utf8',timeout:3000,maxBuffer:1024*1024,env:{...process.env,LC_ALL:'C'},stdio:['ignore','pipe','ignore']}).trim().split('\n').map(line=>line.trim().split(/\s+/).map(Number));}catch{return [current];}
+  let changed=true;while(changed&&found.size<128){changed=false;for(const [pid,ppid,uid] of rows){if(found.has(pid)||!found.has(ppid)||uid!==current.uid)continue;const child=terminalProcessIdentity(pid);if(child&&!child.unknown&&!child.zombie&&child.ppid===ppid&&child.uid===uid){found.set(pid,child);changed=true;}}}
+  return [...found.values()];
+}
+
+const driverProcess=(runtime,process,index)=>index===0||new RegExp(`(?:^|[/\\s])${runtime==='agy'?'agy':runtime}(?:\\.js)?(?:\\s|$)`,'i').test(process.command||'');
+async function openFiles(processes,session){
+  const pids=processes.filter((process,index)=>driverProcess(session.runtime,process,index)).map(process=>process.pid);
+  if(process.platform==='linux'){
+    const files=[];for(const pid of pids){for(const name of await readdir(`/proc/${pid}/fd`).catch(()=>[])){const info=await readFile(`/proc/${pid}/fdinfo/${name}`,'utf8').catch(()=>''),flags=info.match(/^flags:\s*([0-7]+)/m)?.[1];if(!flags||!(parseInt(flags,8)&3))continue;const path=await readlink(`/proc/${pid}/fd/${name}`).catch(()=>null);if(path)files.push(path);}}return files;
+  }
+  if(!pids.length)return [];
+  try{const files=[];let mode='';for(const line of execFileSync('lsof',['-Fpfan','-p',pids.join(',')],{encoding:'utf8',timeout:3000,maxBuffer:1024*1024,stdio:['ignore','pipe','ignore']}).split('\n')){if(line.startsWith('f'))mode='';else if(line.startsWith('a'))mode=line.slice(1);else if(line.startsWith('n/')&&/[wu]/.test(mode))files.push(line.slice(1));}return files;}catch{return [];}
+}
+
+/** Observe an unsupported fresh-ID CLI for exact opened history files; ambiguity leaves the entry unbound. */
+export function startNativeSessionObservation(session,rootIdentity,{intervalMs=2000}={}){
+  const ids=new Set();let pending=Promise.resolve(),closed=false;
+  const sample=()=>{pending=pending.then(async()=>{for(const path of await openFiles(exactProcessTree(rootIdentity),session)){const id=await nativeIdFromOpenPath(session,path);if(id)ids.add(id);}}).catch(()=>{});return pending;};
+  void sample();const burst=[50,200,500,1000].map(delay=>{const timer=setTimeout(()=>void sample(),delay);timer.unref();return timer;}),timer=setInterval(()=>void sample(),Math.max(25,intervalMs));timer.unref();
+  return {async finish(){if(!closed){closed=true;for(const item of burst)clearTimeout(item);clearInterval(timer);await sample();}else await pending;return ids.size===1?[...ids]:[];}};
+}
 const processKey=p=>p&&!p.unknown?{pid:p.pid,uid:p.uid,start:p.start}:null;
 const sameProcess=(actual,expected)=>!!actual&&!actual.unknown&&actual.pid===expected?.pid&&actual.uid===expected.uid&&actual.start===expected.start;
 export {processKey as processIdentityKey,sameProcess as sameProcessIdentity};
+
+function updateNativeCatalog(db,session,fields){
+  if(session?.kind!=='native'||!session.catalogEntryId)return null;
+  const current=db.get('nativeCatalogEntries',session.catalogEntryId);if(!current)return null;
+  return db.put('nativeCatalogEntries',{...current,...fields,modifiedAt:new Date().toISOString()});
+}
+function releasedCatalogState(session,checkedAt){
+  const launched=Boolean(session?.pid||session?.childPid||session?.startedAt);
+  if(!launched)return session?.nativeSession?.id?{status:'ready'}:{status:'draft'};
+  if(session?.nativeSession?.id)return {sessionId:session.nativeSession.id,status:'ready',exactLastScan:checkedAt};
+  if(session?.nativeOptions?.freshId)return {sessionId:session.nativeOptions.freshId,status:'awaiting_history',exactLastScan:checkedAt};
+  return {status:'awaiting_native_id',exactLastScan:checkedAt};
+}
 
 /** Old sessions are accepted only with a live, recognizable launcher or its direct child; uncertainty never authorizes a signal. */
 function terminalProcesses(session,dbPath) {
@@ -93,7 +151,8 @@ export function checkTerminalSession(db,binding,dbPath,{automatic=false}={}) {
     }
     const proof=terminalProcesses(prior,dbPath),processState=proof.unknown?'unknown':proof.owned.length?'active':'released';
     db.put('terminalSessions',{...prior,lastCheckedAt:checkedAt,processState,...(processState==='released'?{status:'released',releasedAt:checkedAt}:{})});
-    return {id:prior.id,status:processState==='released'?'released':prior.status,processState,checkedAt,...(proof.unknown?{reason:tr('terminalControl.identityUnknown')}:{})};
+    const catalogEntry=processState==='released'?updateNativeCatalog(db,prior,releasedCatalogState(prior,checkedAt)):prior.catalogEntryId?db.get('nativeCatalogEntries',prior.catalogEntryId):null;
+    return {id:prior.id,status:processState==='released'?'released':prior.status,processState,checkedAt,...(catalogEntry?{catalogEntry}:{}),...(proof.unknown?{reason:tr('terminalControl.identityUnknown')}:{})};
   });
 }
 
@@ -193,7 +252,8 @@ export function claimTerminalSession(db, id, pid) {
     if(db.get('sourceSyncReservations',s.projectId))throw syncError('sync_busy');
     const wrapperIdentity=processKey(terminalProcessIdentity(pid));
     if(!wrapperIdentity)throw new Error(tr('terminalControl.identityUnknown'));
-    return db.put('terminalSessions',{...s,status:'active',pid,wrapperIdentity,startedAt:new Date().toISOString()});
+    const startedAt=new Date().toISOString(),claimed=db.put('terminalSessions',{...s,status:'active',pid,wrapperIdentity,startedAt});
+    updateNativeCatalog(db,claimed,{status:'active',startedAt});return claimed;
   });
 }
 
@@ -202,6 +262,7 @@ export function releaseTerminalSession(db,id) {
   return db.transaction(()=>{
     const prior=db.get('terminalSessions',id);
     if(prior && (processAlive(prior.pid)||processAlive(prior.childPid)))throw new Error(tr('terminalResume.terminalCliHasNotExited'));
+    if(prior)updateNativeCatalog(db,prior,releasedCatalogState(prior,new Date().toISOString()));
     return db.put('terminalSessions',{...prior,id,status:'released'});
   });
 }
@@ -223,9 +284,11 @@ async function runTerminal(dbPath,id) {
   const child=spawn(session.nativeSession.binary,args,{cwd:session.workspace,env,stdio:'inherit'});
   // Ctrl-C is handed to the CLI; the wrapper process stays until the child process actually exits.
   const onSignal=()=>{};process.on('SIGINT',onSignal);process.on('SIGTERM',()=>child.kill('SIGTERM'));
-  db.transaction(()=>{const current=db.get('terminalSessions',id);if(closed.has(current.status)){child.kill('SIGTERM');return;}db.put('terminalSessions',{...current,childPid:child.pid,childIdentity:processKey(terminalProcessIdentity(child.pid))});});
+  let observation=null;
+  db.transaction(()=>{const current=db.get('terminalSessions',id);if(closed.has(current.status)){child.kill('SIGTERM');return;}const childIdentity=processKey(terminalProcessIdentity(child.pid));db.put('terminalSessions',{...current,childPid:child.pid,childIdentity});if(current.kind==='native'&&current.catalogEntryId&&!current.nativeSession.id)observation=startNativeSessionObservation(current.nativeSession,childIdentity);});
   const code=await new Promise(resolve=>{child.once('error',e=>{console.error(e.message);resolve(1);});child.once('exit',code=>resolve(code??1));});
-  db.transaction(()=>{const current=db.get('terminalSessions',id);if(!closed.has(current.status))db.put('terminalSessions',{...current,status:'finished',finishedAt:new Date().toISOString()});});
+  const observed=observation?await observation.finish():[],finishedAt=new Date().toISOString();
+  db.transaction(()=>{const current=db.get('terminalSessions',id);if(!closed.has(current.status))db.put('terminalSessions',{...current,status:'finished',finishedAt});if(current.catalogEntryId){const resumed=Boolean(current.nativeSession.id),sessionId=current.nativeSession.id||current.nativeOptions?.freshId||observed[0]||null;updateNativeCatalog(db,current,{sessionId,status:resumed?'ready':sessionId?'awaiting_history':'awaiting_native_id',finishedAt,exactLastScan:finishedAt});}});
   process.removeListener('SIGINT',onSignal);db.db.close();process.exitCode=code;
 }
 

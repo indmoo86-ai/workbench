@@ -56,6 +56,12 @@ async function discover(runtime,env){
  }
  return {files:files.sort((a,b)=>b.modifiedAt.localeCompare(a.modifiedAt)),partial};
 }
+const discoveryCache=new Map();
+async function cachedDiscovery(runtime,env,after=0){
+ const key=JSON.stringify([runtime,...historyRoots(runtime,env)]),prior=discoveryCache.get(key);
+ if(prior&&Date.now()-prior.at<20000&&prior.at>=after)return prior.value;
+ const value=await discover(runtime,env);discoveryCache.set(key,{at:Date.now(),value});return value;
+}
 
 async function describe(runtime,file){
  const row={id:file.id,runtime,title:file.id,workspace:null,modifiedAt:file.modifiedAt,previewAvailable:!file.path.endsWith('.db')&&!file.path.endsWith('.pb')};
@@ -70,11 +76,44 @@ async function describe(runtime,file){
  return row;
 }
 
-/** Native history remains on its device; the catalogue contains no login/environment secrets. */
-export async function listNativeSessions(runtime,{env=process.env,limit=100}={}){
- const {files,partial}=await discover(runtime,env),unique=[...new Map(files.toReversed().map(f=>[f.id,f])).values()].sort((a,b)=>b.modifiedAt.localeCompare(a.modifiedAt));
- const items=[];for(const file of unique.slice(0,limit)){try{items.push(await describe(runtime,file));}catch{items.push({id:file.id,runtime,title:file.id,modifiedAt:file.modifiedAt,workspace:null,previewAvailable:false,error:'History could not be read'});}}
- return {items,partial:partial||unique.length>limit};
+const nativeView=(history,{nodeId=null,runtime=history?.runtime,origin='vendor',title=null,createdAt=null,id=history?.id,sessionId=history?.id,status=history?'ready':'missing_history',workspace=null,exactLastScan=null}={})=>({
+ id,...(origin==='dialog'?{entryId:id}:{}),nodeId,runtime,sessionId:sessionId||null,title:title||history?.title||sessionId||id,
+ createdAt:createdAt||null,modifiedAt:history?.modifiedAt||createdAt||null,workspace:workspace||history?.workspace||null,origin,status,
+ hasHistory:Boolean(history),previewAvailable:Boolean(history?.previewAvailable),canReopen:origin==='dialog'&&status==='draft',canResume:Boolean(history)&&!['active','prepared'].includes(status),exactLastScan,...(history?.error?{error:history.error}:{})
+});
+
+/** Native history remains on its device; every filtered item is matched by an exact native ID. */
+export async function listNativeSessions(runtime,{env=process.env,limit=100,scope='all',registry=[],managedSessions=[],nodeId=null}={}){
+ if(!['created','group','all'].includes(scope))throw Error('Invalid native session scope');
+ const dialogRecords=registry.filter(record=>record?.runtime===runtime),records=scope==='created'?dialogRecords:scope==='group'?managedSessions:[];
+ const needsHistory=scope==='all'||records.some(record=>idPattern.test((record?.sessionId||record?.id)||'')&&!['draft','prepared','active'].includes(record.status));
+ const refreshAfter=Math.max(0,...dialogRecords.map(record=>Date.parse(record.exactLastScan)||0)),{files=[],partial=false}=needsHistory?await cachedDiscovery(runtime,env,refreshAfter):{},unique=[...new Map(files.toReversed().map(f=>[f.id,f])).values()].sort((a,b)=>b.modifiedAt.localeCompare(a.modifiedAt)),byId=new Map(unique.map(file=>[file.id,file]));
+ const described=new Map();
+ const history=async id=>{
+  if(!idPattern.test(id||'')||!byId.has(id))return null;
+  if(!described.has(id)){const file=byId.get(id);try{described.set(id,await describe(runtime,file));}catch{described.set(id,{id,runtime,title:id,modifiedAt:file.modifiedAt,workspace:null,previewAvailable:false,error:'History could not be read'});}}
+  return described.get(id);
+ };
+ let items=[],scopedTotal=0;
+ if(scope==='created'){
+  for(const record of records){
+   const entryId=record.entryId||record.id;if(typeof entryId!=='string'||!entryId)continue;
+   const exact=await history(record.sessionId),status=exact?(record.status==='active'||record.status==='prepared'?record.status:'ready'):record.sessionId?(record.status==='active'||record.status==='prepared'||record.status==='draft'?record.status:'awaiting_history'):(record.status||'awaiting_native_id');
+   items.push(nativeView(exact,{nodeId,runtime,origin:'dialog',id:entryId,sessionId:record.sessionId,title:record.title,createdAt:record.createdAt,status,workspace:record.workspace,exactLastScan:record.exactLastScan}));
+  }
+ }else if(scope==='group'){
+  for(const record of managedSessions){
+   const sessionId=record?.sessionId||record?.id;if(!idPattern.test(sessionId||''))continue;
+   items.push(nativeView(await history(sessionId),{nodeId,runtime,origin:'managed',id:sessionId,sessionId,title:record.title,createdAt:record.createdAt,status:byId.has(sessionId)?'ready':'missing_history',workspace:record.workspace}));
+  }
+ }else{
+  const managedIds=new Set(managedSessions.map(record=>record?.sessionId||record?.id).filter(id=>idPattern.test(id||''))),dialogIds=new Set(dialogRecords.map(record=>record.sessionId).filter(id=>idPattern.test(id||'')));
+  for(const record of dialogRecords){const entryId=record.entryId||record.id;if(typeof entryId!=='string'||!entryId)continue;const exact=await history(record.sessionId),status=exact?(record.status==='active'||record.status==='prepared'?record.status:'ready'):record.sessionId?(record.status==='active'||record.status==='prepared'||record.status==='draft'?record.status:'awaiting_history'):(record.status||'awaiting_native_id');items.push(nativeView(exact,{nodeId,runtime,origin:'dialog',id:entryId,sessionId:record.sessionId,title:record.title,createdAt:record.createdAt,status,workspace:record.workspace,exactLastScan:record.exactLastScan}));}
+  const vendorFiles=unique.filter(file=>!managedIds.has(file.id)&&!dialogIds.has(file.id));scopedTotal=items.length+vendorFiles.length;
+  for(const file of vendorFiles.slice(0,Math.max(0,limit-items.length))){const exact=await history(file.id);items.push(nativeView(exact,{nodeId}));}
+ }
+ items.sort((a,b)=>String(b.modifiedAt||b.createdAt||'').localeCompare(String(a.modifiedAt||a.createdAt||'')));
+ return {items:items.slice(0,limit),partial:partial||items.length>limit||(scope==='all'&&scopedTotal>limit)};
 }
 
 /** Resume and preview resolve an exact native ID on the selected device, never a filename from the client. */
@@ -87,7 +126,11 @@ export async function readNativeSession(runtime,id,{env=process.env}={}){
 }
 
 /** Native defaults stay intact unless the user explicitly opts into unrestricted execution. */
-export function nativeTuiArgs(runtime,{id,allowAll=false}={}){
+export function nativeTuiArgs(runtime,{id,freshId=null,allowAll=false}={}){
  if(!runtimes.has(runtime)||typeof allowAll!=='boolean')throw Error('Invalid CLI or permission mode');
- return [...(id?resumeArgs(runtime,id):[]),...(allowAll?{codex:['--dangerously-bypass-approvals-and-sandbox'],claude:['--dangerously-skip-permissions'],grok:['--always-approve','--permission-mode','bypassPermissions'],agy:['--dangerously-skip-permissions']}[runtime]:[])];
+ if(id&&freshId)throw Error('A native session cannot resume and create at the same time');
+ if(freshId&&!idPattern.test(freshId))throw Error('Invalid exact fresh session ID');
+ const fresh=freshId?{claude:['--session-id',freshId],grok:['--session-id',freshId]}[runtime]:[];
+ if(freshId&&!fresh)throw Error('This CLI does not support an exact fresh session ID');
+ return [...(id?resumeArgs(runtime,id):fresh),...(allowAll?{codex:['--dangerously-bypass-approvals-and-sandbox'],claude:['--dangerously-skip-permissions'],grok:['--always-approve','--permission-mode','bypassPermissions'],agy:['--dangerously-skip-permissions']}[runtime]:[])];
 }
