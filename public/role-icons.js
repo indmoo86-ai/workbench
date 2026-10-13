@@ -342,13 +342,13 @@ function quotaDetails(kind, pct, bucket) {
 }
 
 /** A tap or keyboard activation opens the same facts as hover, without entering the enclosing role editor. */
-function openQuotaDetails(getDetails) {
+function openQuotaDetails(getDetails, title = 'Quota details') {
   const dialog = el('dialog', 'quota-dialog');
-  dialog.setAttribute('aria-label', t('Quota details'));
+  dialog.setAttribute('aria-label', t(title));
   const heading = el('div', 'dialog-heading');
   const close = el('button', 'secondary compact', t('Close'));
   close.type = 'button'; close.onclick = () => dialog.close();
-  heading.append(el('h2', '', t('Quota details')), close);
+  heading.append(el('h2', '', t(title)), close);
   const remaining = el('p', 'workspace-note'), reset = el('p', 'quota-reset-detail');
   const update = () => { const details = getDetails(); remaining.textContent = details.remaining; reset.textContent = details.reset; };
   update(); const timer = setInterval(update, 30000);
@@ -358,7 +358,7 @@ function openQuotaDetails(getDetails) {
 }
 
 /** A body-level hint escapes clipped quota shapes; remove it when a refreshed role card detaches its trigger. */
-function bindQuotaDetails(mark, getDetails) {
+export function bindQuotaDetails(mark, getDetails, title = 'Quota details') {
   let hint = null, observer = null, timer = null;
   const hide = () => {
     if (activeQuotaHintCleanup === hide) activeQuotaHintCleanup = null;
@@ -383,7 +383,7 @@ function bindQuotaDetails(mark, getDetails) {
   };
   mark.addEventListener('mouseenter', show); mark.addEventListener('mouseleave', hide);
   mark.addEventListener('focus', show); mark.addEventListener('blur', hide);
-  mark.addEventListener('click', event => { event.stopPropagation(); hide(); openQuotaDetails(getDetails); });
+  mark.addEventListener('click', event => { event.stopPropagation(); hide(); openQuotaDetails(getDetails,title); });
 }
 
 /** Draw only quota windows actually returned by the vendor; unknown quota is not shown as green. */

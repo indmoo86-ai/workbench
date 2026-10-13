@@ -4,6 +4,15 @@
  * Brand and product names (Codex, Gitee, GitHub, Windows App, iTerm, ...) are intentionally left as they are inside sentences.
  */
 export default {
+  'Context usage': '上下文占用',
+  'Context used: {pct}%': '上下文已用：{pct}%',
+  'Context usage unknown': '上下文占用未知',
+  'Last input: {used} / {limit} tokens': '最近请求输入：{used} / {limit} token',
+  'Last input: {used} tokens; context limit unavailable.': '最近请求输入：{used} token；上下文上限未知。',
+  'Measured at: {time}': '采集时间：{time}',
+  'Compacted; awaiting the next context measurement.': '已压缩，等待下一次上下文数据。',
+  'No current-session measurement. Updates after a supported CLI reports usage.': '当前会话暂无测量数据，支持的 CLI 上报后自动更新。',
+  'Latest native request snapshot, not cumulative usage or remaining account quota.': '原生 CLI 最近一次请求的快照，不是累计消耗或账号剩余额度。',
   'Group chats': '群聊',
   'User': '用户',
   'Assistant': '助手',

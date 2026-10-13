@@ -1,6 +1,7 @@
 import { t, getLanguage, setLanguage, onLanguageChange, syncLanguageWithBackend, dateLocale } from './i18n.js';
 import {simplifiedCliOutput} from './output-language.js';
 import {createNativeSessionUI} from './native-sessions.js';
+import {roleContextRing} from './context-usage.js';
 import {executionProgressLabels} from './execution-progress.js';
 import {createLiveScene} from './live-scene.js';
 import { createRoomUI, createRoleRefresh } from './room.js';
@@ -883,7 +884,8 @@ function renderRoles() {
     if (configured) {
       ids.append(
         agentIconEl(role.runtime, runtime?.label || role.runtime),
-        create('span', 'role-model', role.model || '—')
+        create('span', 'role-model', role.model || '—'),
+        roleContextRing(role,app.data)
       );
     } else {
       ids.append(create('span', 'role-setup-hint', role.modelHint || 'No run device bound yet'));

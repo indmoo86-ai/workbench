@@ -1050,6 +1050,7 @@ const server = http.createServer(async (req, res) => {
     files['/i18n.js']='i18n.js';
     files['/output-language.js']='output-language.js';
     files['/native-sessions.js']='native-sessions.js';
+    files['/context-usage.js']='context-usage.js';
     files['/vendor/opencc-t2cn.js']='vendor/opencc-t2cn.js';
     files['/locales/zh.js']='locales/zh.js';
     const file = files[pathname]; if (!file) return json(res, { error: tr('home.pageNotFound') }, 404);
@@ -1143,7 +1144,7 @@ wss.on('connection', ws => {
           rooms.complete(current);
         });
         send(ws, { type: 'ack', id: m.event.id });
-        if(['message','tool','usage'].includes(m.event.type))outputChanged();else change();
+        if(['message','tool','usage','context_usage'].includes(m.event.type))outputChanged();else change();
       }
       if (m.type === 'command_ack') { const c = db.get('commands', m.id); if (c?.nodeId === nodeId&&!c.acked) {db.put('commands', { ...c, acked: true,ackedAt:new Date().toISOString() });change();} }
       if (m.type === 'reply') { const q = queries.get(m.id); if (q?.nodeId === nodeId) { queries.delete(m.id); m.error ? q.reject(new Error(m.error)) : q.resolve(m.result); } }

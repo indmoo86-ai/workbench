@@ -271,6 +271,7 @@ export class Store {
         if (r.stopRequested && !terminal.has(next.status) && next.status !== 'reconciling') next.status = 'stopping';
       }
       if (e.type === 'usage') next.usage = e.payload;
+      if (e.type === 'context_usage') next.contextUsage = e.payload;
       // Preserve finished business results while accepting the owning Worker's driver-exit facts.
       if(e.type==='status'&&terminal.has(r.status)&&e.payload.runtimeRetained===false&&e.payload.processSettled===true)
         Object.assign(next,{runtimeRetained:false,processSettled:true,driverState:e.payload.driverState,...(e.payload.pid===null?{pid:null,previousPid:e.payload.previousPid||r.pid}:{})});

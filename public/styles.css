@@ -907,6 +907,18 @@ dialog::backdrop { background: rgb(18 33 24 / 32%); backdrop-filter: none; }
 }
 .quota-dialog { width: min(420px, calc(100vw - 32px)); }
 .quota-reset-detail { overflow-wrap: anywhere; }
+.role-context-ring {
+  --context-color: #0866df; position: relative; isolation: isolate; display: grid; place-items: center;
+  width: 14px; height: 14px; flex: 0 0 14px; padding: 0; margin-left: 3px; border: 0; border-radius: 50%;
+  background: conic-gradient(var(--context-color) var(--context-percent), #dce6f2 0);
+  color: #244765; font-size: 8px; font-weight: 800; font-variant-numeric: tabular-nums;
+}
+.role-context-ring::before { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: #fff; z-index: -1; }
+.role-context-ring.is-mid { --context-color: #bd790b; }
+.role-context-ring.is-high { --context-color: #c53b3b; }
+.role-context-ring.is-unknown { color: #8796a8; }
+.role-context-ring:focus-visible { outline: 2px solid #0866df; outline-offset: 3px; }
+.quota-reset-detail { white-space: pre-line; }
 .role-quota-mark.is-five-hour { width: 20.9px; height: 19px; font-size: 7.6px; clip-path: polygon(29.3% 0, 70.7% 0, 100% 29.3%, 100% 70.7%, 70.7% 100%, 29.3% 100%, 0 70.7%, 0 29.3%); }
 .role-quota-mark.is-weekly { border-radius: 50%; }
 .role-quota-mark.is-mid { background: var(--warning); }
