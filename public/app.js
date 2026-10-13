@@ -130,7 +130,7 @@ const roleRefresh=createRoleRefresh({api,refreshState,getData:()=>({...app.data,
 const liveScene=createLiveScene({api,getProjectId:()=>app.selectedProjectId});
 const runOriginal=createHistoryViewer({api,inline:true});
 let originalRunSnapshot=null;
-const room = createRoomUI({ api, refreshState, openTask, openLiveScene:run=>liveScene.open(run.id,{projectId:run.projectId,name:run.roleSnapshot?.name}), stopRun, decideApproval, create, formatTime, setError, configureDevice(projectId, nodeId) {
+const room = createRoomUI({ api, refreshState, openTask, stopRun, decideApproval, create, formatTime, setError, configureDevice(projectId, nodeId) {
   if (app.data.projects.some(p => p.id === projectId)) { app.selectedProjectId=projectId;openSettings('project'); }
 } });
 // Action icons apply only to explicit entry points; tabs, project names and the text confirm buttons at the bottom of dialogs are unchanged.
