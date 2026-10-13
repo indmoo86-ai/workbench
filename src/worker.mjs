@@ -19,6 +19,7 @@ import {readProjectFile,listProjectFiles} from './project-file-read.mjs';
 import { CodexSession } from './codex.mjs';
 import { CliPrintSession } from './cli-print-session.mjs';
 import { browseFolders } from './folders.mjs';
+import {listNativeSessions,readNativeSession,nativeTuiArgs,assertNativeSessionIdle} from './native-sessions.mjs';
 import { giteeRepository } from './repository.mjs';
 import { inspectRuntimes, runtimeIssue } from './runtime-probe.mjs';
 import { writeHandoff } from './wb-tools.mjs';
@@ -537,7 +538,7 @@ async function query(m) {
   if(m.action==='cli_capacity') {
     try{send({type:'reply',id:m.id,result:await applyCapacity(m.path?.capacity)});}catch(e){send({type:'reply',id:m.id,error:e.message});}return;
   }
-  const modifies=['repository_setup','execution_receive','execution_baseline_advance','terminal_prepare','terminal_new'].includes(m.action);
+  const modifies=['repository_setup','execution_receive','execution_baseline_advance','terminal_prepare','terminal_new','native_terminal_prepare'].includes(m.action);
   try {
     if(m.action==='queue_verification'){
       const input=m.path,r=db.get('runs',input?.runId||'');
@@ -630,6 +631,31 @@ async function query(m) {
       const home=homeUrl.replace(/^ws/i,'http').replace(/\/worker\/?$/,'');
       const files=await receiveAttachments({items:input.items,workspace,transferId:input.transferId,home,token});
       send({type:'reply',id:m.id,result:{files}});return;
+    }
+    if(['native_sessions','native_session','native_terminal_preview','native_terminal_prepare'].includes(m.action)) {
+      const input=m.path||{},runtime=input.runtime;
+      if(!runtimes.some(r=>r.type===runtime&&r.available&&r.supported!==false))throw Error('CLI is not available on this device');
+      if(m.action==='native_sessions'){send({type:'reply',id:m.id,result:await listNativeSessions(runtime)});return;}
+      if(m.action==='native_session'){send({type:'reply',id:m.id,result:await readNativeSession(runtime,input.sessionId)});return;}
+      if(paused)throw Error('Remote execution is paused');
+      nativeTuiArgs(runtime,{id:input.sessionId,allowAll:input.allowAll??false});
+      const history=input.sessionId?await readNativeSession(runtime,input.sessionId):null;
+      if(history?.workspace&&input.workspace&&await realpath(input.workspace)!==await realpath(history.workspace))throw Error('Resume must use the original working folder');
+      const workspace=await projectRoot(history?.workspace||input.workspace);
+      const projectIds=new Set();
+      for(const binding of input.bindings||[]){const root=await realpath(binding.localRoot).catch(()=>null);if(root&&(inside(root,workspace)||inside(workspace,root)))projectIds.add(binding.projectId);}
+      if(projectIds.size>1)throw Error('This folder overlaps several group chats; open it from the owning role instead');
+      const projectId=[...projectIds][0]||input.projectId;
+      const assertIdle=()=>assertNativeSessionIdle(db,{runtime,sessionId:input.sessionId,workspace,projectId});
+      assertIdle();
+      if(m.action==='native_terminal_preview'){send({type:'reply',id:m.id,result:{workspace,projectId:[...projectIds][0]||null,runtime,sessionId:input.sessionId||null}});return;}
+      if(typeof input.id!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(input.id)||!input.projectId||input.nodeId!==identity.nodeId||projectId!==input.projectId)throw Error('Terminal binding changed; refresh and try again');
+      const nativeSession={...await nativeEnvironment(runtime),id:input.sessionId||null};
+      assertIdle();
+      if(db.get('terminalSessions',input.id)||projectTerminalLock(db,projectId,identity.nodeId)||db.get('sourceSyncReservations',projectId))throw Error('Session is occupied; no second CLI was started');
+      if(occupiedSlots()>=capacity)throw Error('Device CLI capacity is full');
+      db.put('terminalSessions',{id:input.id,kind:'native',projectId,nodeId:identity.nodeId,status:'prepared',workspace,nativeSession,nativeOptions:{allowAll:input.allowAll===true},privateEnv:resumeEnvironment(process.env),createdAt:new Date().toISOString()});
+      reportCapacity();send({type:'reply',id:m.id,result:{id:input.id,kind:'native',workspace,user:nativeSession.user,runtime,sessionId:nativeSession.id,launcher:[process.execPath,join(base,'src','terminal-resume.mjs'),join(data,'worker.sqlite'),input.id]}});return;
     }
     if(m.action==='terminal_check') {
       const input=m.path;
@@ -877,7 +903,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { nativeSessions:1,cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {

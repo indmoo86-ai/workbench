@@ -1,5 +1,6 @@
 import { t, getLanguage, setLanguage, onLanguageChange, syncLanguageWithBackend, dateLocale } from './i18n.js';
 import {simplifiedCliOutput} from './output-language.js';
+import {createNativeSessionUI} from './native-sessions.js';
 import {executionProgressLabels} from './execution-progress.js';
 import {createLiveScene} from './live-scene.js';
 import { createRoomUI, createRoleRefresh } from './room.js';
@@ -244,6 +245,7 @@ function createMobileDrawers() {
 }
 const drawers = createMobileDrawers();
 const inspector=createWorkspaceInspector({api,getProject:getCurrentProject,getData:()=>app.data,openDevices:()=>openSettings('devices'),openProjectFolder});
+const nativeSessionUI=createNativeSessionUI({api,getData:()=>app.data,onModeChange:()=>{app.view='workspace';render();},onPreview:()=>mobilePanel('chat')});
 initWorkspaceColumns();
 const mobilePanel = drawers.set;
 document.querySelector('#mobile-projects').innerHTML = UI_ICON.folder;
@@ -559,7 +561,8 @@ function render() {
   projectsUI.refreshNodes();
   setupUI.refresh();
   platformUI.refresh(); spacesUI.refresh();
-  void room.refresh(app.data, app.selectedProjectId);
+  if(!nativeSessionUI.active())void room.refresh(app.data, app.selectedProjectId);
+  nativeSessionUI.sync();
 }
 
 const DISMISSED_PLANS_KEY = 'agent-workbench.dismissed-plans';
@@ -2094,7 +2097,7 @@ document.querySelector('#toggle-project-sidebar')?.addEventListener('click', () 
   setProjectSidebarMode(cur === 'hidden' ? 'expanded' : 'hidden');
 });
 
-document.querySelector('#show-project-form').addEventListener('click', () => showProjectForm(true));
+document.querySelector('#show-project-form').addEventListener('click', () => nativeSessionUI.active()?nativeSessionUI.openNew():showProjectForm(true));
 document.querySelector('#empty-create-project').addEventListener('click', () => showProjectForm(true));
 document.querySelector('#close-project-form').addEventListener('click', () => showProjectForm(false));
 document.querySelector('#cancel-project').addEventListener('click', () => showProjectForm(false));
@@ -2103,7 +2106,7 @@ document.querySelector('#close-history').addEventListener('click', () => documen
 document.querySelector('#close-device-edit').addEventListener('click', () => document.querySelector('#device-edit-dialog').close());
 document.querySelector('#device-edit-dialog').addEventListener('close', () => document.querySelector('#device-edit-content').replaceChildren());
 document.querySelector('#close-run').addEventListener('click', () => { dom.runDialog.close(); app.requestVersion++; });
-document.querySelector('#refresh-state').addEventListener('click', () => {void roleRefresh.refreshTerminals().catch(error=>setError(error.message));});
+document.querySelector('#refresh-state').addEventListener('click', () => {if(nativeSessionUI.active()){nativeSessionUI.refresh();return;}void roleRefresh.refreshTerminals().catch(error=>setError(error.message));});
 document.querySelector('#close-file-dialog').addEventListener('click', () => dom.fileDialog.close());
 dom.fileDialog.addEventListener('close', () => { app.fileReadVersion++; });
 

@@ -211,12 +211,13 @@ async function runTerminal(dbPath,id) {
   const db=new Store(dbPath), before=db.get('terminalSessions',id);
   if(!before?.nativeSession || before.nativeSession.user!==userInfo().username)throw new Error(tr('terminalResume.runningUserDoesNotMatch'));
   if(!(await stat(before.workspace)).isDirectory())throw new Error(tr('terminalResume.originalWorkingDirectoryDoesNot'));
-  if(before.kind==='new'&&await realpath(before.workspace)!==before.workspace)throw new Error(tr('terminalResume.originalWorkingDirectoryDoesNot'));
-  if(before.kind!=='new')await findSessionHistory(before.nativeSession);
+  if(['new','native'].includes(before.kind)&&await realpath(before.workspace)!==before.workspace)throw new Error(tr('terminalResume.originalWorkingDirectoryDoesNot'));
+  if(before.kind!=='new'&&(before.kind!=='native'||before.nativeSession.id))await findSessionHistory(before.nativeSession);
   await access(before.nativeSession.binary,constants.X_OK);
+  if(before.kind==='native')(await import('./native-sessions.mjs')).assertNativeSessionIdle(db,{runtime:before.nativeSession.runtime,sessionId:before.nativeSession.id,workspace:before.workspace,projectId:before.projectId,claimId:id});
   const session=claimTerminalSession(db,id,process.pid);
-  const args=session.kind==='new'?freshTerminalArgs({...session.roleSettings,runtime:session.nativeSession.runtime,workspace:session.workspace}):resumeArgs(session.nativeSession.runtime,session.nativeSession.id);
-  console.log(session.kind==='new'?tr('roleTerminal.startingNew',{workspace:session.workspace}):tr('terminalResume.resumingOriginalSessionDirectoryPlatform', { id: session.nativeSession.id, workspace: session.workspace }));
+  const args=session.kind==='native'?(await import('./native-sessions.mjs')).nativeTuiArgs(session.nativeSession.runtime,{id:session.nativeSession.id,...session.nativeOptions}):session.kind==='new'?freshTerminalArgs({...session.roleSettings,runtime:session.nativeSession.runtime,workspace:session.workspace}):resumeArgs(session.nativeSession.runtime,session.nativeSession.id);
+  console.log(session.kind==='new'||session.kind==='native'&&!session.nativeSession.id?tr('roleTerminal.startingNew',{workspace:session.workspace}):tr('terminalResume.resumingOriginalSessionDirectoryPlatform', { id: session.nativeSession.id, workspace: session.workspace }));
   const env={...session.privateEnv};
   for(const key of ['TERM','COLORTERM','TERM_PROGRAM','TERM_PROGRAM_VERSION'])if(process.env[key])env[key]=process.env[key];
   const child=spawn(session.nativeSession.binary,args,{cwd:session.workspace,env,stdio:'inherit'});

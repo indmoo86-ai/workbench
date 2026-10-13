@@ -365,12 +365,14 @@ function workerQuery(run, action, path, timeout = 10000) {
   });
 }
 const terminalRefreshes=new Map();
+/** Standalone native terminals reserve a device slot without inventing a collaboration project. */
+const terminalScopeExists=projectId=>Boolean(db.get('projects',projectId)||db.listProject('terminalSessions',projectId).some(s=>s.kind==='native'&&projectId===`native-tui:${s.id}`));
 /** Only the Worker can inspect remote PIDs; unknown/offline checks retain the lock and released receipts wake the original queue. */
 function refreshProjectTerminals(projectId,{automatic=false}={}) {
   const key=`${projectId}:${automatic?'auto':'manual'}`;
   if(terminalRefreshes.has(key))return terminalRefreshes.get(key);
   const operation=(async()=>{
-    if(!db.get('projects',projectId))throw new Error(tr('store.projectNotFound'));
+    if(!terminalScopeExists(projectId))throw new Error(tr('store.projectNotFound'));
     const claims=db.listProject('terminalSessions',projectId).filter(s=>{
       if(['released','cancelled'].includes(s.status))return false;
       if(!automatic)return true;
@@ -398,7 +400,7 @@ function refreshProjectTerminals(projectId,{automatic=false}={}) {
 /** Reconcile without a browser: process proofs survive disconnects and wake only the original queue after release. */
 function reconcileTerminals(nodeId) {
   const projects=new Set(db.list('terminalSessions').filter(s=>!['released','cancelled'].includes(s.status)&&(!nodeId||s.nodeId===nodeId)).map(s=>s.projectId));
-  return Promise.all([...projects].filter(id=>db.get('projects',id)).map(id=>refreshProjectTerminals(id,{automatic:true}))).catch(error=>console.error('Terminal reconciliation failed:',error.message));
+  return Promise.all([...projects].filter(terminalScopeExists).map(id=>refreshProjectTerminals(id,{automatic:true}))).catch(error=>console.error('Terminal reconciliation failed:',error.message));
 }
 /** Stopping is an explicit human action, scoped to the saved lease rather than arbitrary browser-supplied PIDs. */
 async function returnTerminal(claim,action) {
@@ -476,6 +478,39 @@ const server = http.createServer(async (req, res) => {
       const wechatProject = pathname.match(/^\/api\/projects\/([^/]+)\/wechat$/);
       if (wechatProject && req.method === 'POST') {
         const link = wechat.openProject(wechatProject[1]); void wechat.tick().catch(() => {}); return json(res, { id: link.id }, 201);
+      }
+      const nativeMatch=pathname.match(/^\/api\/native-sessions\/([^/]+)(?:\/(terminal|folders))?$/);
+      if(nativeMatch){
+        const nodeId=decodeURIComponent(nativeMatch[1]),worker=db.get('workers',nodeId);
+        if(!worker||!online(nodeId))throw Error('Device is offline');
+        if(worker.capabilities?.nativeSessions!==1)throw Error('Upgrade this Worker to browse native sessions');
+        if(req.method==='GET'&&!nativeMatch[2])return json(res,await workerQuery({nodeId},url.searchParams.get('sessionId')?'native_session':'native_sessions',{runtime:url.searchParams.get('runtime'),sessionId:url.searchParams.get('sessionId')},30000));
+        if(req.method==='GET'&&nativeMatch[2]==='folders')return json(res,await workerQuery({nodeId},'directories',{path:url.searchParams.get('path')||null},15000));
+        if(req.method!=='POST'||nativeMatch[2]!=='terminal')throw Error('Invalid session action');
+        const b=await body(req);
+        if(b.action==='release'){const claim=db.get('terminalSessions',b.operationId);if(claim?.kind!=='native'||claim.nodeId!==nodeId)throw Error('Invalid native terminal binding');return json(res,await returnTerminal(claim,'release'));}
+        if(typeof b.operationId!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(b.operationId)||typeof b.allowAll!=='boolean')throw Error('Invalid terminal request');
+        const fingerprint=JSON.stringify({nodeId,runtime:b.runtime,sessionId:b.sessionId||null,workspace:b.workspace||null,allowAll:b.allowAll});
+        const prior=db.get('terminalSessions',b.operationId);
+        if(prior){if(prior.nativeFingerprint!==fingerprint||prior.status!=='prepared')throw Error('Terminal request is already used or changed');return json(res,terminalLaunchView(prior));}
+        if(db.get('settings','main')?.paused)throw Error('Remote execution is paused');
+        const device=db.list('devices').find(d=>d.nodeId===nodeId);
+        if(worker.nodeKind==='cloud'&&!device)throw Error('Register SSH access for this server first');
+        const bindings=[...db.list('workspaces'),...db.list('repositoryWorkspaces')].filter(w=>w.nodeId===nodeId).map(w=>({projectId:w.projectId,localRoot:w.localRoot}));
+        const input={runtime:b.runtime,sessionId:b.sessionId||null,workspace:b.workspace,allowAll:b.allowAll,bindings};
+        const preview=await workerQuery({nodeId},'native_terminal_preview',input,30000),projectId=preview.projectId||`native-tui:${b.operationId}`;
+        // Share the existing reservation/return lifecycle when a native folder belongs to a group chat.
+        if(db.get('settings','main')?.paused||projectTerminalLock(db,projectId,nodeId)||sourceSync.busy(projectId,nodeId)||db.list('runs').some(r=>r.nodeId===nodeId&&(r.status==='reconciling'||r.projectId===projectId&&!terminal.has(r.status))))throw Error('The related group chat is busy; finish its current work first');
+        if(db.get('terminalSessions',b.operationId))throw Error('Terminal request is being prepared');
+        const claim={id:b.operationId,kind:'native',projectId,nodeId,runtime:b.runtime,sessionId:b.sessionId||null,nativeFingerprint:fingerprint,status:'preparing',createdAt:new Date().toISOString()};
+        db.put('terminalSessions',claim);change();
+        try{
+          const info=await workerQuery(claim,'native_terminal_prepare',{...input,workspace:preview.workspace,id:claim.id,projectId,nodeId},30000);
+          const identityFile=b.useLocalSshKey===true&&process.platform==='darwin'&&device?(await credentials.get(device.id))?.keyPath:null;
+          const value=terminalLaunchView({...claim,...info,status:'prepared',command:terminalCommand(info,device||null,identityFile)});
+          if(db.get('terminalSessions',claim.id)?.status!=='preparing')throw Error('Terminal preparation expired');
+          db.put('terminalSessions',value);change();return json(res,value,201);
+        }catch(error){let status='blocked';try{await workerQuery(claim,'terminal_release',{id:claim.id});status='released';}catch{}const current=db.get('terminalSessions',claim.id);if(!['released','cancelled'].includes(current?.status))db.put('terminalSessions',{...claim,status,error:error.message});change();throw error;}
       }
       if (pathname === '/api/token-usage' && req.method === 'GET') {
         const nodeIds=(url.searchParams.get('nodeIds')||'').split(',').filter(Boolean);
@@ -1014,6 +1049,7 @@ const server = http.createServer(async (req, res) => {
     files['/role-history.js']='role-history.js';
     files['/i18n.js']='i18n.js';
     files['/output-language.js']='output-language.js';
+    files['/native-sessions.js']='native-sessions.js';
     files['/vendor/opencc-t2cn.js']='vendor/opencc-t2cn.js';
     files['/locales/zh.js']='locales/zh.js';
     const file = files[pathname]; if (!file) return json(res, { error: tr('home.pageNotFound') }, 404);
