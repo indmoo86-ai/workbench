@@ -890,7 +890,7 @@ function connect() {
       if(m.type==='source_sync_watch_config'){await sourceSync.watch.configure(m);return;}
       if(m.type==='source_sync_dirty_ack'){sourceSync.watch.acknowledge(m.noticeId);return;}
       if(m.type==='source_sync_cancel'){sourceSync.cancel(m.commandId);return;}
-      if(m.type==='source_sync_receipt_ack'){sourceSync.acknowledge(m.commandId);return;}
+      if(m.type==='source_sync_receipt_ack'){sourceSync.acknowledge(m.commandId,m);return;}
       if (m.type === 'registered') {
         cliRecoveryEnabled=m.cliRecovery===1;
         paused = m.paused;

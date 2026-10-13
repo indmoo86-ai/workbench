@@ -252,7 +252,7 @@ async function dispatch(nodeId) {
       }
       continue;
     }
-    const settings = normalizePlatformSettings(db.get('settings', 'main'));
+    const dispatchSocket=sockets.get(nodeId);
     const gitCredentials = {};
     if (!run.switchOperationId && (c.type === 'launch' || c.type === 'delivery_publish' || run.deliveryId)) {
       try { for (const repo of run.repositories || []) gitCredentials[repo.id] = await hosting.auth(repo.accountId, repo.repoUrl); }
@@ -264,7 +264,21 @@ async function dispatch(nodeId) {
         db.put('commands',{...c,acked:true}); change(); continue;
       }
     }
-    if(!online(nodeId)||db.get('commands',c.id)?.acked)continue;
+    const currentCommand=db.get('commands',c.id),currentRun=db.get('runs',run.id);
+    if(!online(nodeId)||sockets.get(nodeId)!==dispatchSocket||!dispatchSocket.workerReady||!currentCommand||currentCommand.acked)continue;
+    // Authentication yields to pause, cancellation and reconnection. Never send the stale command/run snapshot afterwards.
+    if(JSON.stringify(currentCommand)!==JSON.stringify(c)||JSON.stringify(currentRun)!==JSON.stringify(run))continue;
+    const settings=normalizePlatformSettings(db.get('settings','main'));
+    if(c.type==='launch'){
+      const currentTask=db.get('tasks',run.taskId);
+      const discussion=run.discussionDeliveryId?db.get('discussionDeliveries',run.discussionDeliveryId):null;
+      const currentOwner=run.discussionDeliveryId?discussion?.processingRunId===run.id&&discussion.status==='dispatched':currentTask?.currentRunId===run.id;
+      if(settings.paused||terminal.has(currentRun.status)||currentRun.status==='stopping'||!currentTask||!currentOwner||currentTask.status==='cancelled')continue;
+    }
+    if(['launch','delivery_publish'].includes(c.type)){
+      const currentRequest=run.requestId?db.get('coordinationRequests',run.requestId):db.list('coordinationRequests').find(r=>r.currentRunId===run.id);
+      if(currentRequest?.status==='cancelled'||sourceSync.busy(run.projectId,nodeId)||projectTerminalLock(db,run.projectId,nodeId))continue;
+    }
     const sentAt=new Date().toISOString(),platformPrompt=c.launchInput?.platformPrompt??(run.switchOperationId?'Maintenance only: read existing state; do not perform business actions.':minimal?settings.platformPrompt:legacyExecutionPrompt(settings.platformPrompt));
     // A launch keeps the language it was first sent in, so a re-send after a language change repeats the identical prompt.
     const language=c.launchInput?.language??getLanguage();

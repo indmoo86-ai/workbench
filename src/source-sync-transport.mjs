@@ -87,16 +87,25 @@ export class SourceSyncHome {
     if(['source_sync_watch_ack','source_sync_watch_status','source_sync_dirty'].includes(message.type)){this.watchMessage(nodeId,message);return;}
     if(this.db.get('sourceSyncTombstones',message.commandId)?.nodeId===nodeId){this.socket(nodeId)?.send(JSON.stringify({type:'source_sync_receipt_ack',commandId:message.commandId,disposition:'project_deleted'}));return;}
     const c=this.db.get('sourceSyncCommands',message.commandId);if(!c||c.nodeId!==nodeId)throw syncError('receipt_owner_mismatch');
-    if(message.type==='source_sync_command_ack'){this.db.put('sourceSyncCommands',{...c,ackedAt:new Date().toISOString()});return;}
-    if(message.type!=='source_sync_receipt')return;
-    let result=message.result;
-    if(result?.receiptId){result=this.db.get('sourceSyncUploadReceipts',c.id)?.result;if(!result)throw syncError('receipt_missing');}
+    const uploaded=c.action==='apply'?this.db.get('sourceSyncUploadReceipts',c.id):null;
+    if(message.type==='source_sync_command_ack'){
+      this.db.put('sourceSyncCommands',{...c,ackedAt:new Date().toISOString()});
+      if(!uploaded)return;
+    }else if(message.type!=='source_sync_receipt')return;
+    if(message.result?.receiptId&&message.result.receiptId!==c.id)throw syncError('receipt_owner_mismatch');
+    // A timed-out upload response cannot invalidate saved evidence. The ordinary receipt validator still decides completion.
+    let result=uploaded?.result||message.result;
+    if(uploaded&&uploaded.fingerprint!==contentHash(JSON.stringify(result)))throw syncError('receipt_changed');
+    if(result?.receiptId)throw syncError('receipt_missing');
     if(result?.captureId){const bundle=this.db.get('sourceSyncUploads',c.id)?.bundle;if(!bundle)throw syncError('manifest_missing');
       for(const entry of entries(bundle))if(!await this.storage.has(c.projectId,entry))throw syncError('blob_missing');
       result={status:'completed',...bundle};
     }
     this.sync.acceptReceipt(nodeId,{commandId:c.id,result});
-    this.socket(nodeId)?.send(JSON.stringify({type:'source_sync_receipt_ack',commandId:c.id}));this.change();await this.tick();
+    const saved=this.db.get('sourceSyncCommands',c.id)?.result;
+    // Only a validated, committed result can clear the matching Worker outbox; transient observations are not acknowledgments.
+    if(saved)this.socket(nodeId)?.send(JSON.stringify({type:'source_sync_receipt_ack',commandId:c.id,receiptHash:contentHash(JSON.stringify(saved))}));
+    this.change();await this.tick();
   }
   async workerHttp(req,res,pathname){
     const m=pathname.match(/^\/api\/worker\/source-sync\/([a-f0-9]{64})\/(plan|capture|receipt|blobs)(?:\/([a-f0-9]{64}))?$/);if(!m)return false;
@@ -189,7 +198,9 @@ export class SourceSyncClient {
       const transport=this.db.get('sourceSyncTransport',command.id);
       this.db.put('sourceSyncTransport',{...transport,id:command.id,projectId:command.projectId,message});
       this.send({type:'source_sync_command_ack',commandId:command.id});
-      if(command.action==='apply')for(const entry of new Map(command.changes.map(c=>c.after).filter(Boolean).map(e=>[e.hash,e])).values()){
+      const saved=this.db.get('sourceSyncCommands',command.id)?.result;
+      // Receipt replay needs only the saved result; execute still checks the exact command fingerprint below.
+      if(command.action==='apply'&&!['completed','partial_conflict','cancelled','blocked'].includes(saved?.status))for(const entry of new Map(command.changes.map(c=>c.after).filter(Boolean).map(e=>[e.hash,e])).values()){
         let present=false;try{present=(await readSourceBlob(this.blobRoot,entry.hash)).length===entry.size;}catch{}
         if(!present){const r=await this.request(message,`blobs/${entry.hash}`),bytes=Buffer.from(await r.arrayBuffer());if(bytes.length!==entry.size||contentHash(bytes)!==entry.hash)throw syncError('blob_corrupt');await saveSourceBlob(this.blobRoot,bytes);}
       }
@@ -206,7 +217,12 @@ export class SourceSyncClient {
     }catch(error){this.send({type:'source_sync_receipt',commandId:message.commandId,result:{status:!error.code||error.code==='transfer_failed'?'reconciling':'blocked',reason:error.code||'transfer_failed'}});
     }finally{this.inFlight.delete(message.commandId);}
   }
-  acknowledge(id){this.db.remove('sourceSyncReceipts',id);this.sent.delete(id);}
+  acknowledge(id,message={}){
+    const receipt=this.db.get('sourceSyncReceipts',id);
+    // Old Homes send no result hash. Keep that receipt until a matching confirmation arrives after upgrade.
+    if(!receipt||message.disposition!=='project_deleted'&&message.receiptHash!==contentHash(JSON.stringify(receipt.result)))return;
+    this.db.remove('sourceSyncReceipts',id);this.sent.delete(id);
+  }
   cancel(id){
     this.db.put('sourceSyncCancellations',{id});
     if(this.inFlight.has(id))return;

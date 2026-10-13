@@ -113,7 +113,11 @@ export class SourceSyncWorker {
     const observing=command.scopeKind==='directory'&&command.action==='capture';
     const fingerprint=contentHash(JSON.stringify(command)),old=this.db.get('sourceSyncCommands',command.id);
     if(old&&old.fingerprint!==fingerprint)throw syncError('command_conflict');
-    if(old?.result&&['completed','partial_conflict','cancelled','blocked'].includes(old.result.status))return old.result;
+    if(old?.result&&['completed','partial_conflict','cancelled','blocked'].includes(old.result.status)){
+      // Replays restore the durable outbox, never reapply files that may have changed since completion.
+      if(!this.db.get('sourceSyncReceipts',command.id))this.db.put('sourceSyncReceipts',{id:command.id,projectId:command.projectId,generation:command.generation,fingerprint,result:old.result,createdAt:now()});
+      return old.result;
+    }
     if(this.running.has(command.id))return {status:'reconciling'};
     this.db.put('sourceSyncCommands',{id:command.id,projectId:command.projectId,command,fingerprint,status:'pending'});
     if(this.paused()&&!this.db.get('sourceSyncReservations',command.projectId))return {status:'blocked',reason:'paused'};

@@ -232,7 +232,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     }), header.lastChild);
     const body = create('div', 'message-fullscreen-body');
     const content = create('div', 'message-fullscreen-content');
-    content.append(/\.(md|markdown)$/i.test(name) ? renderMarkdown(text) : create('pre', 'attachment-text', text));
+    content.append(/\.(md|markdown)$/i.test(name) ? renderMarkdown(simplifiedCliOutput(text)) : create('pre', 'attachment-text', text));
     body.append(content); previewDialog.replaceChildren(header, body);
     if (!previewDialog.open) previewDialog.showModal();
   }
@@ -558,11 +558,11 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     return copy;
   }
 
-  /** CLI prose is simplified for display only; copying and the Original view retain the complete stored text. */
+  /** Chat prose is simplified for display only; copying and the Original view retain the complete stored text. */
   const renderLinkedMarkdown=(text,runId)=>localizeDocumentLinks(linkRunDocuments(renderMarkdown(simplifiedCliOutput(text)),runId),runId,api);
   function replyPreview(text, markdown = true, runId = null) {
     const preview = create('div', 'chat-reply-preview');
-    preview.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', text));
+    preview.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', simplifiedCliOutput(text)));
     return preview;
   }
 
@@ -603,7 +603,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
       header.append(heading,copy,close);
       const body = create('div', 'message-fullscreen-body');
       const content = create('div', 'message-fullscreen-content');
-      content.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', text));
+      content.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', simplifiedCliOutput(text)));
       if (attachments.length) {
         const files = create('div', 'chat-attachments');
         for (const item of attachments) files.append(attachmentCard(item));
@@ -707,7 +707,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     if(discussion){const title=create('div','handoff-title');title.append(create('strong','',`${m.senderName||t('Me')} → @${discussion.to}`));bubble.append(title,create('div','handoff-label',t('Peer discussion · {state}', { state: discussion.state })));}
     if (m.replyToId && !direction) {
       const source = messages.find(q => q.id === m.replyToId);
-      bubble.append(create('div', 'quoted-message', source ? t('{senderName}: {v}', { senderName: source.senderName, v: source.text.slice(0, 180) }) : 'Quoting an earlier message'));
+      bubble.append(create('div', 'quoted-message', source ? t('{senderName}: {v}', { senderName: source.senderName, v: simplifiedCliOutput(source.text).slice(0, 180) }) : 'Quoting an earlier message'));
     }
     if (handoff) {
       bubble.append(replyPreview(m.handoff.summary || m.text,true,m.runId));

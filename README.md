@@ -45,7 +45,7 @@ Managed dialogue inputs for Codex, Claude Code, Grok and Antigravity use English
 
 Task progress uses six labels: **Pending execution, In progress, Waiting, Completed, Stopped, Execution error**. A normally delivered review is completed even when its business verdict is negative; verdicts remain in the reply and delivery report. Waiting reasons and execution errors stay visible, and process stop must be confirmed. Existing plan policies and acceptance actions are unchanged; old records are not rewritten or automatically retried.
 
-CLI prose is displayed in Simplified Chinese in chat, live/fullscreen replies and execution output. This browser-only conversion uses a bundled OpenCC dictionary without a model or CDN request. User messages, quoted input, code, commands, paths, original-text views, copies and stored records retain their original content.
+Chinese prose is displayed in Simplified Chinese in chat (including user messages and quotations), live/fullscreen replies, execution output and Markdown previews. This browser-only character conversion uses a bundled OpenCC dictionary without translating English or making a model/CDN request. Code, commands, paths, editable input, original-text views, copies and stored records retain their original content.
 
 Directed role questions and published replies appear as individual chat bubbles with sender → recipient, content and time. Replies after a wait retain the original recipient even when the question is on an older history page. The question's Original button opens that message, not its sender's Run result. This display does not change dispatch, waiting, independent-review visibility or explicit-publication rules.
 
