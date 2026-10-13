@@ -21,6 +21,7 @@ export default {
   'Servers': '服务器',
   'Other devices': '其他设备',
   'All Agents': '全部 Agent',
+  'All sessions': '全部',
   'Session title': '会话标题',
   'Open unstarted session': '打开未启动会话',
   'This session has not started. Open it to begin chatting.': '此会话尚未启动，打开后即可开始聊天。',
