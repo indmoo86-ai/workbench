@@ -166,7 +166,8 @@ export class CliPrintSession {
       this.lastThinkingAt=Date.now();this.emit('log',{text:tr('cliPrintSession.modelThinkingNativeProgressEvent')});
     }
     if (type === 'error' || m.error) {
-      const errText = m.error?.message || m.message || extractText(m.error) || tr('cliPrintSession.runtimeError');
+      // Claude may put auth errors in assistant.message objects; handoff and UI need the actual text.
+      const errText = extractText(m.error?.message) || extractText(m.message) || extractText(m.error) || tr('cliPrintSession.runtimeError');
       this.runtimeError = this.runtimeError || errText;
       this.emit('log', { text: errText });
     }

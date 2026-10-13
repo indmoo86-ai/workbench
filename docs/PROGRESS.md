@@ -102,3 +102,8 @@
 
 - Removed the redundant routine progress-detail line below live chat bubbles. The role-heading status and typing indicator remain; existing actions follow the bubble directly. Explicit waiting/error reasons keep their existing visibility.
 - Verified desktop and narrow-screen rendering in an isolated Home and real Edge browser with a controlled online Worker. No native CLI or production task was launched.
+
+## 2026-10-14 — Structured CLI error text
+
+- Extract text from structured native assistant error messages before recording runtime failures. Error logs, status and automatic written handoffs retain the readable reason instead of an object; the execution still fails when the native CLI reports an error.
+- Reproduced the object-versus-string failure, passed focused regression checks and all 56 existing tests, and replayed a recorded authentication error through a real isolated child-process transport and handoff writer. This does not resolve provider authentication; no live service or active CLI was restarted.
