@@ -1102,13 +1102,14 @@ body[data-workspace-view="settings"] .project-sidebar,
 body[data-workspace-view="settings"] .node-sidebar,
 body[data-workspace-view="settings"] .topbar { display: none; }
 body[data-workspace-view="settings"] .workspace { display: flex; width: 100%; height: var(--app-height, 100dvh); padding: 0; }
-body[data-workspace-view="settings"] .settings-page { padding: 0 24px 40px; }
-body[data-workspace-view="settings"] .settings-page-heading { position: sticky; top: 0; z-index: 2; align-items: center; max-width: none; margin: 0; padding: 18px 0; border-bottom: 1px solid var(--line); background: var(--surface, #fff); }
+/* Full-width headers own their inset; only the tabs and body keep the reading margin. */
+body[data-workspace-view="settings"] .settings-page { --settings-inset: 24px; padding: 0 0 40px; }
+body[data-workspace-view="settings"] .settings-page-heading { position: sticky; top: 0; z-index: 2; align-items: center; max-width: none; margin: 0; padding: 18px var(--settings-inset); border-bottom: 1px solid var(--line); background: var(--surface, #fff); }
 body[data-workspace-view="settings"] .settings-page-heading h2 { margin: 0; }
-body[data-workspace-view="settings"] .settings-page[data-settings-scope="global"] { scrollbar-gutter: stable both-edges; }
-body[data-workspace-view="settings"] .settings-page[data-settings-scope="global"] .settings-page-heading { position: static; max-width: 1200px; width: 100%; margin-inline: auto; }
+body[data-workspace-view="settings"] .settings-page[data-settings-scope="global"] { scrollbar-gutter: stable; }
+body[data-workspace-view="settings"] .settings-page[data-settings-scope="global"] .settings-page-heading { position: static; }
 body[data-workspace-view="settings"] .settings-tabs,
-body[data-workspace-view="settings"] .settings-page-body { max-width: 1200px; width: 100%; margin-inline: auto; }
+body[data-workspace-view="settings"] .settings-page-body { max-width: 1200px; width: calc(100% - 2 * var(--settings-inset)); margin-inline: auto; }
 body[data-workspace-view="settings"] .settings-tabs { position: sticky; top: 0; z-index: 2; margin-top: 16px; }
 body[data-workspace-view="settings"] .settings-panel { border: 0; padding: 12px 0 0; background: transparent; }
 body[data-workspace-view="settings"] #settings-usage-panel .settings-panel-heading h3 { display: none; }
@@ -1227,8 +1228,8 @@ body:has(#platform-prompts-dialog[open]) .settings-page { overflow: hidden; }
   body[data-workspace-view="settings"] .app-shell,
   body[data-workspace-view="settings"][data-project-sidebar="collapsed"] .app-shell,
   body[data-workspace-view="settings"][data-project-sidebar="hidden"] .app-shell { height: var(--app-height, 100dvh); }
-  body[data-workspace-view="settings"] .settings-page { padding: 0 16px calc(24px + env(safe-area-inset-bottom)); }
-  body[data-workspace-view="settings"] .settings-page-heading { padding: 12px 0; }
+  body[data-workspace-view="settings"] .settings-page { --settings-inset: 16px; padding: 0 0 calc(24px + env(safe-area-inset-bottom)); }
+  body[data-workspace-view="settings"] .settings-page-heading { padding: 12px var(--settings-inset); }
   .device-panel-heading { align-items: center; }
   .device-panel-heading > button { min-width: auto; padding-inline: 10px; }
   .settings-panel .device-list { grid-template-columns: minmax(0, 1fr); }
