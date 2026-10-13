@@ -604,8 +604,9 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
 
   /** Chat prose is simplified for display only; copying and the Original view retain the complete stored text. */
   const renderLinkedMarkdown=(text,runId)=>localizeDocumentLinks(linkRunDocuments(renderMarkdown(simplifiedCliOutput(text)),runId),runId,api);
-  function replyPreview(text, markdown = true, runId = null) {
+  function replyPreview(text, markdown = true, runId = null, key = '') {
     const preview = create('div', 'chat-reply-preview');
+    preview.dataset.previewKey = `${projectId}:${key}`;
     preview.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', simplifiedCliOutput(text)));
     return preview;
   }
@@ -698,7 +699,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     col.append(create('div', 'chat-name', `@${role.name || t('Role')} · ${label}`));
     const bubble = create('div', 'chat-bubble');
     const preview = run && !run.explicitPublish ? liveText(run.id) : '';
-    if (preview) bubble.append(replyPreview(preview,true,run?.id));
+    if (preview) bubble.append(replyPreview(preview,true,run?.id,`run:${run?.id || task.id}`));
     else {
       const typing = create('div', 'chat-typing');
       typing.append(create('span'), create('span'), create('span'));
@@ -759,9 +760,9 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     if(recipients.length){const list=create('div','chat-recipient-list');for(const recipient of recipients)list.append(create('span','chat-recipient',`@${recipient.name}`));bubble.append(list);}
     const bodyText=messageDisplayText(handoff?m.handoff.summary||m.text:m.text,recipients);
     if (handoff) {
-      bubble.append(replyPreview(bodyText,true,m.runId));
+      bubble.append(replyPreview(bodyText,true,m.runId,`message:${m.id}`));
     } else {
-      bubble.append(replyPreview(bodyText, agent, m.runId));
+      bubble.append(replyPreview(bodyText, agent, m.runId,`message:${m.id}`));
     }
     if (m.attachments?.length) {
       const files = create('div','chat-attachments');
@@ -804,6 +805,8 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     const history = histories.get(projectId), messages = history?.messages || [];
     const scrollTop = scroller.scrollTop;
     const atBottom = scroller.scrollHeight - scroller.clientHeight - scrollTop < 120;
+    // 状态刷新会重建消息节点，按消息身份保留正文阅读位置，不抢回顶部。
+    const previewScroll = new Map([...feed.querySelectorAll('.chat-reply-preview')].map(node => [node.dataset.previewKey, { top: node.scrollTop, left: node.scrollLeft }]));
     feed.replaceChildren();
     older.hidden = !history?.hasMore;
     if (!messages.length) feed.append(create('div', 'chat-empty', history
@@ -827,6 +830,10 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     }
     const queueStrip=renderSessionQueue(data.sessionQueues?.[projectId],{create,api,refreshState,projectId,roleName:id=>(data.roles||[]).find(r=>r.id===id)?.name||id});
     if(queueStrip)feed.append(queueStrip);
+    feed.querySelectorAll('.chat-reply-preview').forEach(node => {
+      const position = previewScroll.get(node.dataset.previewKey);
+      if (position) { node.scrollTop = position.top; node.scrollLeft = position.left; }
+    });
     scroller.scrollTop = atBottom ? scroller.scrollHeight : scrollTop;
     updateLiveFullscreen();
   }

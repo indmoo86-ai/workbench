@@ -92,3 +92,8 @@
 
 - Removed the sidebar logo button's legacy gradient backing and corner clipping. The approved raster asset, dimensions and placement remain unchanged; transparent image margins now reveal the page instead of a second colored frame.
 - Real Edge verification against an isolated Home reproduced the gradient before the fix and confirmed transparent, borderless rendering afterward, including hover, sidebar toggle and visible keyboard focus. No backend changes, service restart or deployment.
+
+## 2026-10-13 — Scrollable chat bodies
+
+- Kept the existing message-body height while replacing ten-line clipping with internal scrolling. Status refreshes restore each visible message's scroll position by project/message or Run identity; full-screen reading remains unchanged.
+- Real isolated Home and Edge checks passed for desktop/mobile wheel scrolling, short messages without overflow, preserved height, reading position after desktop refresh and the final paragraph of a 100-paragraph full-screen reply. No backend changes, task operations or service restart; unrelated quota work is retained separately.

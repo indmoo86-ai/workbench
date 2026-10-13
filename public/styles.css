@@ -1089,6 +1089,8 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .chat-heading,
 .chat-composer { border-color: var(--line); background: #f7faff; }
 .chat-bubble { color: #25364a; background: #fff; box-shadow: 0 1px 1px rgb(35 56 78 / 5%); }
+/* 正文保留原预览高度，框内滚动不带动外层群聊；完整内容仍可全屏阅读。 */
+.chat-bubble > .chat-reply-preview { display: block; -webkit-line-clamp: unset; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: #b2c4dc transparent; }
 .chat-row.human .chat-bubble { color: #103b79; background: #d6eaff; }
 .chat-name { color: #6f7f91; }
 .chat-row time { color: #8997a7; }

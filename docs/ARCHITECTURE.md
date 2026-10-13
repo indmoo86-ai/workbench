@@ -40,6 +40,8 @@ Git delivery help is local and never submits a request. Delivery arguments are v
 
 Sent cards represent message acceptance, not receiver completion: the sender's card is completed once registered, without recipient counts. Each receiver has an independent live reply/progress view. Quoted previews are projected from same-project visible source messages and open the original viewer; no text-based historical merging or persisted-text rewrite occurs. Card footer actions remain local to the card.
 
+Message bodies retain the existing `16em` maximum height with internal scrolling instead of line clamping. Before rebuilding the feed, the browser snapshots per-preview scroll offsets keyed by project and message/Run identity and restores matching entries afterward; switching projects does not transfer offsets between messages. The full-screen reader and stored content are unchanged.
+
 ### Source synchronization boundary
 
 Pending-command and batch queries use dedicated SQLite partial indexes before materializing command bodies. Scheduling and write-busy checks read only matching pending commands; receipt and capture queries read the requested batch. Historical records and their manifests remain stored unchanged, with the existing receipt, retry, cancellation and conflict rules.
