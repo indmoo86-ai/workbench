@@ -21,6 +21,8 @@ import {tagMessage,SessionQueue,reservePropagation,settlePropagation} from './se
 
 export const terminal = new Set(['succeeded', 'failed', 'interrupted']);
 const now = () => new Date().toISOString();
+// Match the existing !command.result rule, including legacy null/false/zero/empty results.
+const pendingSourceCommand = "COALESCE(json_extract(data,'$.result'),0) IN (0,'')";
 
 /** SQLite is the persistent record kept separately by Home and each Worker; files are not shared across machines. */
 export class Store {
@@ -33,12 +35,23 @@ export class Store {
       CREATE INDEX IF NOT EXISTS events_run ON events(run_id,seq);
       CREATE TABLE IF NOT EXISTS room_message_receipts(seq INTEGER PRIMARY KEY AUTOINCREMENT,message_id TEXT NOT NULL UNIQUE,project_id TEXT NOT NULL,received_at TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS room_receipts_project ON room_message_receipts(project_id,seq);
-      CREATE INDEX IF NOT EXISTS records_kind_project ON records(kind,json_extract(data,'$.projectId'));`);
+      CREATE INDEX IF NOT EXISTS records_kind_project ON records(kind,json_extract(data,'$.projectId'));
+      CREATE INDEX IF NOT EXISTS records_source_command_batch ON records(json_extract(data,'$.projectId'),json_extract(data,'$.batchId')) WHERE kind='sourceSyncCommands';
+      CREATE INDEX IF NOT EXISTS records_source_command_pending ON records(json_extract(data,'$.projectId'),json_extract(data,'$.nodeId')) WHERE kind='sourceSyncCommands' AND ${pendingSourceCommand};`);
   }
   get(kind, id) { const r = this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind, id); return r ? JSON.parse(r.data) : null; }
   list(kind) { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(r.data)); }
   /** Project-local sync metadata must not scan or serialize other projects' full manifests. */
   listProject(kind,projectId) {return this.db.prepare("SELECT data FROM records WHERE kind=? AND json_extract(data,'$.projectId')=? ORDER BY rowid").all(kind,projectId).map(r=>JSON.parse(r.data));}
+  /** Filter before materializing manifest bodies; keep history and the existing row order intact. */
+  listSourceSyncCommands({projectId,batchId,nodeId,repositoryId,action,pending=false}={}) {
+    const conditions=["kind='sourceSyncCommands'"],params=[];
+    if(pending)conditions.push(pendingSourceCommand);
+    for(const [key,value] of Object.entries({projectId,batchId,nodeId,repositoryId,action}))if(value!==undefined){conditions.push(`json_extract(data,'$.${key}')=?`);params.push(value);}
+    // Without statistics SQLite may prefer the general kind index and parse every historical manifest.
+    const index=pending?'records_source_command_pending':'records_source_command_batch';
+    return this.db.prepare(`SELECT data FROM records INDEXED BY ${index} WHERE ${conditions.join(' AND ')} ORDER BY rowid`).all(...params).map(r=>JSON.parse(r.data));
+  }
   put(kind, value) {
     if(kind==='roomMessages')return this.transaction(()=>{
       const previous=this.get(kind,value.id);

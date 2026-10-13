@@ -22,7 +22,7 @@ export class SourceSyncHome {
     this.conflicts=new SourceSyncConflicts({db,rooms,sync:this.sync,reachability:role=>online(role.nodeId)&&db.get('workers',role.nodeId)?.capabilities?.sourceSyncTools===1&&!runtimeIssue(db.get('workers',role.nodeId),role.runtime,role.model)});
     this.agent=new SourceSyncAgent({db,sync:this.sync,conflicts:this.conflicts,storage:this.storage,query});
   }
-  busy(projectId,nodeId){return this.db.list('sourceSyncCommands').some(c=>c.projectId===projectId&&c.nodeId===nodeId&&!c.result&&c.action==='apply');}
+  busy(projectId,nodeId){return this.db.listSourceSyncCommands({projectId,nodeId,action:'apply',pending:true}).length>0;}
   async tick(){if(this.ticking)return;this.ticking=true;try{
     this.watchTick();
     this.conflicts.tick();
@@ -142,7 +142,7 @@ export class SourceSyncHome {
     else if(req.method==='POST'&&/^batches\/[a-f0-9]{64}\/cancel$/.test(route))value=this.sync.cancel(projectId,route.split('/')[1],(await body(req,100000)).revision);
     else if(req.method==='GET'&&/^batches\/[a-f0-9]{64}$/.test(route)){
       const batch=this.db.get('sourceSyncBatches',route.split('/')[1]);if(batch?.projectId!==projectId)throw syncError('batch_changed');
-      value={batch:{...batch,fingerprint:undefined},captures:this.sync.records('sourceSyncCommands',projectId).filter(c=>c.batchId===batch.id&&c.action==='capture').map(c=>({nodeId:c.nodeId,repositoryId:c.repositoryId,status:c.status,root:c.root,entries:c.result?.manifest?.entries,excluded:c.result?.manifest?.excluded}))};
+      value={batch:{...batch,fingerprint:undefined},captures:this.db.listSourceSyncCommands({projectId,batchId:batch.id,action:'capture'}).map(c=>({nodeId:c.nodeId,repositoryId:c.repositoryId,status:c.status,root:c.root,entries:c.result?.manifest?.entries,excluded:c.result?.manifest?.excluded}))};
     }
     else if(req.method==='GET'&&/^conflicts\/[^/]+$/.test(route))value=await this.agent.execute({projectId},'read',{conflictId:route.split('/')[1]});
     else if(req.method==='POST'&&/^conflicts\/[^/]+\/read$/.test(route))value=await this.agent.execute({projectId},'read',{...await body(req,100000),conflictId:route.split('/')[1]});

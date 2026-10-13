@@ -22,7 +22,7 @@ export function sourceInputWaitReason(db,task,nodeId) {
   if(db.get('workers',nodeId)?.capabilities?.sourceSync!==1)return 'worker_unsupported';
   const config=db.get('sourceSyncConfigs',task.projectId);
   if(!config?.enabled||task.sourceInputs.some(v=>v.generation!==config.generation))return 'configuration_changed';
-  if(db.listProject('sourceSyncCommands',task.projectId).some(c=>c.nodeId===nodeId&&c.action==='apply'&&!c.result))return 'sync_busy';
+  if(db.listSourceSyncCommands({projectId:task.projectId,nodeId,action:'apply',pending:true}).length)return 'sync_busy';
   return null;
 }
 

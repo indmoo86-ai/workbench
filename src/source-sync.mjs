@@ -63,7 +63,7 @@ export class SourceSync {
   configure(projectId,input){return this.db.transaction(()=>{
     const old=this.config(projectId);if(input.revision!==old.revision||typeof input.enabled!=='boolean')throw syncError('configuration_changed');
     if(this.records('sourceSyncBatches',projectId).some(b=>b.kind!=='preview'&&!done.has(b.status)))throw syncError('sync_busy');
-    if(this.records('sourceSyncCommands',projectId).some(c=>!c.result))throw syncError('sync_busy');
+    if(this.db.listSourceSyncCommands({projectId,pending:true}).length)throw syncError('sync_busy');
     if(!input.enabled){
       if(this.records('sourceSyncConflicts',projectId).some(c=>!['resolved','cancelled'].includes(c.status)))throw syncError('unresolved_conflicts');
       if(this.db.list('runs').some(r=>r.projectId===projectId&&r.sourceConflictId&&!['succeeded','failed','interrupted'].includes(r.status)))throw syncError('owner_still_running');
@@ -123,14 +123,14 @@ export class SourceSync {
     return this.db.put('sourceSyncCommands',{id,projectId:batch.projectId,batchId:batch.id,repositoryId:binding.repositoryId,nodeId:binding.nodeId,
       generation:batch.generation,action,preview:batch.kind==='preview',root:binding.root,repoUrl:binding.repoUrl,...(binding.scopeKind==='directory'?{scopeKind:'directory',scopePolicy:binding.scopePolicy}:{}),...(binding.sourceRunId?{sourceRunId:binding.sourceRunId}:{}),...(binding.endpointId?{endpointId:binding.endpointId,captureRole:binding.captureRole}:{}),secret:randomBytes(32).toString('hex'),status:'queued',...extra});
   }
-  captures(batch,repositoryId){return this.records('sourceSyncCommands',batch.projectId).filter(c=>c.batchId===batch.id&&c.repositoryId===repositoryId&&c.action==='capture');}
+  captures(batch,repositoryId){return this.db.listSourceSyncCommands({projectId:batch.projectId,batchId:batch.id,repositoryId,action:'capture'});}
   /** Returns persistent commands; connection code supplies resend timing and node authentication. */
   schedule(){
     if(this.db.get('settings','main')?.paused)return [];
     const batches=this.db.list('sourceSyncBatches');
     for(const batch of batches.filter(b=>b.status==='queued')){
       if(batches.some(b=>b.id!==batch.id&&b.projectId===batch.projectId&&!done.has(b.status)&&b.status!=='queued'))continue;
-      if(this.records('sourceSyncCommands',batch.projectId).some(c=>c.batchId!==batch.id&&!c.result))continue;
+      if(this.db.listSourceSyncCommands({projectId:batch.projectId,pending:true}).some(c=>c.batchId!==batch.id))continue;
       if(batch.kind!=='preview'&&(!this.config(batch.projectId).enabled||this.config(batch.projectId).generation!==batch.generation)){
         this.db.put('sourceSyncBatches',{...batch,status:'blocked',reason:'configuration_changed'});continue;
       }
@@ -138,7 +138,7 @@ export class SourceSync {
         this.command(batch,binding,'capture',{baseCommit:batch.kind==='preview'?null:canonical?.baseCommit,...(binding.scopeKind==='directory'?{baselineEntries:canonical?.entries||{}}:{})});}
       this.db.put('sourceSyncBatches',{...batch,status:'capturing'});batch.status='capturing';
     }
-    return this.db.list('sourceSyncCommands').filter(c=>!c.result&&this.online(c.nodeId)&&(!done.has(this.db.get('sourceSyncBatches',c.batchId)?.status)||this.db.get('sourceSyncBatches',c.batchId)?.status==='blocked'));
+    return this.db.listSourceSyncCommands({pending:true}).filter(c=>this.online(c.nodeId)&&(!done.has(this.db.get('sourceSyncBatches',c.batchId)?.status)||this.db.get('sourceSyncBatches',c.batchId)?.status==='blocked'));
   }
   acceptReceipt(nodeId,receipt){return this.db.transaction(()=>{
     const command=this.db.get('sourceSyncCommands',receipt.commandId);
@@ -164,7 +164,7 @@ export class SourceSync {
     this.db.put('sourceSyncCommands',{...command,status:result.status,result,receivedAt:stamp()});
     if(batch.status==='cancelling'){this.finish(batch);this.change();return result;}
     if(command.action==='capture'){
-      const captures=this.records('sourceSyncCommands',batch.projectId).filter(c=>c.batchId===batch.id&&c.action==='capture');
+      const captures=this.db.listSourceSyncCommands({projectId:batch.projectId,batchId:batch.id,action:'capture'});
       if(captures.every(c=>c.result?.status==='completed'))this.prepare(batch);
     }else this.finish(batch);
     this.change();return result;
@@ -238,8 +238,8 @@ export class SourceSync {
     const next={...batch,status:'applying',sourceInputs,conflictIds:[...conflicts],revision:batch.revision+1};this.db.put('sourceSyncBatches',next);this.finish(next);
   }
   finish(batch){
-    if(batch.status==='cancelling'&&this.records('sourceSyncCommands',batch.projectId).some(c=>c.batchId===batch.id&&!c.result))return;
-    const commands=this.records('sourceSyncCommands',batch.projectId).filter(c=>c.batchId===batch.id&&c.action==='apply');if(commands.some(c=>!c.result))return;
+    if(batch.status==='cancelling'&&this.db.listSourceSyncCommands({projectId:batch.projectId,batchId:batch.id,pending:true}).length)return;
+    const commands=this.db.listSourceSyncCommands({projectId:batch.projectId,batchId:batch.id,action:'apply'});if(commands.some(c=>!c.result))return;
     const failed=commands.find(c=>!['completed','partial_conflict'].includes(c.result.status));
     const stale=!this.config(batch.projectId).enabled||this.config(batch.projectId).generation!==batch.generation;
     let conflict=batch.kind==='resolution'?false:batch.conflictIds.length>0;
@@ -295,7 +295,7 @@ export class SourceSync {
     const next={...batch,status:'applying',sourceInputs,sourceInputsReady};this.db.put('sourceSyncBatches',next);this.finish(next);
   }
   cancel(projectId,id,revision){const b=this.db.get('sourceSyncBatches',id);if(b?.projectId!==projectId||b.revision!==revision)throw syncError('batch_changed');
-    const pending=this.records('sourceSyncCommands',projectId).some(c=>c.batchId===id&&!c.result);
+    const pending=this.db.listSourceSyncCommands({projectId,batchId:id,pending:true}).length>0;
     const next=this.db.put('sourceSyncBatches',{...b,status:pending?'cancelling':'cancelled',revision:b.revision+1});this.change();return next;}
   status(projectId){const config=this.config(projectId);return {config,watchers:this.records('sourceSyncWatchStates',projectId),batches:this.records('sourceSyncBatches',projectId).slice(-50).map(({fingerprint,bindings,...b})=>b),conflicts:this.records('sourceSyncConflicts',projectId).slice(-100)};}
 }
