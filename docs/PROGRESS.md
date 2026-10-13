@@ -97,3 +97,8 @@
 
 - Kept the existing message-body height while replacing ten-line clipping with internal scrolling. Status refreshes restore each visible message's scroll position by project/message or Run identity; full-screen reading remains unchanged.
 - Real isolated Home and Edge checks passed for desktop/mobile wheel scrolling, short messages without overflow, preserved height, reading position after desktop refresh and the final paragraph of a 100-paragraph full-screen reply. No backend changes, task operations or service restart; unrelated quota work is retained separately.
+
+## 2026-10-14 — Compact live message actions
+
+- Removed the redundant routine progress-detail line below live chat bubbles. The role-heading status and typing indicator remain; existing actions follow the bubble directly. Explicit waiting/error reasons keep their existing visibility.
+- Verified desktop and narrow-screen rendering in an isolated Home and real Edge browser with a controlled online Worker. No native CLI or production task was launched.

@@ -706,7 +706,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       bubble.append(typing, create('span', 'chat-typing-label', label));
     }
     col.append(bubble);
-    if(progress.reason||progress.detail)col.append(create('p','workspace-note',t(progress.reason||progress.detail)));
+    if(progress.reason)col.append(create('p','workspace-note',t(progress.reason)));
     const alert=run&&data.runAlerts?.find(a=>a.id===run.id);
     if(alert)col.append(create('p','run-alert',alert.reason));
     const approvals = run ? renderApprovalsInline(run) : null;
