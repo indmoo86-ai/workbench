@@ -4,6 +4,10 @@
  * Brand and product names (Codex, Gitee, GitHub, Windows App, iTerm, ...) are intentionally left as they are inside sentences.
  */
 export default {
+  'Project settings categories': '项目设置分类',
+  'Repositories and workspace': '仓库与工作区',
+  'File sync': '文件同步',
+  'Collaboration and scheduling': '协作与调度',
   'Select file or folder': '选择文件或文件夹',
   'Select {name}': '选择 {name}',
   'Open folder {name}': '打开文件夹 {name}',

@@ -8,8 +8,8 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Agent Workbench">
     <title>Agent Collaboration Workbench</title>
-    <link rel="icon" type="image/png" href="/app-icon-192.png?v=terminals-centered95-20261013">
-    <link rel="apple-touch-icon" href="/app-icon-192.png?v=terminals-centered95-20261013">
+    <link rel="icon" type="image/png" href="/app-icon-192.png?v=terminals-approved-20261013">
+    <link rel="apple-touch-icon" href="/app-icon-192.png?v=terminals-approved-20261013">
     <link rel="manifest" href="/manifest.webmanifest">
     <link rel="stylesheet" href="/styles.css">
   </head>
@@ -17,7 +17,7 @@
     <div class="app-shell">
       <aside class="project-sidebar" id="project-sidebar" aria-label="Project navigation">
         <div class="brand">
-          <button type="button" class="brand-mark" id="toggle-project-sidebar-collapse" aria-label="Collapse project menu" title="Collapse"><img class="brand-icon" src="/app-icon-192.png?v=terminals-centered95-20261013" alt="" width="36" height="36"></button>
+          <button type="button" class="brand-mark" id="toggle-project-sidebar-collapse" aria-label="Collapse project menu" title="Collapse"><img class="brand-icon" src="/app-icon-192.png?v=terminals-approved-20261013" alt="" width="36" height="36"></button>
           <div class="brand-copy">
             <strong>Agent Workbench</strong>
             <span>Collaboration Console</span>
@@ -127,22 +127,24 @@
             </div>
             <button class="secondary" id="close-settings-page" type="button">Close</button>
           </div>
-          <nav class="settings-tabs" role="tablist" aria-label="Settings categories">
+          <nav id="global-settings-tabs" class="settings-tabs" role="tablist" aria-label="Settings categories">
             <button type="button" role="tab" data-settings-tab="general">Basic Settings</button>
             <button type="button" role="tab" data-settings-tab="devices">Devices, CLIs and Models</button>
             <button type="button" role="tab" data-settings-tab="hosting">Code Hosting Accounts</button>
             <button type="button" role="tab" data-settings-tab="assistant">Configuration Assistant</button>
             <button type="button" role="tab" data-settings-tab="prompts">Platform Prompts</button>
           </nav>
+          <nav id="project-settings-tabs" class="settings-tabs" role="tablist" aria-label="Project settings categories" hidden>
+            <button id="project-tab-basic" type="button" role="tab" data-project-settings-tab="basic" aria-controls="project-panel-basic" aria-selected="true">Basic information</button>
+            <button id="project-tab-workspace" type="button" role="tab" data-project-settings-tab="workspace" aria-controls="project-panel-workspace" aria-selected="false" tabindex="-1">Repositories and workspace</button>
+            <button id="project-tab-sync" type="button" role="tab" data-project-settings-tab="sync" aria-controls="project-panel-sync" aria-selected="false" tabindex="-1">File sync</button>
+            <button id="project-tab-coordination" type="button" role="tab" data-project-settings-tab="coordination" aria-controls="project-panel-coordination" aria-selected="false" tabindex="-1">Collaboration and scheduling</button>
+          </nav>
           <div class="settings-page-body">
             <section class="settings-panel" data-settings-panel="project" id="settings-project-panel" hidden>
-              <div class="settings-panel-heading"><h3>Project Information</h3><p>Manage the current project's description, repositories, workspace and scheduling. To manage devices and CLIs, use Basic Settings at the bottom left.</p></div>
+              <div class="settings-panel-heading"><p>Manage the current project's description, repositories, workspace and scheduling. To manage devices and CLIs, use Basic Settings at the bottom left.</p></div>
               <div class="project-settings-body">
-                <section class="settings-block project-sync-settings">
-                  <h3>Project file sync</h3>
-                  <p class="workspace-note">Sync saved code, documents and resources between participating devices.</p>
-                  <div class="form-actions"><button type="button" class="secondary" id="configure-project-source-sync">Configure project file sync</button></div>
-                </section>
+                <div id="project-panel-basic" data-project-settings-panel="basic" role="tabpanel" aria-labelledby="project-tab-basic" tabindex="0">
                 <section class="settings-block project-basic-settings" aria-labelledby="project-basic-heading">
                 <h3 id="project-basic-heading">Basic information</h3>
                 <form id="project-settings-form" class="form-grid">
@@ -156,6 +158,13 @@
                 </form>
                 <p id="project-settings-feedback" class="form-feedback" role="status" hidden></p>
                 </section>
+                <section class="settings-block project-danger-zone" aria-labelledby="project-danger-heading">
+                  <div><h3 id="project-danger-heading">Danger zone</h3><p class="workspace-note">Deleting a project requires confirmation.</p></div>
+                  <button class="danger" id="delete-project" type="button" data-action-label>Delete project</button>
+                  <p id="project-delete-feedback" class="form-feedback full-width" role="status" hidden></p>
+                </section>
+                </div>
+                <div id="project-panel-workspace" data-project-settings-panel="workspace" role="tabpanel" aria-labelledby="project-tab-workspace" tabindex="0" hidden>
                 <details class="settings-block project-settings-folder-block">
                   <summary>Link an existing project folder (optional)</summary>
                   <div class="form-grid">
@@ -190,6 +199,15 @@
                   </form>
                   <p id="project-space-feedback" class="form-feedback" hidden></p>
                 </section>
+                </div>
+                <div id="project-panel-sync" data-project-settings-panel="sync" role="tabpanel" aria-labelledby="project-tab-sync" tabindex="0" hidden>
+                <section class="settings-block project-sync-settings">
+                  <h3>Project file sync</h3>
+                  <p class="workspace-note">Sync saved code, documents and resources between participating devices.</p>
+                  <div class="form-actions"><button type="button" class="secondary" id="configure-project-source-sync">Configure project file sync</button></div>
+                </section>
+                </div>
+                <div id="project-panel-coordination" data-project-settings-panel="coordination" role="tabpanel" aria-labelledby="project-tab-coordination" tabindex="0" hidden>
                 <section class="settings-block" aria-labelledby="followup-heading">
                   <h3 id="followup-heading">Supervisor proactive follow-up</h3>
                   <p class="workspace-note">After chat silence, the supervisor checks once and decides whether to help. No new messages means no repeated wake-ups. Disabling does not stop work already started.</p>
@@ -217,12 +235,8 @@
                   <p id="session-queue-config-feedback" class="form-feedback" role="status" hidden></p>
                 </section>
                 <section class="settings-block project-timer-link"><div><h3>Scheduled Jobs</h3><p class="workspace-note">View and adjust scheduled dispatches and progress checks for the current project.</p></div><button class="secondary" id="open-project-timers" type="button" data-action-label>Manage scheduled jobs</button></section>
+                </div>
               </div>
-              <section class="settings-block project-danger-zone" aria-labelledby="project-danger-heading">
-                <div><h3 id="project-danger-heading">Danger zone</h3><p class="workspace-note">Deleting a project requires confirmation.</p></div>
-                <button class="danger" id="delete-project" type="button" data-action-label>Delete project</button>
-                <p id="project-delete-feedback" class="form-feedback full-width" role="status" hidden></p>
-              </section>
             </section>
 
             <section class="settings-panel" data-settings-panel="timers" id="settings-timers-panel" hidden>

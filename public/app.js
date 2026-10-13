@@ -9,7 +9,7 @@ import {createLiveScene} from './live-scene.js';
 import { createRoomUI, createRoleRefresh } from './room.js';
 import { projectSettings } from './project-settings.js';
 import { agentIconEl, machineIconEl, quotaForRole, roleActivity, roleNameQuota, UI_ICON, deviceIconEl, workerDisplayName, workerKind, setActionIcon, projectIconAssignments, projectIconEl } from './role-icons.js';
-import { activateSettingsTab, normalizeSettingsTab, settingsView } from './settings-page.js';
+import { activateSettingsTab, normalizeSettingsTab, settingsView, initProjectSettingsTabs } from './settings-page.js';
 import { supervisorSettings } from './supervisor-settings.js';
 import { projectSetupUI } from './project-setup.js';
 import { deviceEntries, platformAdminUI } from './platform-admin.js';
@@ -2168,6 +2168,7 @@ document.querySelector('#show-token-usage')?.addEventListener('click', () => ope
 document.querySelector('#show-scheduled-jobs')?.addEventListener('click', () => openSettings('timers'));
 document.querySelector('#open-project-timers')?.addEventListener('click', () => { schedulesUI.select(getCurrentProject()?.id || ''); openSettings('timers'); });
 document.querySelector('#close-settings-page')?.addEventListener('click', closeSettings);
+initProjectSettingsTabs(dom.settingsPage);
 dom.settingsPage?.querySelectorAll('[data-settings-tab]').forEach(button => {
   button.addEventListener('click', () => openSettings(button.dataset.settingsTab));
 });
