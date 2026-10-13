@@ -116,8 +116,9 @@ export async function askRole(name, text) {
 }
 
 /** The platform handles cross-node communication; local tools neither connect to other CLIs directly nor read their workspaces. */
-export async function callRole({ role, kind = 'consult', requestId, text, file, deliveryId,sourceSyncBatchId }) {
-  if (!role || !text || !requestId) throw new Error(tr('wbTools.roleTextStableRequestId'));
+export async function callRole({ role, roles, kind = 'consult', requestId, text, file, deliveryId,sourceSyncBatchId }) {
+  if ((!role && !roles) || !text || !requestId) throw new Error(tr('wbTools.roleTextStableRequestId'));
+  if(role!==undefined&&roles!==undefined||roles!==undefined&&(!Array.isArray(roles)||!roles.length||roles.some(r=>typeof r!=='string'||!r.trim())))throw new Error(tr('wbTools.invalidCallTargets'));
   if (!['consult', 'handoff','direct'].includes(kind)) throw new Error(tr('wbTools.kindMustBeConsultHandoff'));
   if(file!==undefined) {
     const document=await callDocument(file);
@@ -125,7 +126,7 @@ export async function callRole({ role, kind = 'consult', requestId, text, file, 
     text=`${text}\n\n${tr('wbTools.callDocumentReference')}\n${JSON.stringify(document)}`;
   }
   if(text.length>12000)throw new Error(tr('wbTools.callDocumentTooLong'));
-  return homeFetch('/api/agent/calls', { runId: context().runId, role, kind,
+  return homeFetch('/api/agent/calls', { runId: context().runId, ...(roles===undefined?{role}:{roles}), kind,
     requestId: `${context().runId}:${requestId}`, text, deliveryId,sourceSyncBatchId });
 }
 

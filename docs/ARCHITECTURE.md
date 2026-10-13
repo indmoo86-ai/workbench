@@ -28,6 +28,12 @@ Role configuration supports persisted, reversible CLI switching on the same devi
 
 Git delivery help is local and never submits a request. Delivery arguments are validated before contacting Home. For project-scoped Runs without a legacy role repository URL, an explicit SHA may use the sole repository captured on that Run; multiple repositories require the existing `auto`/items form. Approval and fixed-commit publication remain separate from updating a target checkout, and uncommitted files are not included. Supervisor guidance distinguishes a Git-hosting ref from the actual version in a device's bound directory.
 
+### Shared role instructions
+
+`agent-calls.mjs` atomically accepts one or more role targets through the existing calls endpoint. The CLI repeats `--role`; the endpoint accepts a `roles` array or the legacy `role` string. One room message owns the common text and recipient snapshots, while `coordinationRequests` retain separate stable IDs, provenance, limits and execution state. All recipients validate in one transaction; same-ID replay checks the target set and content. Single-role IDs and the compatibility `ask` identity remain unchanged. `callMessageId` keeps direct results, notes and continuations linked to the shared instruction. Session receipts bind every addressed request, including several requests routed to one supervisor, and cannot create a second broadcast driver. Explicit execution order still belongs to the schedule API.
+
+Sent cards represent message acceptance, not receiver completion: the sender's card is completed once registered, without recipient counts. Each receiver has an independent live reply/progress view. Quoted previews are projected from same-project visible source messages and open the original viewer; no text-based historical merging or persisted-text rewrite occurs. Card footer actions remain local to the card.
+
 ### Source synchronization boundary
 
 Pending-command and batch queries use dedicated SQLite partial indexes before materializing command bodies. Scheduling and write-busy checks read only matching pending commands; receipt and capture queries read the requested batch. Historical records and their manifests remain stored unchanged, with the existing receipt, retry, cancellation and conflict rules.

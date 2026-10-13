@@ -111,9 +111,11 @@ export async function main(argv = process.argv.slice(2)) {
       const values = {}, flags = { '--role': 'role', '--kind': 'kind', '--request-id': 'requestId', '--text': 'text', '--file':'file', '--delivery-id': 'deliveryId','--source-sync-batch-id':'sourceSyncBatchId' };
       for (let i = 0; i < tail.length; i += 2) {
         const key = flags[tail[i]];
-        if (!key || tail[i + 1] === undefined || values[key] !== undefined) throw new Error(tr('wbCli.invalidDuplicateWbCallParameters'));
+        if (!key || tail[i + 1] === undefined || key!=='role'&&values[key] !== undefined) throw new Error(tr('wbCli.invalidDuplicateWbCallParameters'));
+        if(key==='role'&&values.role!==undefined){values.roles||=[values.role];values.roles.push(tail[i+1]);continue;}
         values[key] = tail[i + 1];
       }
+      if(values.roles)delete values.role;
       return out(await callRole(values));
     }
     if (cmd === 'handoff' && (sub === 'last' || sub === 'read')) return out(await handoffLast());

@@ -331,7 +331,7 @@ ask 接受后马上结束回合释放容量；已经提交业务报告则结束�
   // src/execution-plans.mjs
   'executionPlans.executionSchedulingYouOnlyAssign': `执行调度：你只分配、核对和汇总，不直接写业务代码或详细业务计划。
 一个 @ 工作角色直接执行；多个 @ 已交给你评估，必须覆盖用户点名的所有角色。复杂计划先安排规划角色，不能自己替代。
-先 wb setup catalog 获取真实角色与仓库。简单单角色可 wb call；多角色或存在步骤依赖，用 wb schedule '<JSON>' 提交一次执行安排。
+先 wb setup catalog 获取真实角色与仓库。同一条指令发给一个或多个角色用 wb call，每个接收人重复一个 --role；需要明确执行顺序或步骤依赖时，用 wb schedule '<JSON>' 提交一次执行安排。
 只有收到明确的墙钟时间/周期需求才用 wb timer；它只管理当前项目定时任务，和阶段安排 wb schedule 不同。先 wb timer list 避免重复创建，写操作使用稳定 requestId。进度巡检健康时不唤醒模型，有新异常才通知你；不要把普通工作循环设为高频巡检。
 格式：{"id":"稳定编号","reason":"为什么这样安排","stages":[{"title":"独立审核","mode":"serial","members":[{"role":"角色名","purpose":"audit","text":"具体要求","writeRepositories":[]}]}]}
 mode 为 parallel 或 serial；purpose 为 plan/audit/develop/test/merge/migration/deploy/production。顶层 repositories 可列出本次实际需要读写的仓库 key，省略则全部准备；角色权限不改变。每阶段结束必须 wb report 提交业务结论。
@@ -1182,8 +1182,8 @@ repository.clone=true 仅在目标不存在时克隆；false 检查已有仓库�
 需要历史时 wb history search 关键词；原文 wb history read 消息编号；完整报告 wb result read 执行或调用编号。长文按 nextOffset 与 version 继续读取，不假装已读全文。
 项目规则和决策见项目根目录的 AGENTS.md（各 CLI 原生加载）；历史用 wb history search 查询。不要通读所有历史。仅传短摘要和来源编号。
 咨询 wb call --role 角色 --kind consult --request-id 固定编号 --text 说明；同项目跨设备也直接投递，不需要主管转述。每次问一个明确问题，附必要背景、文件版本和期望答案；同一问题重试沿用编号。
-自己的分析按普通回复输出；定向问题放在本轮所选通信工具的 text 中，平台单独展示“发送角色 → @接收角色”的提问记录和关联回复。已开放 discuss 时，当前任务的规则澄清优先 ask；call 用于独立分析/审核/产出，或未开放 discuss 的目标。不要把整段分析重复复制成咨询，也不要重复发送同样的群聊留话。
-需要多个意见时先分别 wb call，再 wb wait 简短续接说明并结束本轮，平台收齐结果后回到原会话。不要轮询、sleep 或发送保活消息；执行名额和五分钟空闲保活由 Worker 管理。
+自己的分析按普通回复输出；定向问题放在本轮所选通信工具的 text 中，平台在问题前显示接收角色，各自回复关联回这条问题。已开放 discuss 时，当前任务的规则澄清优先 ask；call 用于独立分析/审核/产出，或未开放 discuss 的目标。不要把整段分析重复复制成咨询，也不要重复发送同样的群聊留话。
+同一个问题发给多名角色时，一次 wb call 重复 --role，平台只展示一条共同指令，各自保留请求和回复。确需等待答案时，再 wb wait 简短续接说明（或返回的全部 requestIds）并结束本轮。不要轮询、sleep 或发送保活消息；执行名额和五分钟空闲保活由 Worker 管理。
 收到咨询直接给结论和必要依据，不默认修改文件，不反向 call 提问者来交答案。业务任务中确需向等待你的上游澄清时，以本轮实际开放的 discuss 协议为准；未开放不能用反向 call 绕过依赖检查。只针对未解决问题按平台当前协作预算追问，预算耗尽时列明未完成事项；解决后结束，不发送收到/谢谢式往返。群聊正文 @ 不触发派单。
 配置错误或调用被拒绝时报告阻塞，不绕过 wb 直接 curl Home Agent 接口。长报告用来源编号供按需读取。
 Worker 自动记录交接，无需机械执行 wb boot 和 wb handoff，详细交接仍可 wb handoff。{p1}`,
@@ -1397,7 +1397,8 @@ Worker 自动记录交接，无需机械执行 wb boot 和 wb handoff，详细�
   'wbCli.usageWbTimerListWb': '用法: wb timer list 或 wb timer <create|update|pause|resume|delete> \'<JSON>\'',
   'wbCli.wbScheduleJsonSupervisorSubmits': `{HELP}
 wb schedule '<JSON>'  主管提交轻量执行安排，自动推进，不等待人工确认。failurePolicy 默认 stop；多角色独立只读审核应单独成批，显式选择 collect_reviews（全员 audit、无 writeRepositories）。确认结束的临时服务错误留档后继续，输出超限另记结果不完整；权限、未知错误、取消、待回答或版本异常仍停止。不自动重试，缺失不算通过。`,
-  'wbCli.invalidDuplicateWbCallParameters': 'wb call 参数无效或重复',
+  'wbCli.invalidDuplicateWbCallParameters': 'wb call 参数无效或重复（仅 --role 可以重复）',
+  'wbTools.invalidCallTargets': '请提供一个 role 或非空的 roles 角色名称/ID 数组，不能同时提供。',
   'wbCli.unknownCommand': `未知命令 {cmd}
 
 {HELP}`,
@@ -1500,6 +1501,7 @@ wb git               查看仓库状态和 origin（只读）
 wb chat 文本         在项目群聊留一条话（不派单）
 wb ask 角色 说明      兼容咨询入口；同一轮同一目标只接受一份请求
 wb call --role 角色完整名称或ID --kind consult --request-id 编号 --text 说明
+  同一正文给多人时重复 --role，例如 --role 审核甲 --role 审核乙；只填一个也可以。平台只展示一条指令，返回各目标独立请求的 requestIds。发送成功代表这条指令已完成，不代表接收方处理完成；重试相同内容与目标复用编号，不要拆成多次调用。需要执行顺序或阶段依赖时使用 wb schedule。
   可加 --file 路径，直接读取绑定项目、工作区或仓库内的 UTF-8 文档并附 SHA256；--text 仍用于本次任务说明。沿用 12000 字符调用限制，较大的共享文档用 wb docs read 读取。不要重抄长 Base64 或压缩文本；解码、校验失败时，读取原文件或请发送者提供可读引用，不要猜测替换字符。
   复用 CLI 时按本轮工具入口在操作前加 --turn RUN_ID。上下文失效时 wb help 仍可用。没有 wb run status 命令；查询会话身份用 session current。报告保存成功回执只确认登记，不表示 CLI 已退出：完成分工后给出最终回复，不用轮询自己是否已经结束。
                     发起可跨设备的咨询；重试复用编号

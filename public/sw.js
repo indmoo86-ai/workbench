@@ -1,4 +1,4 @@
-const CACHE = 'agent-workbench-static-simplified-display-v64';
+const CACHE = 'agent-workbench-static-multi-call-cards-v65';
 const STATIC = [
   '/', '/styles.css', '/app.js', '/manifest.webmanifest', '/app-icon.png', '/app-icon-192.png',
   '/platform-admin.js', '/project-space.js', '/token-usage.js', '/run-log-data.js', '/room.js',

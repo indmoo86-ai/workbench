@@ -21,9 +21,10 @@ import { Rooms } from './rooms.mjs';
 import { CollaborationSessions, reviewView, reviewDocumentAllowed, setCollaborationSessionsEnabled } from './collaboration-sessions.mjs';
 import { SessionQueue, QueuePump, queueConfig, setQueueConfig, setSessionBroadcast, setTestProject, grantBudget, reassignRequest } from './session-queue.mjs';
 import { renderBatch } from './session-queue-worker.mjs';
-import { defaultRoleTemplates, isSupervisorName } from './default-roles.mjs';
+import { defaultRoleTemplates } from './default-roles.mjs';
 import { Coordinator } from './coordinator.mjs';
 import { RoleCalls } from './role-calls.mjs';
+import {createAgentCalls} from './agent-calls.mjs';
 import {RoleDiscussions} from './role-discussions.mjs';
 import {supportsDiscussion} from './discussion-policy.mjs';
 import {recentProjectArtifacts} from './run-artifacts.mjs';
@@ -597,35 +598,8 @@ const server = http.createServer(async (req, res) => {
           const r = rooms.agentNote(run, b.text); change(); return json(res, r, 201);
         }
         if (pathname === '/api/agent/calls' || pathname === '/api/agent/ask') {
-          if(!['consult','direct','handoff'].includes(b.kind||'consult'))throw new Error(tr('roleCalls.invalidCallType'));
-          const target = String(b.role || '').replace(/^@/, '');
-          const projectRoles = db.list('roles').filter(r => r.projectId === run.projectId);
-          let role = projectRoles.find(r => r.id === target) || projectRoles.find(r => r.name === target) || (isSupervisorName(target) ? projectRoles.find(r => r.systemSupervisor && !r.platformAssistant) : undefined);
-          if (!role) throw new Error(tr('home.targetRoleNotFoundUse'));
-          if (role.archivedAt) throw new Error(tr('home.targetRoleArchivedCannotBe'));
-          const parent = calls.forRun(run);
-          if (!parent) throw new Error(tr('home.currentExecutionHasNoRole'));
-          let summary=b.text;
-          if((b.kind||'consult')!=='consult' && !run.roleSnapshot.systemSupervisor && role.nodeId!==run.nodeId) {
-            if(run.planId) throw new Error(tr('home.forNewCrossDeviceWork'));
-            const target=role;role=db.get('roles',db.get('projects',run.projectId)?.supervisorRoleId);
-            if(!role?.enabled) throw new Error(tr('home.crossDeviceCallsRequireProject'));
-            summary=tr('home.crossDeviceRequestFromTarget', { name: run.roleSnapshot.name, name2: target.name, text: b.text });
-          }
-          const request = calls.create({ id: b.requestId || (pathname.endsWith('/ask') ? `ask:${run.id}:${role.id}` : ''),
-            projectId: run.projectId, targetRoleId: role.id, parentRequestId: parent.id, sourceRunId:run.id,originNodeId: run.nodeId,
-            sourceMessageId: run.sourceMessageId, kind: b.kind || 'consult', summary, deliveryId: b.deliveryId,sourceSyncBatchId:b.sourceSyncBatchId, attachments:run.attachments||[],
-            // A consultation uses the receiving role's own workspace; it must not inherit the asker's deployment permissions or device version snapshot.
-            ...((b.kind||'consult')==='consult'?{}:{planId:run.planId,planVersion:run.planVersion,stepId:run.stepId,execution:run.execution}) });
-          const messageId = `call:${request.id}`;
-          if (!db.get('roomMessages', messageId)) {
-            db.put('roomMessages', { id: messageId, projectId: run.projectId, sender: 'agent', senderName: run.roleSnapshot.name,
-              roleId: run.roleId, kind: 'handoff', runId: run.id, requestId: request.id, taskIds: [], text: b.text,
-              handoff: { kind:request.kind,fromRoleId: run.roleId, fromRole: run.roleSnapshot.name, toRoleId: role.id, toRole: role.name, summary: b.text }, createdAt: new Date().toISOString() });
-            rooms.touch(run.projectId);
-          }
-          scheduleChat(); change(); return json(res, { requestId: request.id, status: db.get('coordinationRequests', request.id).status,
-            note: tr('home.deliveredDirectlyTargetRoleWhen') }, 201);
+          const result=createAgentCalls({db,calls,rooms},run,b,{legacyAsk:pathname.endsWith('/ask')});
+          scheduleChat(); change(); return json(res,result,201);
         }
         if (pathname === '/api/agent/wait') {
           const r = calls.wait(run, b.summary,{requestIds:b.requestIds,timeoutSeconds:b.timeoutSeconds}); change(); return json(res, { requestId: r.id, status: r.status,requestIds:r.waitRequestIds,deadlineAt:r.waitDeadlineAt,note: tr('home.endTurnNowExecutionSlot') });
