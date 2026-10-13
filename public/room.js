@@ -253,7 +253,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
           previewDialog.setAttribute('aria-label', 'Image preview');
           previewDialog.replaceChildren();
           const image = create('img'); image.src = url; image.alt = item.name;
-          previewDialog.append(button('Close',()=>previewDialog.close()), image, create('p','',item.name));
+          previewDialog.append(iconAction('close','Close',()=>previewDialog.close()), image, create('p','',item.name));
           previewDialog.showModal();
         } else if (/\.(md|markdown|txt)$/i.test(item.name)) {
           const response = await fetch(url);
@@ -295,7 +295,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
   function openAttachmentTransfer(item) {
     if(!transferDialog){transferDialog=create('dialog','attachment-transfer-dialog');transferDialog.setAttribute('aria-label','Send to device');document.body.append(transferDialog);}
     transferDialog.replaceChildren();
-    const header=create('div','dialog-heading');header.append(create('h2','','Send to device'),button('Close',()=>transferDialog.close()));
+    const header=create('div','dialog-heading');header.append(create('h2','','Send to device'),iconAction('close','Close',()=>transferDialog.close()));
     const select=create('select');select.setAttribute('aria-label','Target device');
     const bindings=(data.workspaces||[]).filter(w=>w.projectId===item.projectId);
     const workers=(data.workers||[]).filter(w=>bindings.some(b=>b.nodeId===w.id)).sort((a,b)=>Number(b.nodeKind==='cloud')-Number(a.nodeKind==='cloud'));
@@ -784,7 +784,8 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
       try{await api(`/api/runs/${encodeURIComponent(discussion.stopRunId)}/stop`,{method:'POST',json:{commandId:`discussion-owner-stop:${discussion.stopRunId}:${discussion.questionId}`}});await refreshState({quiet:true});}catch(e){setError(e.message);b.disabled=false;}
     }));
     actions.push(copyMessageButton(handoff ? m.handoff.summary || m.text : m.text));
-    actions.push(iconAction('original','Original',()=>{const result=m.runId&&!discussion&&!handoff;void historyViewer.open(m.projectId,result?'result':'message',result?m.runId:m.id).catch(e=>setError(e.message));}));
+    // Execution originals live in the Run details; ordinary messages still resolve to their own stored text.
+    if(!m.runId||discussion||handoff)actions.push(iconAction('original','Original',()=>void historyViewer.open(m.projectId,'message',m.id).catch(e=>setError(e.message))));
     if (m.runId) {
       const run = data.runs?.find(r => r.id === m.runId);
       if (run) actions.push(iconAction('log', 'Log', () => openTask(run.taskId,run.id)));

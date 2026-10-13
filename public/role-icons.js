@@ -346,7 +346,7 @@ function openQuotaDetails(getDetails, title = 'Quota details') {
   const dialog = el('dialog', 'quota-dialog');
   dialog.setAttribute('aria-label', t(title));
   const heading = el('div', 'dialog-heading');
-  const close = el('button', 'secondary compact', t('Close'));
+  const close = el('button', 'icon-button');setActionIcon(close,'close',t('Close'));
   close.type = 'button'; close.onclick = () => dialog.close();
   heading.append(el('h2', '', t(title)), close);
   const remaining = el('p', 'workspace-note'), reset = el('p', 'quota-reset-detail');

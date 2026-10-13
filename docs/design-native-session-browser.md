@@ -1,6 +1,6 @@
 # Native session browser
 
-Status: native browsing has been released; the titled catalogue and compact-filter revision described below is implemented and awaiting deployment. This is a native CLI entry, not another web chat implementation.
+Status: implemented. This is a native CLI entry, not another web chat implementation. Deployment of a particular revision is verified separately from the code and acceptance boundaries below.
 
 ## Interface
 
@@ -11,6 +11,7 @@ Status: native browsing has been released; the titled catalogue and compact-filt
 - Selecting a conversation shows read-only user/assistant history in the middle and device/tool/native ID/folder in the right pane. There is no web message composer.
 - The shared new-session dialog requires a title and chooses a device, tool and allowed working folder. The title is Workbench metadata, never a prompt or a replacement for native instructions. Permission bypass is an explicit checkbox, initially off; otherwise the CLI's own defaults apply.
 - New and continue dialogs share a compact responsive layout and icon-only close control. Their separate file/folder picker lists metadata from the selected device within its allowed roots, with parent navigation and pagination. Selecting a file uses only its containing folder as the working directory; no file content is read, uploaded or sent to the CLI. Selecting a folder uses that folder. Existing sessions retain their original working directory, including when selecting a file through the picker.
+- The role terminal dialog also opens this same new-session form, preselecting only its device and tool. It does not supply the group folder, history or role prompt. The separate history action verifies the latest resumable Run; older records remain stored, and active terminal claims keep their original binding and return controls.
 - Continue prepares an exact native resume, not latest/continue/fork. Known original working folders cannot be silently changed. Unknown folders must be selected explicitly.
 - The final link opens iTerm. A registered remote device uses the existing SSH command builder and the Worker's original user/environment. Copying the command is also available.
 
