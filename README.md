@@ -49,6 +49,8 @@ CLI prose is displayed in Simplified Chinese in chat, live/fullscreen replies an
 
 Directed role questions and published replies appear as individual chat bubbles with sender → recipient, content and time. Replies after a wait retain the original recipient even when the question is on an older history page. The question's Original button opens that message, not its sender's Run result. This display does not change dispatch, waiting, independent-review visibility or explicit-publication rules.
 
+For document consultations, `wb call ... --text "review this document" --file path/to/document.md` reads the UTF-8 file directly, attaches its exact text and SHA256 as quoted reference data, and keeps the existing 12000-character call limit. It does not transfer or overwrite a peer's workspace. Larger shared documents should be referenced for on-demand reading; protected independent reviews keep their original document-read boundary. Retained Agy processes use the supplied `wb --turn RUN_ID ...` entry: old turn IDs never follow a new turn. `wb help` remains usable with an expired context, and a saved report receipt explicitly distinguishes registration from the later end of the CLI turn.
+
 All items below exist in the current code. Items that are only designed are listed separately under [Limitations and roadmap](#limitations-and-roadmap).
 
 **Collaboration**

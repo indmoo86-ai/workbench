@@ -1,4 +1,5 @@
-import { mkdir, readFile, writeFile, readdir, stat } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, readdir, stat, realpath } from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 import { agentRequest } from './agent-bridge.mjs';
 import { join, resolve, relative, isAbsolute, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
@@ -115,11 +116,39 @@ export async function askRole(name, text) {
 }
 
 /** The platform handles cross-node communication; local tools neither connect to other CLIs directly nor read their workspaces. */
-export async function callRole({ role, kind = 'consult', requestId, text, deliveryId,sourceSyncBatchId }) {
+export async function callRole({ role, kind = 'consult', requestId, text, file, deliveryId,sourceSyncBatchId }) {
   if (!role || !text || !requestId) throw new Error(tr('wbTools.roleTextStableRequestId'));
   if (!['consult', 'handoff','direct'].includes(kind)) throw new Error(tr('wbTools.kindMustBeConsultHandoff'));
+  if(file!==undefined) {
+    const document=await callDocument(file);
+    // Quoted JSON remains reference data through language conversion and preserves the exact Unicode text and digest.
+    text=`${text}\n\n${tr('wbTools.callDocumentReference')}\n${JSON.stringify(document)}`;
+  }
+  if(text.length>12000)throw new Error(tr('wbTools.callDocumentTooLong'));
   return homeFetch('/api/agent/calls', { runId: context().runId, role, kind,
     requestId: `${context().runId}:${requestId}`, text, deliveryId,sourceSyncBatchId });
+}
+
+/** Read only caller-bound files; copying bytes here avoids asking the model to retype an encoded document. */
+export async function callDocument(file,ctx=context()) {
+  if(ctx.reviewPrivate)throw new Error(tr('wbTools.callDocumentReviewGuard'));
+  if(typeof file!=='string'||!file.trim())throw new Error(tr('wbTools.callDocumentNotText'));
+  const base=ctx.workspace||ctx.projectRoot;
+  if(!base)throw new Error(tr('wbTools.wbProjectRootNotSet'));
+  const roots=[base,ctx.projectRoot,ctx.knowledge,...JSON.parse(env('WB_REPOSITORIES','[]')).map(r=>r.localRoot)].filter(Boolean);
+  const target=await realpath(resolve(base,file));
+  const allowed=await Promise.all(roots.map(root=>realpath(root).catch(()=>null)));
+  const owner=allowed.find(root=>root&&inside(root,target));
+  if(!owner)throw new Error(tr('wbTools.callDocumentOutside'));
+  const info=await stat(target);
+  if(!info.isFile())throw new Error(tr('wbTools.notFile'));
+  if(info.size>200000)throw new Error(tr('wbTools.fileExceeds200kbUseShorter'));
+  const bytes=await readFile(target);
+  if(bytes.length>200000)throw new Error(tr('wbTools.fileExceeds200kbUseShorter'));
+  let text;
+  try{text=new TextDecoder('utf-8',{fatal:true,ignoreBOM:true}).decode(bytes);}catch{throw new Error(tr('wbTools.callDocumentNotText'));}
+  if(text.includes('\0'))throw new Error(tr('wbTools.callDocumentNotText'));
+  return {path:relative(owner,target),bytes:bytes.length,sha256:createHash('sha256').update(bytes).digest('hex'),text};
 }
 
 export async function waitForRole(summary,options={}) {
