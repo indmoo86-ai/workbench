@@ -140,3 +140,8 @@
 - Added the five user-confirmed non-blocking Claude review suggestions to the canonical design: accessible source-ancestor base selection without overriding explicit/frozen SHAs; direct Q/F work can precede full P0 resource work while cache writes and S retain their budgets and gates; before/after-only observation is reported honestly; Q wrappers bind check in code and reject stop injection; implementation requires readable exact source and deployment baselines.
 - Clarified that p95 targets and the 100 MiB / 5000-file sample conditions are unmeasured performance candidates, not functional limits, timeouts or SLA promises. Kept the digest algorithm and nine vectors unchanged; added A69–A75 for 75 acceptance scenarios and updated both documentation indexes.
 - Documentation only. The supplied Claude approval concerns the exact prior v2.3 artifact and does not establish other reviewers' decisions, implementation or live acceptance. No code/configuration changes, role dispatch, push, deployment or service restart; unrelated work remains separate.
+
+## 2026-10-14 — Cross-device P1 plan approved
+
+- The user approved revision 2 and sequential inline implementation. The product baseline is daacf7403976ccf338052cd91a65d7b4ed17f1f2; the approved plan is carried in a separate documentation-only commit before code work.
+- Q/F will add pure observation, bounded complete replies and owner-scoped durable replay. Cache fill, materialization and S execution remain later increments. Existing uncommitted frontend/quota work is not copied or changed; no production configuration, deployment or restart is included.
