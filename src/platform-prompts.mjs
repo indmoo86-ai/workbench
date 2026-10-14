@@ -3,7 +3,7 @@ import {discussionInstructions} from './discussion-policy.mjs';
 import { tr, isMessage, runWithLanguage } from './i18n.mjs';
 import { createHash } from 'node:crypto';
 
-export const defaultPlatformPrompt = () => tr('minimal.platformDefault');
+export const defaultPlatformPrompt = () => tr('minimal.platformTemplate');
 
 // The supervisor has its own editable coordination template; it is not a shared rule for other roles.
 export const defaultSupervisorPrompt = () => tr('minimal.supervisorTemplate');
@@ -32,7 +32,9 @@ const LEGACY_SUPERVISOR_DEFAULTS = new Set([
   '68986281a3826c62394241e4e51068168a575bd615a65c415009538a625a93f7',
   'b9c53a1fc442a02fdf46bb50169105a1c8c012c3a5593d1270588e7ca1e40c1f',
   'bc1b43525dbdd2642f780776d9f7974f62eb41691d80fb3671a56fb6cecc6118',
-  'febb81a33a504d8393ffe0a8d053ed953f9a9b8ae8879f782db09adcfd1d9b3e'
+  'febb81a33a504d8393ffe0a8d053ed953f9a9b8ae8879f782db09adcfd1d9b3e',
+  'be0c5fc6adbdc4bd7ace76de8489a94d2b944ee6b577e346b18730c195c3eba1',
+  'f4fdcbae86b204daad8506f4f8a431c48fa73052980abafdd6cd55434f2414fe'
 ]);
 
 /** Text saved while a built-in default was shown in another language still counts as "the default" and follows the current language; customised text is kept verbatim. */
@@ -42,10 +44,11 @@ function promptOrDefault(value, key, fallback) {
   const legacyDefault = key === 'platformPrompts.youFixedProjectSupervisorYou'
     && LEGACY_SUPERVISOR_DEFAULTS.has(createHash('sha256').update(text).digest('hex'));
   const currentKey = key === 'platformPrompts.youFixedProjectSupervisorYou' ? 'collaboration.supervisor' : 'collaboration.platform';
-  return isMessage(text, key) || isMessage(text, currentKey) || isMessage(text,key==='platformPrompts.youFixedProjectSupervisorYou'?'minimal.supervisorDefault':'minimal.platformDefault') || (key!=='platformPrompts.youFixedProjectSupervisorYou'&&isMessage(text,'minimal.platformDefaultLegacy1')) || legacyDefault ? fallback() : value;
+  const templateKey = key === 'platformPrompts.youFixedProjectSupervisorYou' ? 'minimal.supervisorTemplate' : 'minimal.platformTemplate';
+  return isMessage(text, templateKey) || isMessage(text, key) || isMessage(text, currentKey) || isMessage(text,key==='platformPrompts.youFixedProjectSupervisorYou'?'minimal.supervisorDefault':'minimal.platformDefault') || (key!=='platformPrompts.youFixedProjectSupervisorYou'&&isMessage(text,'minimal.platformDefaultLegacy1')) || legacyDefault ? fallback() : value;
 }
 
-/** Only maintained exact defaults are replaced; saved custom text remains original execution input. */
+/** Suppress only legacy minimal boilerplate; current editable templates and custom text must reach execution. */
 export function customExecutionPrompt(value,kind='platform') {
   const text=typeof value==='string'?value:'';
   return isMessage(text.trim(),kind==='supervisor'?'minimal.supervisorDefault':'minimal.platformDefault')
