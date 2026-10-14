@@ -40,5 +40,5 @@ export async function readSourceCurrent({source,input,clock=()=>new Date()}){
   const entry=captured.entry,matched=Boolean(entry&&(!input.expectHash||input.expectHash===entry.hash));
   return {readSource:'source',sourceNodeId:source.sourceNodeId,readNodeId:source.sourceNodeId,workspaceId:source.workspaceId,generation:source.generation,scopeId:source.scopeId,scopeGeneration:source.scopeGeneration,
     relativePath:input.path,hash:entry?.hash||null,size:entry?.size??null,executable:entry?.executable??null,observedAt:clock().toISOString(),freshness:input.freshness,matched,
-    preview:entry?(input.metadata?'metadata':captured.preview):'missing',content:matched&&!input.metadata?captured.content:null,...(entry&&!matched?{reason:'hash_mismatch'}:{}),proof:source.proof};
+    preview:entry?(input.metadata||!matched?'metadata':captured.preview):'missing',content:matched&&!input.metadata?captured.content:null,...(entry&&!matched?{reason:'hash_mismatch'}:{}),proof:source.proof};
 }

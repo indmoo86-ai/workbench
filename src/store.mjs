@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync,statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { giteeRepository } from './repository.mjs';
 import { roleWorkspace } from './project-repositories.mjs';
@@ -32,6 +32,7 @@ const unresolvedRecovery = "COALESCE(json_extract(data,'$.state'),'')!='resolved
 /** SQLite is the persistent record kept separately by Home and each Worker; files are not shared across machines. */
 export class Store {
   constructor(file) {
+    this.file=file;
     if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(file);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
@@ -52,6 +53,11 @@ export class Store {
       CREATE INDEX IF NOT EXISTS records_native_driver_read ON records(json_extract(data,'$.projectId'),json_extract(data,'$.roleId'),json_extract(data,'$.nativeSession.id')) WHERE kind='runs';`);
   }
   get(kind, id) { const r = this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind, id); return r ? JSON.parse(r.data) : null; }
+  /** Admission uses the result-store filesystem, never a remote workspace or a caller-provided path. */
+  readResultFreeBytes(){
+    if(this.file===':memory:')return Infinity;
+    const info=statfsSync(dirname(this.file));return info.bavail*info.bsize;
+  }
   list(kind) { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(r.data)); }
   /** Read one role/session with a hard row budget; omitted history is unknown, never proof of idle. */
   readNativeDriverRecords(binding,{limit=100}={}){
