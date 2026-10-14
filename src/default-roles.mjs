@@ -1,5 +1,5 @@
 import { tr } from './i18n.mjs';
-/** Responsibility-only presets for new roles; execution prompts remain empty and no project seats are created automatically. */
+/** Shipped presets for new roles; users may edit or hide them in settings, and no project seats are created automatically. */
 export function defaultRoleTemplates() {
   return Object.freeze([
     {
@@ -32,7 +32,15 @@ export function defaultRoleTemplates() {
       name: tr('roleTemplates.tester'),
       mode: 'workspace-write',
       modelHint: tr('defaultRoles.fastModelRecommendedForRoutine'),
-      instructions: ''
+      instructions: tr('roleTemplates.testerInstructions')
+    },
+    {
+      key: 'crossDevice',
+      responsibility: tr('roleTemplates.crossDeviceResponsibility'),
+      name: tr('roleTemplates.crossDevice'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.midTierModelRecommendedFor'),
+      instructions: tr('roleTemplates.crossDeviceInstructions')
     },
     {
       key: 'architect',

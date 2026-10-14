@@ -11,6 +11,7 @@ import { projectSettings } from './project-settings.js';
 import { agentIconEl, machineIconEl, quotaForRole, roleActivity, roleNameQuota, UI_ICON, deviceIconEl, workerDisplayName, workerKind, setActionIcon, projectIconAssignments, projectIconEl } from './role-icons.js';
 import { activateSettingsTab, normalizeSettingsTab, settingsView, initProjectSettingsTabs } from './settings-page.js';
 import { supervisorSettings } from './supervisor-settings.js';
+import { roleTemplatesUI } from './role-templates.js';
 import { projectSetupUI } from './project-setup.js';
 import { deviceEntries, platformAdminUI } from './platform-admin.js';
 import { projectSpaceUI } from './project-space.js';
@@ -145,6 +146,7 @@ for(const [selector,icon,label] of [
 ])document.querySelectorAll(selector).forEach(button=>setActionIcon(button,icon,label));
 const projectsUI = projectSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create, setError, openSettings, closeSettings,openTask });
 const supervisorsUI = supervisorSettings({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create,openTask });
+const roleTemplates = roleTemplatesUI({ api, getData: () => app.data, refreshState, create });
 const setupUI = projectSetupUI({ api, getData: () => app.data, getProject: getCurrentProject, refreshState, create, setError });
 const platformUI = platformAdminUI({api,getData:()=>app.data,refreshState,create});
 const spacesUI = projectSpaceUI({api,getData:()=>app.data,getProject:getCurrentProject,refreshState,create});
@@ -503,6 +505,7 @@ async function refreshState({ quiet = false } = {}) {
       roleSwitches:Array.isArray(data.roleSwitches)?data.roleSwitches:[],
       cliRecoveries:Array.isArray(data.cliRecoveries)?data.cliRecoveries:[],
       roleTemplates: Array.isArray(data.roleTemplates) ? data.roleTemplates : [],
+      hiddenRoleTemplates: Array.isArray(data.hiddenRoleTemplates) ? data.hiddenRoleTemplates : [],
       rooms: Array.isArray(data.rooms) ? data.rooms : [],
       gitChecks: Array.isArray(data.gitChecks) ? data.gitChecks : [],
       workspaces: Array.isArray(data.workspaces) ? data.workspaces : [],
@@ -1262,6 +1265,7 @@ function renderPlatformPrompts() {
   ].join(' · ');
   dom.promptsFeedback.hidden = true;
   renderPlatformPromptPreview();
+  roleTemplates.render();
   const organizer=settings.conversationOrganizer||{};
   const worker=app.data.workers?.find(item=>item.id===organizer.nodeId);
   document.querySelector('#conversation-organizer-summary').textContent=organizer.nodeId

@@ -127,11 +127,17 @@ test('language switch changes platform prompts and default roles', async () => {
     assert.ok(hasCjk(b[k]), `${k} (zh) has no CJK`);
   }
   assert.deepEqual(a.templates.map(t => t.key), b.templates.map(t => t.key));
-  assert.deepEqual(a.templates.map(t => t.key), ['planner', 'developer', 'reviewer', 'tester', 'architect', 'debugger', 'deployer', 'documenter']);
+  assert.deepEqual(a.templates.map(t => t.key), ['planner', 'developer', 'reviewer', 'tester', 'crossDevice', 'architect', 'debugger', 'deployer', 'documenter']);
   a.templates.forEach((t, i) => {
     assert.notEqual(t.name, b.templates[i].name);
-    assert.equal(t.instructions, '');
-    assert.equal(b.templates[i].instructions, '');
+    // Only the tester and cross-device templates ship an execution prompt; it is localized like the other fields.
+    if (['tester', 'crossDevice'].includes(t.key)) {
+      assert.ok(t.instructions && !hasCjk(t.instructions), `${t.key} (en) instructions`);
+      assert.ok(hasCjk(b.templates[i].instructions), `${t.key} (zh) instructions`);
+    } else {
+      assert.equal(t.instructions, '');
+      assert.equal(b.templates[i].instructions, '');
+    }
     assert.notEqual(t.responsibility, b.templates[i].responsibility);
     assert.notEqual(t.modelHint, b.templates[i].modelHint);
     assert.ok(hasCjk(b.templates[i].responsibility) && !hasCjk(t.responsibility));
