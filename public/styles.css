@@ -1852,3 +1852,9 @@ dialog.role-switch-dialog { width: min(640px, calc(100vw - 32px)); }
   #settings-page .usage-device-card { grid-template-columns: 96px minmax(0, 1fr); gap: 12px; }
   #settings-page .timer-job-head { align-items: flex-start; }
 }
+/* Sidebar navigation toggle: light active state, subtle border, groove divider under the heading row. */
+.navigation-mode { border:1px solid #d7dfeb; border-radius:7px; overflow:hidden; }
+.navigation-mode button + button { border-left:1px solid #d7dfeb; }
+.navigation-mode button[aria-pressed="true"] { background:#e5efff; color:#0866ff; }
+.sidebar-heading .new-conversation-button { border:1px solid #d7dfeb; }
+.sidebar-heading { border-bottom:1px solid rgba(0,0,0,.08); box-shadow:0 1px 0 #fff; margin-bottom:10px; }
