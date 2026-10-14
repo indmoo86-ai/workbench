@@ -52,6 +52,15 @@ export class Store {
     const index=pending?'records_source_command_pending':'records_source_command_batch';
     return this.db.prepare(`SELECT data FROM records INDEXED BY ${index} WHERE ${conditions.join(' AND ')} ORDER BY rowid`).all(...params).map(r=>JSON.parse(r.data));
   }
+  /** Page small transport records first; never parse historical receipt bodies just to select work. */
+  sourceReceiptTransports({ready=true,at=Date.now(),limit=16,exclude=[]}={}) {
+    const due=ready?'nextReceiptAt':'nextRecoveryAt';
+    const conditions=["t.kind='sourceSyncTransport'",`COALESCE(json_extract(t.data,'$.ready'),0)=${ready?1:0}`,
+      `COALESCE(json_extract(t.data,'$.${due}'),0)<=?`,"EXISTS (SELECT 1 FROM records r WHERE r.kind='sourceSyncReceipts' AND r.id=t.id)"];
+    if(!ready)conditions.push("json_extract(t.data,'$.message.commandId') IS NOT NULL","COALESCE(json_extract(t.data,'$.recoveryAttempts'),0)<5");
+    if(exclude.length)conditions.push(`t.id NOT IN (${exclude.map(()=>'?').join(',')})`);
+    return this.db.prepare(`SELECT t.data FROM records t WHERE ${conditions.join(' AND ')} ORDER BY COALESCE(json_extract(t.data,'$.${due}'),0),t.rowid LIMIT ?`).all(at,...exclude,limit).map(r=>JSON.parse(r.data));
+  }
   put(kind, value) {
     if(kind==='roomMessages')return this.transaction(()=>{
       const previous=this.get(kind,value.id);

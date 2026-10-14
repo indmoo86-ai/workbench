@@ -140,6 +140,20 @@ export class SourceSync {
     }
     return this.db.listSourceSyncCommands({pending:true}).filter(c=>this.online(c.nodeId)&&(!done.has(this.db.get('sourceSyncBatches',c.batchId)?.status)||this.db.get('sourceSyncBatches',c.batchId)?.status==='blocked'));
   }
+  /** Validate late evidence too; acknowledging delivery must never legitimize a malformed result. */
+  validateReceipt(command,result){
+    if(!result||typeof result.status!=='string')throw syncError('invalid_receipt');
+    if(['blocked','cancelled','waiting_idle','waiting_device','reconciling'].includes(result.status))return;
+    if(command.action==='capture'){
+      if(result.status!=='completed')throw syncError('invalid_receipt');
+      for(const snapshot of [result.base,result.manifest])validateSourceCapture(snapshot,command);
+      if(command.scopeKind!=='directory'&&(result.base.baseCommit!==result.manifest.baseCommit||command.baseCommit&&result.base.baseCommit!==command.baseCommit))throw syncError('git_baseline_mismatch');
+    }else{
+      if(!Array.isArray(result.files)||!['completed','partial_conflict'].includes(result.status))throw syncError('invalid_receipt');
+      for(const change of command.changes){const f=result.files.find(f=>f.path===change.path);
+        if(!f||!['applied','unchanged','conflict'].includes(f.status)||f.status!=='conflict'&&!entryEqual(f.after,change.after))throw syncError('invalid_receipt');}
+    }
+  }
   acceptReceipt(nodeId,receipt){return this.db.transaction(()=>{
     const command=this.db.get('sourceSyncCommands',receipt.commandId);
     if(!command||command.nodeId!==nodeId)throw syncError('receipt_owner_mismatch');

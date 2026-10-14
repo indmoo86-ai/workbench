@@ -107,3 +107,9 @@
 
 - Extract text from structured native assistant error messages before recording runtime failures. Error logs, status and automatic written handoffs retain the readable reason instead of an object; the execution still fails when the native CLI reports an error.
 - Reproduced the object-versus-string failure, passed focused regression checks and all 56 existing tests, and replayed a recorded authentication error through a real isolated child-process transport and handoff writer. This does not resolve provider authentication; no live service or active CLI was restarted.
+
+## 2026-10-14 — Bounded source-sync receipt recovery
+
+- Treat network timeouts as reconciling, correctly encode cancelled captures and retain late terminal evidence separately from the original operation result. Acknowledgments retire matching delivery entries without rewriting historical results or repeating file writes.
+- Select due transport metadata before receipt bodies, recover unready uploads in bounded batches and back off replay. Stop unchanged failed watcher observations from generating unlimited replacement batches. Existing files, journals, sessions and audit reports are preserved.
+- Added private regression coverage for upload-response loss, cancellation, terminal disagreement, queue starvation and apply recovery after an earlier idle wait. Real isolated Mac/Linux checks covered two-way saved-file transfer, binary rename/delete, offline Worker restart, conflict preservation and browser document viewing without model calls. Deployment and production resource measurements are tracked separately in private release evidence.

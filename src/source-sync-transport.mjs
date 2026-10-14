@@ -15,6 +15,9 @@ const json=(res,value,status=200)=>{res.writeHead(status,{'Content-Type':'applic
 const matches=(a,b)=>typeof a==='string'&&Buffer.byteLength(a)===Buffer.byteLength(b)&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
 async function body(req,limit=64*1024*1024){const chunks=[];let size=0;for await(const chunk of req){size+=chunk.length;if(size>limit)throw syncError('request_too_large');chunks.push(chunk);}return JSON.parse(Buffer.concat(chunks).toString());}
 const entries=bundle=>[...Object.values(bundle.base.entries),...Object.values(bundle.manifest.entries)].filter(Boolean);
+const retryDelay=attempt=>[5000,15000,30000,60000,300000][Math.min(Math.max(attempt-1,0),4)];
+// DOMException numeric codes describe transport failures, not permanent sync-policy failures.
+const transportFailure=error=>!error.code||typeof error.code!=='string'||['transfer_failed','ECONNRESET','ECONNREFUSED','ETIMEDOUT'].includes(error.code)||['AbortError','TimeoutError'].includes(error.name);
 
 /** The existing Home listener transports content; scoped transfer credentials never enter model input. */
 export class SourceSyncHome {
@@ -60,7 +63,11 @@ export class SourceSyncHome {
       for(const n of notices.filter(n=>n.batchId)){
         const batch=this.db.get('sourceSyncBatches',n.batchId);
         if(['completed','partial_conflict'].includes(batch?.status))this.db.put('sourceSyncWatchNotices',{...n,handled:true});
-        else if(['blocked','cancelled'].includes(batch?.status)&&Date.now()-Date.parse(n.queuedAt)>30000)this.db.put('sourceSyncWatchNotices',{...n,batchId:null});
+        else if(['blocked','cancelled'].includes(batch?.status)){
+          const retryable=typeof batch.reason==='number'||['transfer_failed','waiting_device','paused'].includes(batch.reason);
+          if(!retryable||(n.attempts||0)>=5){if(n.error!==(batch.reason||'retry_limit'))this.db.put('sourceSyncWatchNotices',{...n,error:batch.reason||'retry_limit'});continue;}
+          if(Date.now()-Date.parse(n.queuedAt)>retryDelay(n.attempts||1))this.db.put('sourceSyncWatchNotices',{...n,batchId:null});
+        }
       }
       if(this.db.listProject('sourceSyncBatches',config.projectId).some(b=>!['completed','partial_conflict','blocked','cancelled','preview_ready','evidence_ready'].includes(b.status)))continue;
       const pending=this.db.listProject('sourceSyncWatchNotices',config.projectId).filter(n=>n.generation===config.generation&&!n.handled&&!n.batchId);if(!pending.length)continue;
@@ -87,6 +94,10 @@ export class SourceSyncHome {
     if(['source_sync_watch_ack','source_sync_watch_status','source_sync_dirty'].includes(message.type)){this.watchMessage(nodeId,message);return;}
     if(this.db.get('sourceSyncTombstones',message.commandId)?.nodeId===nodeId){this.socket(nodeId)?.send(JSON.stringify({type:'source_sync_receipt_ack',commandId:message.commandId,disposition:'project_deleted'}));return;}
     const c=this.db.get('sourceSyncCommands',message.commandId);if(!c||c.nodeId!==nodeId)throw syncError('receipt_owner_mismatch');
+    // Replays with a previously validated hash need no manifest reads or file revalidation.
+    const ackKey=typeof message.receiptHash==='string'&&/^[a-f0-9]{64}$/.test(message.receiptHash)?`${c.id}:${message.receiptHash}`:null;
+    const previousAck=ackKey&&this.db.get('sourceSyncReceiptAcks',ackKey);
+    if(message.type==='source_sync_receipt'&&previousAck?.nodeId===nodeId){this.socket(nodeId)?.send(JSON.stringify(previousAck.ack));return;}
     const uploaded=c.action==='apply'?this.db.get('sourceSyncUploadReceipts',c.id):null;
     if(message.type==='source_sync_command_ack'){
       this.db.put('sourceSyncCommands',{...c,ackedAt:new Date().toISOString()});
@@ -96,15 +107,36 @@ export class SourceSyncHome {
     // A timed-out upload response cannot invalidate saved evidence. The ordinary receipt validator still decides completion.
     let result=uploaded?.result||message.result;
     if(uploaded&&uploaded.fingerprint!==contentHash(JSON.stringify(result)))throw syncError('receipt_changed');
+    // Legacy Workers encoded cancelled captures as apply references despite having no upload.
+    if(result?.receiptId&&c.action==='capture'&&result.status==='cancelled')result={status:'cancelled',files:[]};
     if(result?.receiptId)throw syncError('receipt_missing');
     if(result?.captureId){const bundle=this.db.get('sourceSyncUploads',c.id)?.bundle;if(!bundle)throw syncError('manifest_missing');
-      for(const entry of entries(bundle))if(!await this.storage.has(c.projectId,entry))throw syncError('blob_missing');
+      if(result.captureId!==c.id||c.action!=='capture')throw syncError('receipt_owner_mismatch');
+      if(!c.result&&this.db.get('sourceSyncBatches',c.batchId)?.status!=='cancelled')for(const entry of entries(bundle))if(!await this.storage.has(c.projectId,entry))throw syncError('blob_missing');
       result={status:'completed',...bundle};
+    }
+    if(!['completed','partial_conflict','cancelled','blocked'].includes(result?.status)){
+      if(!c.result)this.sync.acceptReceipt(nodeId,{commandId:c.id,result});
+      return;
+    }
+    this.sync.validateReceipt(c,result);
+    const receiptHash=contentHash(JSON.stringify(result));
+    if(message.receiptHash&&message.receiptHash!==receiptHash)throw syncError('receipt_changed');
+    const batch=this.db.get('sourceSyncBatches',c.batchId);
+    if(c.result&&contentHash(JSON.stringify(c.result))!==receiptHash||batch?.status==='cancelled'){
+      // Receipt delivery is complete, not the operation. Keep both outcomes and the original terminal status.
+      const id=`${c.id}:${receiptHash}`,ack={type:'source_sync_receipt_ack',commandId:c.id,receiptHash,disposition:'recorded_terminal'};
+      this.db.transaction(()=>{
+        if(!this.db.get('sourceSyncLateReceipts',id))this.db.put('sourceSyncLateReceipts',{id,commandId:c.id,projectId:c.projectId,nodeId,result,receivedAt:new Date().toISOString()});
+        this.db.put('sourceSyncReceiptAcks',{id,projectId:c.projectId,nodeId,ack});
+      });
+      this.socket(nodeId)?.send(JSON.stringify(ack));return;
     }
     this.sync.acceptReceipt(nodeId,{commandId:c.id,result});
     const saved=this.db.get('sourceSyncCommands',c.id)?.result;
     // Only a validated, committed result can clear the matching Worker outbox; transient observations are not acknowledgments.
-    if(saved)this.socket(nodeId)?.send(JSON.stringify({type:'source_sync_receipt_ack',commandId:c.id,receiptHash:contentHash(JSON.stringify(saved))}));
+    if(saved){const ack={type:'source_sync_receipt_ack',commandId:c.id,receiptHash:contentHash(JSON.stringify(saved))};
+      this.db.put('sourceSyncReceiptAcks',{id:`${c.id}:${ack.receiptHash}`,projectId:c.projectId,nodeId,ack});this.socket(nodeId)?.send(JSON.stringify(ack));}
     this.change();await this.tick();
   }
   async workerHttp(req,res,pathname){
@@ -112,7 +144,8 @@ export class SourceSyncHome {
     const c=this.db.get('sourceSyncCommands',m[1]);
     if(!c||!matches(req.headers.authorization||'',`Bearer ${c.secret}`)){json(res,{error:'Unauthorized'},401);return true;}
     const batch=this.db.get('sourceSyncBatches',c.batchId);
-    if(!this.db.get('projects',c.projectId)||!batch||batch.status==='cancelled')throw syncError('batch_inactive');
+    const evidenceUpload=req.method==='PUT'&&['capture','receipt'].includes(m[2]);
+    if(!this.db.get('projects',c.projectId)||!batch||batch.status==='cancelled'&&!evidenceUpload)throw syncError('batch_inactive');
     if(m[2]==='plan'&&req.method==='GET'){const {result,lastResult,secret,status,lastSentAt,ackedAt,receivedAt,...plan}=c;json(res,plan);return true;}
     if(m[2]==='receipt'&&req.method==='PUT'&&c.action==='apply'){
       const result=await body(req);if(!Array.isArray(result.files)||result.files.length>10000)throw syncError('invalid_receipt');
@@ -128,6 +161,8 @@ export class SourceSyncHome {
       const fingerprint=contentHash(JSON.stringify(bundle)),old=this.db.get('sourceSyncUploads',c.id);
       if(old&&old.fingerprint!==fingerprint)throw syncError('capture_changed');
       this.db.put('sourceSyncUploads',{id:c.id,projectId:c.projectId,bundle,fingerprint});
+      // Terminal commands only retain late evidence; they cannot consume source blobs or advance a version.
+      if(c.result||batch.status==='cancelled'){json(res,{missing:[]});return true;}
       const missing=[];for(const entry of new Map(entries(bundle).map(e=>[e.hash,e])).values())if(!await this.storage.has(c.projectId,entry))missing.push(entry);
       json(res,{missing});return true;
     }
@@ -194,9 +229,10 @@ export class SourceSyncClient {
     if(this.inFlight.has(message.commandId))return;
     this.inFlight.add(message.commandId);
     try{
-      const command=await (await this.request(message,'plan')).json();
+      const prior=this.db.get('sourceSyncCommands',message.commandId);
+      const command=prior?.result&&prior.command?prior.command:await (await this.request(message,'plan')).json();
       const transport=this.db.get('sourceSyncTransport',command.id);
-      this.db.put('sourceSyncTransport',{...transport,id:command.id,projectId:command.projectId,message});
+      this.db.put('sourceSyncTransport',{...transport,id:command.id,projectId:command.projectId,message,ready:false});
       this.send({type:'source_sync_command_ack',commandId:command.id});
       const saved=this.db.get('sourceSyncCommands',command.id)?.result;
       // Receipt replay needs only the saved result; execute still checks the exact command fingerprint below.
@@ -211,16 +247,21 @@ export class SourceSyncClient {
         for(const entry of needed.missing)await this.request(message,`blobs/${entry.hash}`,'PUT',await readSourceBlob(this.blobRoot,entry.hash));
       }
       if(command.action==='apply'&&Array.isArray(result.files))await this.request(message,'receipt','PUT',result);
-      this.db.put('sourceSyncTransport',{...this.db.get('sourceSyncTransport',command.id),ready:true});
+      this.db.put('sourceSyncTransport',{...this.db.get('sourceSyncTransport',command.id),ready:true,recoveryAttempts:0,nextRecoveryAt:0});
       this.flush();
       if(!['completed','partial_conflict','cancelled'].includes(result.status))this.send({type:'source_sync_receipt',commandId:command.id,result});
-    }catch(error){this.send({type:'source_sync_receipt',commandId:message.commandId,result:{status:!error.code||error.code==='transfer_failed'?'reconciling':'blocked',reason:error.code||'transfer_failed'}});
+    }catch(error){
+      const transport=this.db.get('sourceSyncTransport',message.commandId),attempts=(transport?.recoveryAttempts||0)+1;
+      if(transport)this.db.put('sourceSyncTransport',{...transport,recoveryAttempts:attempts,nextRecoveryAt:Date.now()+retryDelay(attempts),recoveryError:transportFailure(error)?'transfer_failed':error.code});
+      this.send({type:'source_sync_receipt',commandId:message.commandId,result:{status:transportFailure(error)?'reconciling':'blocked',reason:transportFailure(error)?'transfer_failed':error.code}});
     }finally{this.inFlight.delete(message.commandId);}
   }
   acknowledge(id,message={}){
     const receipt=this.db.get('sourceSyncReceipts',id);
     // Old Homes send no result hash. Keep that receipt until a matching confirmation arrives after upgrade.
     if(!receipt||message.disposition!=='project_deleted'&&message.receiptHash!==contentHash(JSON.stringify(receipt.result)))return;
+    const transport=this.db.get('sourceSyncTransport',id);
+    if(transport)this.db.put('sourceSyncTransport',{...transport,acknowledgedAt:new Date().toISOString(),receiptDisposition:message.disposition||'accepted',receiptHash:message.receiptHash});
     this.db.remove('sourceSyncReceipts',id);this.sent.delete(id);
   }
   cancel(id){
@@ -234,11 +275,17 @@ export class SourceSyncClient {
     }
     this.send({type:'source_sync_receipt',commandId:id,result:record?.result||{status:'cancelled',files:[]}});
   }
-  flush(){for(const receipt of this.worker.receiptBatch()){
-    if(this.inFlight.has(receipt.id))continue;
-    if(!this.db.get('sourceSyncTransport',receipt.id)?.ready)continue;
-    if(this.sent.has(receipt.id)&&Date.now()-this.sent.get(receipt.id)<5000)continue;
-    const result=receipt.result.base?{status:'completed',captureId:receipt.id}:Array.isArray(receipt.result.files)?{status:receipt.result.status,receiptId:receipt.id}:receipt.result;
-    this.send({type:'source_sync_receipt',commandId:receipt.id,result});this.sent.set(receipt.id,Date.now());
-  }}
+  flush(){
+    const at=Date.now(),exclude=[...this.inFlight];
+    for(const transport of this.db.sourceReceiptTransports({at,exclude})){
+      const receipt=this.db.get('sourceSyncReceipts',transport.id);if(!receipt)continue;
+      const inlineCancellation=receipt.result.status==='cancelled'&&receipt.result.files?.length===0;
+      const result=receipt.result.base?{status:'completed',captureId:receipt.id}:Array.isArray(receipt.result.files)&&!inlineCancellation?{status:receipt.result.status,receiptId:receipt.id}:receipt.result;
+      const attempts=(transport.receiptAttempts||0)+1;
+      this.db.put('sourceSyncTransport',{...transport,receiptAttempts:attempts,nextReceiptAt:at+retryDelay(attempts)});
+      this.send({type:'source_sync_receipt',commandId:receipt.id,result,receiptHash:contentHash(JSON.stringify(receipt.result))});this.sent.set(receipt.id,at);
+    }
+    // Recover a lost upload response from saved bytes, one command at a time; never recapture or reapply.
+    if(!this.inFlight.size)for(const transport of this.db.sourceReceiptTransports({ready:false,at,limit:1}))void this.execute(transport.message);
+  }
 }
