@@ -62,9 +62,15 @@ export class Store {
   /** Read one role/session with a hard row budget; omitted history is unknown, never proof of idle. */
   readNativeDriverRecords(binding,{limit=100}={}){
     if(!binding?.projectId||!binding.roleId||!binding.taskId||!Number.isSafeInteger(limit)||limit<1||limit>100)throw Error('invalid_read_request');
+    // 旧 Run ID 已经唯一；强制走原生会话索引会扫描整个角色历史。
+    if(!binding.nativeSessionId){
+      const record=this.get('runs',binding.priorRunId||'');
+      const matches=record&&record.id!==binding.runId&&record.projectId===binding.projectId&&record.roleId===binding.roleId
+        &&(!binding.roleSessionId||!record.roleSessionId||record.roleSessionId===binding.roleSessionId);
+      return {records:matches?[record]:[],partial:false};
+    }
     const conditions=["kind='runs'","json_extract(data,'$.projectId')=?","json_extract(data,'$.roleId')=?"],params=[binding.projectId,binding.roleId];
-    if(binding.nativeSessionId){conditions.push("json_extract(data,'$.nativeSession.id')=?");params.push(binding.nativeSessionId);}
-    else {conditions.push('id=?');params.push(binding.priorRunId||'');}
+    conditions.push("json_extract(data,'$.nativeSession.id')=?");params.push(binding.nativeSessionId);
     if(binding.runId){conditions.push('id!=?');params.push(binding.runId);}
     if(binding.roleSessionId){conditions.push("(json_extract(data,'$.roleSessionId') IS NULL OR json_extract(data,'$.roleSessionId')=?)");params.push(binding.roleSessionId);}
     const rows=this.db.prepare(`SELECT data FROM records INDEXED BY records_native_driver_read WHERE ${conditions.join(' AND ')} ORDER BY rowid DESC LIMIT ?`).all(...params,limit+1);

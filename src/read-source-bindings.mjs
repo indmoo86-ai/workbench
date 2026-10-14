@@ -30,7 +30,10 @@ export function resolveReadSource(db,callerRun,input){
     if(binding?.projectId!==projectId||binding.nodeId!==sourceNodeId||!workspaceRoot||!rootOf(binding))throw readError('source_workspace_missing');
   }
   const root=resolve(rootOf(binding));workspaceRoot=resolve(workspaceRoot);
-  const excludeRoots=[...new Set(layout.filter(b=>repositoryId(b)!==scopeId&&rootOf(b)).map(b=>childPath(root,resolve(rootOf(b)))).filter(p=>p!==null))].sort();
+  const nestedProject=!projectScope?childPath(root,workspaceRoot):null;
+  // 仓库授权不能同时暴露其中另有授权范围的项目目录。
+  const excludeRoots=[...new Set([...layout.filter(b=>repositoryId(b)!==scopeId&&rootOf(b)).map(b=>childPath(root,resolve(rootOf(b)))).filter(p=>p!==null),
+    ...(nestedProject?[nestedProject]:[])])].sort();
   if(!projectScope&&excludeRoots.includes(''))throw readError('source_workspace_mismatch');
   const scopePolicy={sharedDocs:projectScope,excludeRoots};
   const workspaceId='read:'+fingerprint([projectId,sourceNodeId,sourceWorkspace.kind,owner.workspaceRunId||sourceRunId||projectId]).slice(0,40);

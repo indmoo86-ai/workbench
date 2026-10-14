@@ -76,6 +76,7 @@ export class CrossDeviceRead{
     let result;
     try{
       const selection=selector(input),source=resolveReadSource(this.db,run,selection),worker=this.db.get('workers',source.sourceNodeId);
+      if(operation==='file')validateSourcePath(input.path,source.scopePolicy);
       if(!this.online(source.sourceNodeId))throw readError('source_offline');
       if(worker?.capabilities?.readSourceBindings!==1||operation==='file'&&(worker.capabilities.fileReadFreshness!==1||!worker.capabilities.fileReadModes?.includes(input.freshness))||operation==='query'&&worker.capabilities.queryRecipes!==1)throw readError('unsupported');
       if(operation!=='inspect'&&!selection.sourceWorkspace.workspaceId)throw readError('source_identity_required');
