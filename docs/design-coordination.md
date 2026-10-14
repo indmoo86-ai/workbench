@@ -4,7 +4,7 @@ Status: requirements design. What is actually implemented is described in [ARCHI
 
 ### Current simplified execution contract
 
-One `@` dispatches directly; several `@` mentions go to the supervisor for evaluation. The supervisor submits a stable ID, a rationale and an array of stages. Each stage names the actual roles, their responsibilities, the execution requirements and the repositories they may write. Explicit sequential work uses one role per stage so the previous version is passed on accurately; independent reviews or independent development may share a stage. Parallel development in the same repository must be followed by a single-role merge stage. Migration, deployment and production operations run alone and exclusively.
+One or several explicit `@` mentions dispatch directly to each distinct named role, using their existing queues; they do not automatically become a supervisor evaluation. A reply with no explicit recipient defaults to its original agent sender, while an unquoted new message with no `@` uses the supervisor. When ordering or dependent stages are needed, address the supervisor explicitly to arrange them. The supervisor submits a stable ID, a rationale and an array of stages. Each stage names the actual roles, their responsibilities, the execution requirements and the repositories they may write. Explicit sequential work uses one role per stage so the previous version is passed on accurately; independent reviews or independent development may share a stage. Parallel development in the same repository must be followed by a single-role merge stage. Migration, deployment and production operations run alone and exclusively.
 
 The Home does not poll with a resident model. Stage state is persisted, real process terminal events drive the next step, the supervisor exits first to release capacity, and the final summary is resumed automatically. Each run has its own multi-repository worktree and its own `.workbench`. When a clean Git input cannot be proven, only a clearly dirty or non-Git directory on the same device may be downgraded to serial execution; cross-device or communication errors block. A Git commit can be handed over only when the target device can actually read it. Nothing is pushed silently and uncommitted files are never discarded. General versioned plan revision is left for later.
 
@@ -49,9 +49,9 @@ A new request fixes the role configuration version. Edits affect only new reques
 
 ## 3. Group chat entry and call semantics
 
-A single explicit `@` without a sequential delegation request dispatches directly to that role with no extra supervisor reasoning. A message without an `@` goes to the supervisor, which decides among answer, dispatch, request_plan, clarify, status and cancel. Plain discussion does not directly trigger development.
+A single or multiple explicit `@` dispatches directly to each named role with no extra supervisor reasoning. Without an explicit recipient, replying to an agent resolves the original sender by stored role/Run identity; replying to a human remains a quotation and does not invent an agent target. A new unquoted message without an `@` goes to the supervisor, which decides among answer, dispatch, request_plan, clarify, status and cancel. Plain discussion does not directly trigger development.
 
-A message with several roles, an order, or "hand over after finishing" is no longer matched by regular expressions that start all roles at once. The supervisor gives explicit recipients and order. When only one executor is needed no plan is created, and a multi-stage job requests a plan as needed.
+Several mentions alone do not imply an order, a dependency or an independent-review session. Each target retains its own task and reply. For "hand over after finishing" or a dependent multi-stage job, the user addresses the supervisor for an explicit schedule with recipients and order. When only direct answers are needed no plan is created.
 
 `@all` is an announcement. It does not wake everyone and a pure announcement is not new work for the supervisor. Echoes from supervisors, agents and channels no longer enter the user-message entry.
 

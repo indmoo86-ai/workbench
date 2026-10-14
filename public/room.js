@@ -117,7 +117,7 @@ export function discussionDisplay(message,data) {
     &&(task.discussionWait?.threadId===thread?.id||blocked?.threadId===thread?.id);
   const state=historical?'Historical note; task not resumed':thread?.status==='resolved'?'Question resolved':thread?.status==='cancelled'?'Question cancelled':
     ({queued:'Awaiting delivery',dispatched:'Delivering',runtime_accepted:'Delivered; awaiting response',consumed:'Message handled',failed:'No valid reply received',reconciling:'Execution state to be reconciled',cancelled:'Cancelled',superseded:'Superseded'}[delivery?.status]||'Recorded');
-  const detail=task?.status==='cancelled'?'Original task stopped':!historical&&blocked?.threadId===thread?.id?task.waitingReason:!historical&&thread?.status==='open'?(delivery?.status==='queued'?delivery.waitingReason:delivery?.error):null;
+  const detail=task?.status==='cancelled'?'Original task stopped':!historical&&blocked&&thread&&blocked.threadId===thread.id?task.waitingReason:!historical&&thread?.status==='open'?(delivery?.status==='queued'?delivery.waitingReason:delivery?.error):null;
   return {to,thread,state:detail?`${state} · ${detail}`:state,canReply:!historical&&thread?.status==='open',canResume,resumeAfterRunId:canResume?after.id:null,canStop,stopRunId:canStop?task.currentRunId:null,questionId:meta.questionId};
 }
 
@@ -439,6 +439,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     catch { setError('Not enough browser draft storage; the original text is still on this page. Copy a backup first and do not close the page'); return false; }
   };
   const draft = () => drafts[projectId] ||= { text: '', replyToId: null, replyLabel: '' };
+  const hasMention=text=>/(?:^|[\s,.!?;:(\uff0c\u3002\uff01\uff1f\u3001\uff1b\uff1a\uff08])@([\p{L}\p{N}_-]+)/u.test(text);
   const taskProgress=(task,run)=>{
     const request=run?.discussionDeliveryId?null:data.requests?.find(r=>r.id===(run?.requestId||task?.requestId));
     const nodeId=run?.nodeId||task?.roleSnapshot?.nodeId;
@@ -459,7 +460,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
 
   function composer() {
     if (!projectId) return;
-    input.placeholder = data.projects?.find(p => p.id === projectId)?.supervisorRoleId ? 'Tell the supervisor what to do; @ one role to dispatch directly, @ several and the supervisor arranges them' : 'Type a message; @role to start work';
+    input.placeholder = data.projects?.find(p => p.id === projectId)?.supervisorRoleId ? 'Without @, new messages go to the supervisor; replies target the sender, and @ several roles dispatches to each' : 'Type a message; @role to start work';
     const d = draft(), busy = sendingProject === projectId;
     input.disabled = busy || !!d.pending;
     send.disabled = !!sendingProject || Boolean(uploadCounts.get(projectId)) || Boolean(d.textFiles?.length);
@@ -474,6 +475,8 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     quoteBar.replaceChildren(); quoteBar.hidden = !d.replyToId;
     if (d.replyToId) quoteBar.append(create('span', '', t('Quoting {replyLabel}', { replyLabel: d.replyLabel })), button('Cancel', () => {
       if (d.pending || busy) return;
+      if(d.replyMention&&input.value.startsWith(d.replyMention)){input.value=input.value.slice(d.replyMention.length);d.text=input.value;}
+      delete d.replyMention;
       d.replyToId = null; d.replyLabel = ''; delete d.discussion;saveDrafts(); composer();
     }));
     const note = document.querySelector('#chat-send-note');
@@ -504,10 +507,19 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     } finally { liveFetching.delete(runId); }
   }
 
-  function quoteReply(m) {
+  function quoteReply(m,{mentionSender=true}={}) {
     if (draft().pending || sendingProject === projectId) return;
-    Object.assign(draft(), { replyToId: m.id, replyLabel: t('{senderName}: {v}', { senderName: m.senderName, v: m.text.slice(0, 100) }) });
-    delete draft().discussion;
+    const d=draft();
+    // Replace only our own previous prefix; explicit mentions and the unsent body remain the user's choice.
+    if(d.replyMention&&input.value.startsWith(d.replyMention))input.value=input.value.slice(d.replyMention.length);
+    delete d.replyMention;
+    const senderId=m.roleId||(data.runs||[]).find(r=>r.id===m.runId&&r.projectId===projectId)?.roleId;
+    const role=m.sender==='agent'?(data.roles||[]).find(r=>r.projectId===projectId&&(senderId?r.id===senderId:r.name===m.senderName)):null;
+    if(mentionSender&&role&&!hasMention(input.value)){
+      d.replyMention=`@${role.name} `;input.value=d.replyMention+input.value;
+    }
+    Object.assign(d, { text:input.value,replyToId: m.id, replyLabel: t('{senderName}: {v}', { senderName: m.senderName, v: m.text.slice(0, 100) }) });
+    delete d.discussion;
     saveDrafts(); composer(); input.focus();
   }
 
@@ -771,7 +783,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     }
     const actions = [],discussionActions=[];
     if(discussion?.canReply) {
-      actions.push(iconAction('reply','Reply to this question',()=>{quoteReply(m);draft().discussion={threadId:discussion.thread.id,expectedQuestionId:discussion.questionId,revision:discussion.thread.revision,directionRevision:discussion.thread.directionRevision};saveDrafts();}));
+      actions.push(iconAction('reply','Reply to this question',()=>{quoteReply(m,{mentionSender:false});draft().discussion={threadId:discussion.thread.id,expectedQuestionId:discussion.questionId,revision:discussion.thread.revision,directionRevision:discussion.thread.directionRevision};saveDrafts();}));
     } else actions.push(iconAction('quote', 'Reply', () => quoteReply(m)));
     if(discussion?.canReply||discussion?.canResume) {
       discussionActions.push(iconAction('check',discussion.canResume?'Changes verified; continue the original task':'Mark question as handled',async b=>{
@@ -944,9 +956,14 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     mentionMenu.hidden = false;
   }
 
+  input.addEventListener('beforeinput',e=>{
+    const d=projectId&&draft(),start=input.selectionStart??input.value.length,end=input.selectionEnd??start;
+    // Editing the automatic prefix makes it user-owned, even if the same mention is later retyped.
+    if(d?.replyMention&&(start<d.replyMention.length||start===end&&start===d.replyMention.length&&e.inputType==='deleteContentBackward'))delete d.replyMention;
+  });
   input.addEventListener('input', e => {
     resizeInput();
-    if (projectId) { draft().text = input.value; saveDrafts(); }
+    if (projectId) { if(draft().replyMention&&!input.value.startsWith(draft().replyMention))delete draft().replyMention;draft().text = input.value; saveDrafts(); }
     if (projectId && !e.isComposing && !draft().inlineLongText && longTextFileName(input.value) && attachComposerText()) return;
     mentionIndex = 0;
     renderMentionMenu();
@@ -981,7 +998,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     }
     if (!d.pending && !input.value.trim() && !d.attachments?.length) return;
     if(d.discussion&&d.attachments?.length){setError('Use text for discussion replies; send attachments as a separate regular message');return;}
-    d.pending ||= { clientMessageId: crypto.randomUUID(), text: input.value, replyToId: d.replyToId || null, attachmentIds:(d.attachments||[]).map(a=>a.id),...(d.discussion?{discussion:d.discussion}:{}) };
+    d.pending ||= { clientMessageId: crypto.randomUUID(), text: input.value, replyToId: d.replyToId || null, attachmentIds:(d.attachments||[]).map(a=>a.id),...(d.discussion&&!hasMention(input.value)?{discussion:d.discussion}:{}) };
     saveDrafts(); sendingProject = id; composer();
     try {
       if(d.pending.discussion)await api(`/api/projects/${encodeURIComponent(id)}/discussions/${encodeURIComponent(d.pending.discussion.threadId)}/reply`,{method:'POST',json:{...d.pending.discussion,requestId:d.pending.clientMessageId,text:d.pending.text}});

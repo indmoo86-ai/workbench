@@ -180,61 +180,67 @@ export class Rooms {
       if (!this.db.get('projects', projectId)) throw new Error(tr('rooms.projectNotFound2'));
       const quote = replyToId ? this.db.get('roomMessages', replyToId) : null;
       if (replyToId && quote?.projectId !== projectId) throw new Error(tr('rooms.quotedMessageDoesNotBelong'));
-      const fixedRole=targetRoleId?this.db.get('roles',targetRoleId):null;
+      const source = quote?.runId ? this.db.get('runs', quote.runId) : null;
+      let fixedRole=targetRoleId?this.db.get('roles',targetRoleId):null;
       if(targetRoleId && fixedRole?.projectId!==projectId) throw new Error(tr('rooms.specifiedRoleDoesNotBelong'));
       const mentioned = fixedRole ? [fixedRole.name] : mentionNames(text);
+      // Explicit recipients win; a reply otherwise resolves the saved sender, not the intake default.
+      if(!mentioned.length&&quote?.sender==='agent'){
+        const senderId=quote.roleId||(source?.projectId===projectId?source.roleId:null);
+        fixedRole=senderId?this.db.get('roles',senderId):this.db.listProject('roles',projectId).find(r=>r.name===quote.senderName);
+        if(fixedRole?.projectId!==projectId)throw new Error(tr('rooms.roleDoesNotExist',{name:quote.senderName}));
+        mentioned.push(fixedRole.name);
+      }
       const pingAll = !fixedRole && mentioned.some(isBroadcastName);
       const names = mentioned.filter(name => fixedRole || !isBroadcastName(name));
       const project = this.db.get('projects', projectId);
       const supervisorRole = project.supervisorRoleId ? this.db.get('roles', project.supervisorRoleId) : null;
-      if (!mentioned.length && project.supervisorRoleId) names.push(supervisorRole?.name || tr('rooms.supervisor'));
+      if (!mentioned.length && !quote && project.supervisorRoleId) names.push(supervisorRole?.name || tr('rooms.supervisor'));
       const broadcast = pingAll;
-      if (names.length > 4) throw new Error(tr('rooms.messageCanMentionAtMost'));
       let roles = [];
       if (names.length) {
-        roles = names.map(name => {
+        const knownRoles=this.db.listProject('roles',projectId),selected=new Map();
+        for(const name of names){
           // The fixed Supervisor may have been created under a different display-name language, so @Supervisor / @\u603b\u7ba1 resolve through the project record.
-          const role = fixedRole || (!mentioned.length && project.supervisorRoleId ? supervisorRole : this.db.list('roles').find(r => r.projectId === projectId && r.name === name) || (isSupervisorName(name) ? supervisorRole : null));
+          const role = fixedRole || (!mentioned.length && project.supervisorRoleId ? supervisorRole : knownRoles.find(r => r.name === name) || (isSupervisorName(name) ? supervisorRole : null));
           if (!role || role.projectId !== projectId) throw new Error(tr('rooms.roleDoesNotExist', { name }));
           if (!isRoleConfigured(role)) throw new Error(tr('rooms.roleHasNoDeviceCli', { name }));
           if (!role.enabled) throw new Error(tr('rooms.roleDisabled', { name }));
           if (!roleWorkspace(this.db, projectId, role.nodeId, role.repositoryId)) throw new Error(tr('rooms.roleHasNoRepositoryDirectory', { name }));
-          return role;
-        });
+          selected.set(role.id,role);
+          if(selected.size>4)throw new Error(tr('rooms.messageCanMentionAtMost'));
+        }
+        roles=[...selected.values()];
       }
       const scope=!broadcast&&!fixedRole&&roles.length===1&&roles[0].systemSupervisor?collectiveRoleScope(text):null;
-      const participants=scope?this.db.list('roles').filter(r=>r.projectId===projectId&&!r.archivedAt&&r.enabled&&!r.systemSupervisor&&(scope==='all'||r.templateKey==='reviewer'||/review|audit|\u5ba1\u6838|\u5ba1\u67e5|\u8bc4\u5ba1|\u590d\u6838/i.test(r.name))):roles.length>1?roles.filter(r=>!r.systemSupervisor):[];
+      const participants=scope?this.db.list('roles').filter(r=>r.projectId===projectId&&!r.archivedAt&&r.enabled&&!r.systemSupervisor&&(scope==='all'||r.templateKey==='reviewer'||/review|audit|\u5ba1\u6838|\u5ba1\u67e5|\u8bc4\u5ba1|\u590d\u6838/i.test(r.name))):[];
       if(scope&&!participants.length)throw new Error(tr('rooms.noEnabledRoleInProject'));
       if(scope&&participants.length>12)throw new Error(tr('rooms.roundMatchesRolesExceedingLimit', { length: participants.length }));
       const schedulingTargets=participants.map(r=>r.id);
       const schedulingRoster=participants.map(r=>({id:r.id,name:r.name}));
-      if (roles.length > 1) {
-        const supervisor = this.db.get('roles', project.supervisorRoleId);
-        if (!supervisor?.enabled || !isRoleConfigured(supervisor)) throw new Error(tr('rooms.configureSupervisorInProjectSettings'));
-        roles = [supervisor];
-      }
       if (roles.length && this.db.get('settings', 'main')?.paused) throw new Error(tr('rooms.remoteExecutionPausedMentionsCannot'));
-      const source = quote?.runId ? this.db.get('runs', quote.runId) : null;
-      // The supervisor's quote is conversation context and does not require handing the code repository over to the supervisor's configured directory.
-      const reuseSource = source && roles.length && !source.roleSnapshot?.systemSupervisor && roles.every(r => !r.systemSupervisor);
+      // Informational discussions, supervisor intake and same-role replies do not transfer a Git workspace.
+      const sourceRoles=source&&quote.kind!=='discussion'&&!source.roleSnapshot?.systemSupervisor
+        ?roles.filter(r=>!r.systemSupervisor&&r.id!==(source.roleId||quote.roleId)):[];
       let sourceDelivery;
-      if (reuseSource) {
+      if (sourceRoles.length) {
         if (source.projectId !== projectId || source.status !== 'succeeded' || !source.workspace) throw new Error(tr('rooms.onlyRunsCompletedSuccessfullyKept'));
-        if (roles.some(r => r.nodeId !== source.nodeId)) {
+        if (sourceRoles.some(r => r.nodeId !== source.nodeId)) {
           const ready = this.db.list('deliveries').filter(d => d.projectId === projectId && d.sourceRunId === source.id && d.status === 'ready');
           if (ready.length !== 1) throw new Error(tr('rooms.crossDeviceQuoteNeedsExactly'));
           sourceDelivery = ready[0];
         }
       }
       const taskIds = roles.map(role => {
+        const reuseSource=sourceRoles.some(r=>r.id===role.id),delivery=reuseSource&&role.nodeId!==source.nodeId?sourceDelivery:null;
         // The original dispatch text is kept verbatim; quotes and recent conversation are attached separately by source in this turn's context pack.
         const prompt = text || tr('rooms.pleaseReviewAttachmentsInMessage');
         const task = this.db.createTask({ projectId, title: text.slice(0, 80) || tr('rooms.reviewAttachments'), prompt, model: role.model, mode: role.mode });
         this.db.put('tasks', { ...task, origin: 'chat', sourceMessageId: clientMessageId, roleId: role.id, roleSnapshot: role,
-          sourceRunId: sourceDelivery || !reuseSource ? null : source.id, deliveryId: sourceDelivery?.id || null,
+          sourceRunId: delivery || !reuseSource ? null : source.id, deliveryId: delivery?.id || null,
           quoteMessageId:quote?.id||null,
           attachments: attachments.length ? attachments : (quote?.attachments?.length ? quote.attachments : source?.attachments || []), schedulingTargets,schedulingRoster,reportRequired:true,scheduledJobId,
-          requiresCoordination: Boolean(sourceDelivery), broadcast: broadcast || undefined });
+          requiresCoordination: Boolean(delivery), broadcast: broadcast || undefined });
         return task.id;
       });
       const message = this.db.put('roomMessages', { id: clientMessageId, projectId, sender: 'human', senderName: tr('rooms.me'), text, attachments, replyToId, taskIds, broadcast: broadcast || undefined, createdAt: now(), fingerprint });
