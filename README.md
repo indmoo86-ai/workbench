@@ -84,6 +84,7 @@ All items below exist in the current code. Items that are only designed are list
 
 **Multi-device**
 
+- Feature-branch Q/F reads: managed `wb read source|query|file <JSON>` discovers registered sources and reads current saved bytes without synchronization, Git-clean checks or execution copies. Projects default off; the authenticated `read-access` API grants explicit nodes/scopes and the two fixed read-only recipes. Identical request IDs replay the original observation; a new ID requests new facts. Replies and stored results are bounded. Cache fill, materialization and S execution are not implemented. See [the P1 plan](docs/plan-cross-device-execution-p1.md) for verification and deployment status.
 - Home/Worker split over an authenticated WebSocket. Workers connect outward; the Home never reaches into a machine.
 - Reliable delivery: persistent command and event outbox, idempotent command IDs, reconcile-on-reconnect, and no automatic re-run of executions whose state is unknown.
 - Per-device project directories and a long-lived project baseline branch per repository (Git worktrees), with fixed-SHA cross-device delivery that requires an explicit confirmation before pushing.

@@ -5,6 +5,7 @@ import { join, resolve, relative, isAbsolute, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tr } from './i18n.mjs';
+import {normalizeReadQuery,normalizeFileRead,normalizeReadSelector,readObject,readId,readError} from './node-query-recipes.mjs';
 
 const exec = promisify(execFile);
 const now = () => new Date().toISOString();
@@ -12,6 +13,18 @@ const now = () => new Date().toISOString();
 function env(name, fallback = '') {
   return String(process.env[name] || fallback).trim();
 }
+
+/** New reads have no direct-token fallback; the immutable managed turn must own a file bridge. */
+function managedRead(path,input){
+  if(process.env.WB_READ_TOOLS!=='1'||!process.env.WB_BRIDGE)throw readError('unsupported');
+  return agentRequest(path,{runId:context().runId,input});
+}
+export function inspectReadSource(input){
+  readObject(input,['requestId','sourceNodeId','sourceWorkspace','scopeId']);
+  return managedRead('/api/agent/read-source',{requestId:readId(input.requestId),...normalizeReadSelector(input)});
+}
+export const queryNodeReadOnly=input=>managedRead('/api/agent/node-query',normalizeReadQuery(input));
+export const readDeviceFile=input=>managedRead('/api/agent/file-read',normalizeFileRead(input));
 
 export function context() {
   const projectRoot = env('WB_PROJECT_ROOT');
@@ -234,4 +247,4 @@ export async function writeHandoff(fields = {}, override = {}) {
   return { ok: true, path: file, latest: join(handoffs, 'LATEST.md') };
 }
 
-export const helpText = () => [tr('minimal.teamHelp'),tr('minimal.waitHelp'),tr('wbTools.builtInCollaborationToolsWorkbench'),process.env.WB_QUEUE_BATCH==='1'?tr('sessionQueue.passRule'):'',process.env.WB_SYSTEM_SUPERVISOR==='1'?tr('collabSessions.toolHelp'):'',process.env.WB_SOURCE_SYNC==='1'?tr('sourceSync.toolGuide'):''].filter(Boolean).join('\n\n');
+export const helpText = () => [tr('minimal.teamHelp'),tr('minimal.waitHelp'),tr('wbTools.builtInCollaborationToolsWorkbench'),process.env.WB_QUEUE_BATCH==='1'?tr('sessionQueue.passRule'):'',process.env.WB_SYSTEM_SUPERVISOR==='1'?tr('collabSessions.toolHelp'):'',process.env.WB_SOURCE_SYNC==='1'?tr('sourceSync.toolGuide'):'',process.env.WB_READ_TOOLS==='1'?tr('readTools.guide'):''].filter(Boolean).join('\n\n');

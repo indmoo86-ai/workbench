@@ -1,6 +1,7 @@
 // Simplified Chinese message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'readTools.guide': '只读工具：wb read source|query|file <一个 JSON 参数>。source 用 requestId、sourceNodeId、sourceWorkspace（bound_project 或带 sourceRunId 的 managed_run）和 scopeId 查询真实来源，再用返回的 workspaceId/generation 进行读取。query 只接受 workspace_check、cli_session_check 两个 recipeId，recipeVersion=1，params 包含 sourceWorkspace/scopeId。file 另带 path、freshness=source_current 或带 expectHash 的 expected_version，可选 metadata。同一 requestId 只重试相同参数，重放原结果和 observedAt，并标 replayed=true；重新观察必须使用新 requestId。项目需显式启用 read-access，不提供缓存补齐、目录落盘、任意命令或 S 执行。',
   'sourceSync.preparationScan': '启动前文件核验：{scopes} 个范围，{files} 个文件，耗时 {seconds} 秒；{unavailable} 个范围不可用（不生成修改归属证据）。',
   'runReports.invalidSubmissionId': '报告提交编号无效。',
   'runReports.superseded': '此次提交已保存为第 {revision} 版；当前已有第 {currentRevision} 版。未将旧结论覆盖回去。',

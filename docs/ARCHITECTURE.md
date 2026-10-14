@@ -44,6 +44,18 @@ Message bodies retain the existing `16em` maximum height with internal scrolling
 
 ### Source synchronization boundary
 
+### Cross-device Q/F reads (feature branch)
+
+`cross-device-read.mjs` extends the existing Home/Worker query channel with three managed Agent endpoints: `read-source`, `node-query` and `file-read`. `GET/PUT /api/projects/:id/read-access` is authenticated operator configuration, version checked and disabled by default. Source identity comes from registered bound directories or a managed Run's actual repository/workspace mapping; discovery verifies canonical directory device/inode/birth identity before registering generations. Actual reads require the discovered workspace identity. No ordinary-directory fallback is provided for a missing managed source.
+
+Worker Q dispatch uses fixed handlers: a bounded HEAD/root check and `CliSessionRecovery.observe`. Observation selects at most 100 relevant records through a native-driver SQLite index and uses one bounded process snapshot; it neither retires records nor calls reclaim/stop. Incomplete process coverage remains unknown. F reuses the stable single-file reader, returns the device's observedAt and actual hash/mode, and does not capture repositories or update synchronization baselines.
+
+`read-query-response.mjs` serializes the complete file reply before send. Above 512 KiB it returns bounded full-file metadata or a small explicit error; both 1 MiB socket limits stay unchanged. The same narrow guard covers existing project-file and legacy document/file replies. Q additionally has fixed 5-second, 100-row and 256-KiB limits.
+
+`read-result-replay.mjs` keeps small owner-scoped operation metadata separate from original result bodies. A transactional 32-MiB Home budget reserves at most 512 KiB per new operation with a filesystem free-space check; no evidence eviction is automatic. Identical normalized requests join/replay the original result and observedAt, even offline; new observations require new IDs. Current Run/grant/review authorization is checked on replay. Missing original results are unavailable, not regenerated under the old ID.
+
+The managed wb wrappers require an immutable turn/file bridge and never use a direct-token fallback. New capabilities are negotiated with Home before tool discovery; old Workers fail explicitly unsupported. Cache fill/materialization, S input/execution, leases/services and the full shared-I/O resource subsystem remain designed, not implemented by P1. Production enablement, deployment and restart are not part of this feature-branch work.
+
 Pending-command and batch queries use dedicated SQLite partial indexes before materializing command bodies. Scheduling and write-busy checks read only matching pending commands; receipt and capture queries read the requested batch. Historical records and their manifests remain stored unchanged, with the existing receipt, retry, cancellation and conflict rules.
 
 Home validates already-uploaded apply receipts before accepting a later transient transfer error. Only a committed result receives an acknowledgment tied to its content hash; Worker removes only the matching outbox receipt. Completed command replay restores a missing receipt without reapplying files. Upgrade Home before Workers: new Workers retain receipts when an older Home sends an unbound acknowledgment. After asynchronous credential reads, dispatch rechecks pause, connection identity, current command/run ownership and source/terminal locks before sending a launch.

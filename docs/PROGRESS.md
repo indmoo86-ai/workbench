@@ -145,3 +145,9 @@
 
 - The user approved revision 2 and sequential inline implementation. The product baseline is daacf7403976ccf338052cd91a65d7b4ed17f1f2; the approved plan is carried in a separate documentation-only commit before code work.
 - Q/F will add pure observation, bounded complete replies and owner-scoped durable replay. Cache fill, materialization and S execution remain later increments. Existing uncommitted frontend/quota work is not copied or changed; no production configuration, deployment or restart is included.
+
+## 2026-10-14 — Cross-device P1 code and initial transport verification
+
+- Added fixed query schemas, registered physical-source identities, pure indexed native observation, stable current-source reads and complete-frame size protection. Home enforces live identity, explicit grants and source-aware independent-review visibility; request results persist with bounded reservations and unchanged original timestamps.
+- Connected managed wb commands, immutable-turn context, negotiated Worker capabilities and bilingual help. No source synchronization, formal Git gates, tasks, reports or user files are modified by these reads.
+- Focused checks and the maintained suite passed. An isolated actual Home/Mac Worker/wb bridge exercised new reads, original-result replay, changed bytes, oversized escaped-file previews and an unchanged concurrent test Run. Linux/page/whole-branch review remain the final gates. No push, deployment or existing-service restart.
