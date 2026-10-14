@@ -8,6 +8,7 @@
  * - Logic must always compare untranslated English/key values, never displayed (translated) text.
  */
 import zh from './locales/zh.js';
+import {simplifiedCliOutput} from './output-language.js';
 
 export const LANGUAGE_KEY = 'wb.language';
 export const LANGUAGES = Object.freeze(['en', 'zh']);
@@ -16,7 +17,7 @@ const CJK = /[\u3400-\u9fff\uff00-\uffef]/;
 const CONTEXT_SUFFIX = /@@[\w-]+$/;
 // Never translate these: markup that is not text, and containers that hold user / model / file content.
 const SKIP_SELECTOR = [
-  '[translate="no"]', 'script', 'style', 'textarea', 'noscript',
+  '[translate="no"]', 'script', 'style', 'textarea', 'noscript', 'pre', 'code', '[contenteditable="true"]',
   '.chat-message-text', '.markdown-body', '.run-log-pre', '.history-viewer-content', '.attachment-text',
   '.artifact-code', '.role-card-name', '.project-item-copy > strong', '#file-content', '#document-content'
 ].join(',');
@@ -97,7 +98,8 @@ function englishOf(value) {
   return value;
 }
 function desired(base) {
-  return language === 'zh' ? translateValue(base) : base;
+  // Normalize display prose only; identifiers/raw views and editable values remain outside this walker.
+  return simplifiedCliOutput(language === 'zh' ? translateValue(base) : base);
 }
 
 const textState = new WeakMap(); // Text -> { en, shown }

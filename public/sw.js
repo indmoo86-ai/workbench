@@ -1,6 +1,6 @@
-const CACHE = 'agent-workbench-static-tunnel-loading-v61';
+const CACHE = 'agent-workbench-static-chat-scroll-v79';
 const STATIC = [
-  '/', '/styles.css', '/app.js', '/manifest.webmanifest', '/app-icon.png', '/app-icon-192.png',
+  '/', '/styles.css', '/app.js', '/native-sessions.js', '/context-usage.js', '/manifest.webmanifest', '/app-icon.png', '/app-icon-192.png',
   '/platform-admin.js', '/project-space.js', '/token-usage.js', '/run-log-data.js', '/room.js',
   '/markdown.js', '/project-settings.js', '/role-icons.js', '/settings-page.js',
   '/supervisor-settings.js', '/role-switch.js', '/role-history.js', '/project-setup.js', '/history-view.js', '/scheduled-jobs.js',

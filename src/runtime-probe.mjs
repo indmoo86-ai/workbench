@@ -423,10 +423,15 @@ function parseClaudeUsageText(text) {
   return { fiveHour, weekly };
 }
 
+/** Keep disposable quota queries out of native history without changing the environment of managed conversations. */
+function claudeQuotaEnv() {
+  return { ...process.env, CLAUDE_CODE_SKIP_PROMPT_HISTORY: '1' };
+}
+
 /** Run `claude /usage`: stdin closed, about a 10s timeout; do not use -p (it spends quota). */
 function runClaudeUsage(bin) {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, ['/usage'], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
+    const child = spawn(bin, ['/usage'], { stdio: ['ignore', 'pipe', 'pipe'], env: claudeQuotaEnv() });
     let stdout = '', stderr = '';
     const finish = (fn, payload) => {
       if (timer) clearTimeout(timer);
@@ -471,7 +476,7 @@ async function probeClaudeQuota(bin) {
   }
   try {
     const json = await new Promise((resolve, reject) => {
-      const child = spawn(bin, ['/usage', '--output-format', 'json'], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env });
+      const child = spawn(bin, ['/usage', '--output-format', 'json'], { stdio: ['ignore', 'pipe', 'pipe'], env: claudeQuotaEnv() });
       let stdout = '', stderr = '';
       const timer = setTimeout(() => { try { child.kill('SIGKILL'); } catch {} reject(new Error('timeout')); }, 10000);
       child.stdout.on('data', d => { stdout += d; });

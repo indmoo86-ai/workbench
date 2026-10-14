@@ -250,8 +250,42 @@ export class Rooms {
     const all = this.db.list('roomMessages').filter(m => m.projectId === projectId&&m.visibility!=='internal');
     const end = before ? all.findIndex(m => m.id === before) : all.length;
     if (end < 0) throw new Error(tr('rooms.historyCursorNotFound'));
-    const start = Math.max(0, end - 60), messages = all.slice(start, end);
+    const start = Math.max(0, end - 60), messages = all.slice(start, end).map(message => {
+      const dialogue = this.messageDialogue(message);
+      const source=message.replyToId?this.db.get('roomMessages',message.replyToId):null;
+      const replySource=source?.projectId===projectId&&source.visibility!=='internal'?{id:source.id,senderName:source.senderName,text:String(source.text||'').slice(0,180)}:null;
+      return {...message,...(dialogue?{dialogue}:{}),...(replySource?{replySource}:{})};
+    });
     return { messages, hasMore: start > 0, nextBefore: messages[0]?.id || null };
+  }
+
+  /** Resolve display-only recipients before pagination loses their source; never rewrite history or publish private Run output. */
+  messageDialogue(message) {
+    if (message.sender !== 'agent') return null;
+    if (message.kind === 'handoff' && message.handoff?.fromRole && message.handoff?.toRole)
+      return { from: message.handoff.fromRole, to: message.handoff.toRole };
+    if (message.id !== `result-${message.runId}`) return null;
+    const get = (kind, id) => {
+      const record = id ? this.db.get(kind, id) : null;
+      return record?.projectId === message.projectId ? record : null;
+    };
+    const run = get('runs', message.runId);
+    let request = get('coordinationRequests', run?.requestId);
+    const seen = new Set();
+    while (request?.kind === 'continuation') {
+      if (seen.has(request.id)) return null;
+      seen.add(request.id);
+      const previous = get('coordinationRequests', request.continuationOf);
+      if (!previous || previous.targetRoleId !== request.targetRoleId) return null;
+      request = previous;
+    }
+    if (!request?.parentRequestId) return null;
+    const call = get('roomMessages', request.callMessageId||`call:${request.id}`);
+    const source = get('runs', request.sourceRunId);
+    const parent = get('coordinationRequests', request.parentRequestId);
+    const role = get('roles', source?.roleId || parent?.targetRoleId);
+    const to = call?.handoff?.fromRole || source?.roleSnapshot?.name || role?.name;
+    return to ? { from: message.senderName, to } : null;
   }
 
   cancel(taskId) {
@@ -328,9 +362,11 @@ export class Rooms {
     const body = typeof text === 'string' ? text.trim() : '';
     if (!body || body.length > 8000) throw new Error(tr('rooms.noteMustBe18000'));
     if (!run?.projectId || !run.roleSnapshot?.name) throw new Error(tr('rooms.currentRunInvalid'));
+    const request=this.db.get('coordinationRequests',run.requestId||'');
+    const call=request?.callMessageId?this.db.get('roomMessages',request.callMessageId):null;
     const message = this.db.put('roomMessages', {
       id: randomUUID(), projectId: run.projectId, sender: 'agent', senderName: run.roleSnapshot.name,
-      roleId: run.roleId, text: body, replyToId: run.sourceMessageId || null, runId: run.id, taskIds: [], createdAt: now()
+      roleId: run.roleId, text: body, replyToId: call?.projectId===run.projectId?call.id:run.sourceMessageId || null, runId: run.id, taskIds: [], createdAt: now()
     });
     if (run.collaborationBatchId||run.continuationBatchId) new SessionQueue(this.db).recordReply(run, message.id);
     this.touch(run.projectId);
@@ -351,7 +387,8 @@ export class Rooms {
       if(quiet&&!question)return;
       const text = quiet||run.explicitPublish&&run.status==='succeeded'?question:run.status === 'succeeded' ? (run.result || question || tr('rooms.runHasEndedRuntimeReturned'))
         : tr('rooms.text', { p1: run.status === 'interrupted' ? tr('rooms.runStopped') : tr('rooms.runFailed'), p2: run.error || tr('rooms.seeRunDetails'), p3: !run.explicitPublish && run.result ? tr('rooms.existingOutput', { result: run.result }) : '' });
-      const handoff=this.db.get('roomMessages',`call:${run.requestId}`);
+      const request=this.db.get('coordinationRequests',run.requestId||'');
+      const handoff=this.db.get('roomMessages',request?.callMessageId||`call:${run.requestId}`);
       this.db.put('roomMessages', { id, projectId: run.projectId, sender: 'agent', senderName: run.roleSnapshot.name,
         ...(run.explicitPublish?{kind:question?'user_question':'technical_notice'}:{}),
         roleId: run.roleId, text, replyToId: handoff?.projectId===run.projectId?handoff.id:run.sourceMessageId,

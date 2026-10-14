@@ -1,5 +1,7 @@
 import {terminal} from './store.mjs';
 import { tr } from './i18n.mjs';
+import {createHash} from 'node:crypto';
+import {reportFingerprint,reportSubmissionId} from './report-submission.mjs';
 
 const verdicts=new Set(['passed','failed','blocked','needs_input']);
 // Reject obvious probe placeholders without pretending to judge the truth of substantive evidence.
@@ -19,10 +21,38 @@ export function runFailureKind(run) {
   return 'unknown';
 }
 
-/** The business verdict is submitted explicitly by the executing role; version and identity are attached by the platform, and an exit code cannot substitute for it. */
-export function saveRunReport(db,run,input) {
-  if(!run || terminal.has(run.status) || ['stopping','reconciling'].includes(run.status)) throw new Error(tr('runReports.reportCanOnlyBeSubmitted'));
-  if(!acceptsBusinessReport(run))return {runId:run.id,ignored:true,note:tr('runReports.businessReportNotRecordedDiscussion')};
+const active=run=>Boolean(run&&!terminal.has(run.status)&&!['stopping','reconciling'].includes(run.status));
+const submissionKey=(runId,id)=>createHash('sha256').update(JSON.stringify([runId,id])).digest('hex');
+function checkedId(id){if(typeof id!=='string'||! /^[\w-]{1,128}$/.test(id))throw new Error(tr('runReports.invalidSubmissionId'));return id;}
+function savedResult(db,run,submissionId,fingerprint) {
+  const receipt=db.get('reportSubmissions',submissionKey(run.id,submissionId)),current=db.get('runReports',run.id);
+  if(receipt&&fingerprint&&receipt.fingerprint!==fingerprint)throw new Error(tr('runReports.submissionConflict'));
+  const legacyId=current&&!current.submissionId?reportFingerprint(current):null;
+  if(!receipt&&legacyId===submissionId&&fingerprint&&fingerprint!==legacyId)throw new Error(tr('runReports.submissionConflict'));
+  // Reports written by older Workers remain confirmable without changing their historical revision.
+  const result=receipt?.result|| (legacyId===submissionId
+    ?{runId:run.id,verdict:current.verdict,revision:current.revision}:null);
+  return result?{...result,protocol:1,state:'saved',saved:true,submissionId,currentRevision:current?.revision,
+    superseded:Boolean(current&&current.revision!==result.revision),note:current&&current.revision!==result.revision
+      ?tr('runReports.superseded',{revision:result.revision,currentRevision:current.revision}):tr('runReports.businessVerdictRecordedEndTurn')}:null;
+}
+/** Receipt reads remain available after a Run settles; they cannot write a verdict or revive execution. */
+export function readReportSubmission(db,run,input) {
+  if(!run)throw new Error(tr('runReports.reportCanOnlyBeSubmitted'));
+  const submissionId=checkedId(input.submissionId),saved=savedResult(db,run,submissionId,input.fingerprint);
+  if(saved)return saved;
+  if(!acceptsBusinessReport(run))return {protocol:1,state:'ignored',runId:run.id,submissionId,ignored:true,note:tr('runReports.businessReportNotRecordedDiscussion')};
+  return {protocol:1,state:'not_saved',saved:false,runId:run.id,submissionId,canSubmit:active(run)};
+}
+
+/** Report, frozen receipt and Run projection commit together; replay never increments revision or restores an older verdict. */
+export function saveRunReport(db,run,input) {return db.transaction(()=>{
+  run=run&&db.get('runs',run.id);
+  if(!run)throw new Error(tr('runReports.reportCanOnlyBeSubmitted'));
+  const submissionId=checkedId(reportSubmissionId(input)),fingerprint=reportFingerprint(input),saved=savedResult(db,run,submissionId,fingerprint);
+  if(saved)return {...saved,replayed:true};
+  if(!active(run))throw new Error(tr('runReports.reportCanOnlyBeSubmitted'));
+  if(!acceptsBusinessReport(run))return {protocol:1,state:'ignored',runId:run.id,submissionId,ignored:true,note:tr('runReports.businessReportNotRecordedDiscussion')};
   if(!verdicts.has(input.verdict)) throw new Error(tr('runReports.verdictMustBePassedFailed'));
   if(typeof input.summary!=='string' || !input.summary.trim() || input.summary.length>3000) throw new Error(tr('runReports.reportSummaryMustBe1'));
   const evidence=input.evidence||[];
@@ -31,11 +61,19 @@ export function saveRunReport(db,run,input) {
   if(placeholder(input.summary)||evidence.some(placeholder))throw new Error(tr('runReports.placeholderNotEvidence'));
   if(input.next!=null && (typeof input.next!=='string'||input.next.length>1000)) throw new Error(tr('runReports.nextStepMustBeAt'));
   const old=db.get('runReports',run.id);
-  const report=db.put('runReports',{id:run.id,projectId:run.projectId,roleId:run.roleId,requestId:run.requestId,
+  // Before replacing a pre-receipt report, freeze its content-derived ID so a late legacy retry cannot restore it.
+  if(old&&!old.submissionId){
+    const legacyId=reportFingerprint(old),key=submissionKey(run.id,legacyId);
+    if(!db.get('reportSubmissions',key))db.put('reportSubmissions',{id:key,projectId:run.projectId,runId:run.id,submissionId:legacyId,fingerprint:legacyId,
+      result:{runId:run.id,verdict:old.verdict,revision:old.revision},createdAt:old.updatedAt||new Date().toISOString()});
+  }
+  const report=db.put('runReports',{id:run.id,projectId:run.projectId,roleId:run.roleId,requestId:run.requestId,submissionId,
     verdict:input.verdict,summary:input.summary.trim(),evidence,next:input.next||'',revision:(old?.revision||0)+1,updatedAt:new Date().toISOString()});
   db.put('runs',{...db.get('runs',run.id),report});
-  return {runId:run.id,verdict:report.verdict,revision:report.revision,note:tr('runReports.businessVerdictRecordedEndTurn')};
-}
+  const result={runId:run.id,verdict:report.verdict,revision:report.revision};
+  db.put('reportSubmissions',{id:submissionKey(run.id,submissionId),projectId:run.projectId,runId:run.id,submissionId,fingerprint,result,createdAt:report.updatedAt});
+  return {...result,protocol:1,state:'saved',saved:true,submissionId,note:tr('runReports.businessVerdictRecordedEndTurn')};
+});}
 
 /** No report means unverified; process failures remain in runStatus/error, not fabricated business verdicts. */
 export function outcomeFor(db,run) {

@@ -6,7 +6,7 @@ Status: **implemented and selectively deployed on 2026-10-09.** Codex/Grok nativ
 
 Keep the project, role ID, responsibility, execution prompt and history while changing CLI on the same device. The role form is the entry point; no manual session reset is required. A new vendor session receives a handoff and never resumes another vendor's native session ID.
 
-This is separate from [cross-device handoff](design-session-handoff.md). No file synchronization, account migration or hot process migration is included. Changing both device and CLI must explain the unsupported scope instead of bypassing this workflow. Definition-only edits keep their existing save path.
+This is separate from [cross-device handoff](design-session-handoff.md). No file synchronization, account migration or hot process migration is included. Changing both device and CLI is rejected before saving or starting a switch; the localized message identifies the original and selected devices, asks the operator to retain the original device for a CLI-only change, and confirms the original session is unaffected. Definition-only edits keep their existing save path.
 
 ## Operator flow
 

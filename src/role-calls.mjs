@@ -98,6 +98,7 @@ export class RoleCalls {
         collaborationSessionId: sourceRequest?.collaborationSessionId || null,
         collaborationCycleId: sourceRequest?.collaborationCycleId || null,
         continuationBatchId: continued?.continuationBatchId || null,
+        ...(continued?.callMessageId?{callMessageId:continued.callMessageId}:{}),
         // Publication is independent of charging: necessary continuations retain the original private boundary, including legacy requests.
         explicitPublish:Boolean(sourceRequest?.explicitPublish||sourceRequest?.automaticPropagation||sourceRequest?.continuationBatchId||sourceTask?.explicitPublish||sourceTask?.automaticPropagation||sourceTask?.collaborationBatchId),
         automaticPropagation: input.kind !== 'continuation' && Boolean(sourceRequest?.collaborationCycleId),

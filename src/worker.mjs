@@ -19,6 +19,7 @@ import {readProjectFile,listProjectFiles} from './project-file-read.mjs';
 import { CodexSession } from './codex.mjs';
 import { CliPrintSession } from './cli-print-session.mjs';
 import { browseFolders } from './folders.mjs';
+import {listNativeSessions,readNativeSession,nativeTuiArgs,assertNativeSessionIdle} from './native-sessions.mjs';
 import { giteeRepository } from './repository.mjs';
 import { inspectRuntimes, runtimeIssue } from './runtime-probe.mjs';
 import { writeHandoff } from './wb-tools.mjs';
@@ -338,9 +339,11 @@ async function command(m) {
       wbEnv.WB_TURN_PURPOSE=policy.turnPurpose;
       wbEnv.WB_DISCUSSION_PROTOCOL=m.run.discussionProtocol===2?'2':'0';
       const keepAlive=Boolean(!m.run.switchOperationId && m.run.roleSessionId && ['codex','claude','agy'].includes(runtimeType));
+      const explicitTurn=keepAlive&&runtimeType==='agy';
+      wbEnv.WB_REQUIRE_TURN=explicitTurn?'1':'0';
       const contextFile=join(bridge.directory,'turn-context.json');
       wbEnv.WB_TURN_CONTEXT=contextFile;
-      const wbCommand=turnToolCommand(contextFile,join(base,'src','wb-cli.mjs'),process.execPath,{boundCli:runtimeType==='codex'&&m.run.discussionProtocol===2});
+      const wbCommand=turnToolCommand(contextFile,join(base,'src','wb-cli.mjs'),process.execPath,{boundCli:runtimeType==='codex'&&m.run.discussionProtocol===2,...(explicitTurn?{turnId:c.runId}:{})});
       let endRun, finalStatus;
       const ended = new Promise(resolve => { endRun = resolve; });
       const native = await nativeEnvironment(runtimeType);
@@ -356,7 +359,9 @@ async function command(m) {
         const tracking=watched.length?watched.map(s=>({id:s.repositoryId,localRoot:s.root,scopeKind:s.scopeKind,scopePolicy:s.scopePolicy})):executionRepositories;
         provenance=new SourceProvenanceTracker({db,run:{...m.run,workspace:folder},repositories:tracking,blobRoot:sourceSync.blobRoot,
           publish:proof=>emit(c.runId,'source_provenance',proof)});
-        await provenance.start();
+        const preparationScan=await provenance.start();
+        emit(c.runId,'status',{preparationScan});
+        emit(c.runId,'log',{text:tr('sourceSync.preparationScan',{scopes:preparationScan.scopes,files:preparationScan.files,seconds:(preparationScan.elapsedMs/1000).toFixed(2),unavailable:preparationScan.unavailableScopes})});
       }
       emit(c.runId, 'status', { nativeSession: native });
       // The turn purpose goes into the dynamic input, so switching between Q&A and business stages does not needlessly recycle the warm process.
@@ -366,7 +371,7 @@ async function command(m) {
       const roleInstructions = components?Object.values(components).filter(Boolean).join('\n\n'):traditionalInput(executionText('worker.projectDescriptionRepositoriesForRun', { p1: runWithLanguage('en',()=>composeAgentInstructions(m.platformPrompt,m.run.roleSnapshot?.instructions??'')), p2: String(m.project.description||'').slice(0,4000), p3: executionRepositories.filter(r=>r.localRoot).map(r=>`${r.key}: ${r.localRoot}`).join('\n'), p4: runtimeGuidance(runtimeType), p5: m.task.runtimeInstructions||'' }));
       const priorInput=db.list('runs').filter(r=>r.id!==c.runId && r.projectId===m.run.projectId && r.roleSessionId===m.run.roleSessionId && r.nativeSession?.id===m.run.resumeNativeSessionId).at(-1);
       let instructions=instructionDelivery({runtime:runtimeType,run:m.run,prior:priorInput,instructions:roleInstructions,roleName:m.run.roleSnapshot?.name,components});
-      const fingerprint=warmSessionFingerprint({folder,runtimeType,model:m.task.model,effort,roleName:m.run.roleSnapshot?.name,roleInstructions,env:resumeEnvironment(wbEnv)});
+      const fingerprint=warmSessionFingerprint({folder,runtimeType,model:m.task.model,effort,roleName:m.run.roleSnapshot?.name,roleInstructions,env:{...resumeEnvironment(wbEnv),WB_REQUIRE_TURN:wbEnv.WB_REQUIRE_TURN}});
       let session;
       const options={ cwd: folder, writableRoots:repositoryRoots, attachments: inputFiles, model: m.task.model, mode: m.task.mode, effort, runtime: runtimeType, autoApprove: m.run.roleSnapshot?.autoApprove !== false,keepAlive,maintenance:Boolean(m.run.switchOperationId),
         onProcess:proc=>{if(proc?.pid)emit(c.runId,'status',{pid:proc.pid,processIdentity:driverIdentity({...db.get('runs',c.runId),runtime:runtimeType},proc.pid)});},
@@ -533,7 +538,7 @@ async function query(m) {
   if(m.action==='cli_capacity') {
     try{send({type:'reply',id:m.id,result:await applyCapacity(m.path?.capacity)});}catch(e){send({type:'reply',id:m.id,error:e.message});}return;
   }
-  const modifies=['repository_setup','execution_receive','execution_baseline_advance','terminal_prepare','terminal_new'].includes(m.action);
+  const modifies=['repository_setup','execution_receive','execution_baseline_advance','terminal_prepare','terminal_new','native_terminal_prepare'].includes(m.action);
   try {
     if(m.action==='queue_verification'){
       const input=m.path,r=db.get('runs',input?.runId||'');
@@ -627,6 +632,39 @@ async function query(m) {
       const files=await receiveAttachments({items:input.items,workspace,transferId:input.transferId,home,token});
       send({type:'reply',id:m.id,result:{files}});return;
     }
+    if(['native_sessions','native_session','native_terminal_preview','native_terminal_prepare'].includes(m.action)) {
+      const input=m.path||{},runtime=input.runtime;
+      if(m.action!=='native_sessions'&&!runtimes.some(r=>r.type===runtime&&r.available&&r.supported!==false))throw Error('CLI is not available on this device');
+      if(m.action==='native_sessions'){send({type:'reply',id:m.id,result:await listNativeSessions(runtime,{scope:input.scope||'created',registry:db.list('nativeCatalogEntries'),managedSessions:input.managedSessions||[],nodeId:identity.nodeId})});return;}
+      if(m.action==='native_session'){send({type:'reply',id:m.id,result:await readNativeSession(runtime,input.sessionId)});return;}
+      if(paused)throw Error('Remote execution is paused');
+      const freshId=input.sessionId?null:input.freshSessionId||null;
+      if(!input.sessionId&&['claude','grok'].includes(runtime)&&!freshId)throw Error('Upgrade Home to create an exact native session ID');
+      nativeTuiArgs(runtime,{id:input.sessionId,freshId,allowAll:input.allowAll??false});
+      const history=input.sessionId?await readNativeSession(runtime,input.sessionId):null;
+      if(history?.workspace&&input.workspace&&await realpath(input.workspace)!==await realpath(history.workspace))throw Error('Resume must use the original working folder');
+      const workspace=await projectRoot(history?.workspace||input.workspace);
+      const projectIds=new Set();
+      for(const binding of input.bindings||[]){const root=await realpath(binding.localRoot).catch(()=>null);if(root&&(inside(root,workspace)||inside(workspace,root)))projectIds.add(binding.projectId);}
+      if(projectIds.size>1)throw Error('This folder overlaps several group chats; open it from the owning role instead');
+      const projectId=[...projectIds][0]||input.projectId;
+      const assertIdle=()=>assertNativeSessionIdle(db,{runtime,sessionId:input.sessionId,workspace,projectId});
+      assertIdle();
+      if(m.action==='native_terminal_preview'){send({type:'reply',id:m.id,result:{workspace,projectId:[...projectIds][0]||null,runtime,sessionId:input.sessionId||null}});return;}
+      if(typeof input.id!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(input.id)||!input.projectId||input.nodeId!==identity.nodeId||projectId!==input.projectId)throw Error('Terminal binding changed; refresh and try again');
+      const nativeSession={...await nativeEnvironment(runtime),id:input.sessionId||null};
+      assertIdle();
+      if(db.get('terminalSessions',input.id)||projectTerminalLock(db,projectId,identity.nodeId)||db.get('sourceSyncReservations',projectId))throw Error('Session is occupied; no second CLI was started');
+      if(occupiedSlots()>=capacity)throw Error('Device CLI capacity is full');
+      const now=new Date().toISOString(),catalogEntryId=input.entryId||(!input.sessionId?input.id:null),priorEntry=catalogEntryId?db.get('nativeCatalogEntries',catalogEntryId):null;
+      if(!input.sessionId){
+        if(typeof input.title!=='string'||!input.title.trim()||input.title.trim().length>120)throw Error('Session title is required and must be at most 120 characters');
+        if(priorEntry&&(priorEntry.runtime!==runtime||priorEntry.workspace!==workspace||priorEntry.status!=='draft'))throw Error('Native catalog entry cannot be reused for a different or active session');
+      }
+      if(input.sessionId&&priorEntry&&(priorEntry.runtime!==runtime||priorEntry.sessionId!==input.sessionId))throw Error('Native catalog entry does not match this history');
+      db.transaction(()=>{if(!input.sessionId)db.put('nativeCatalogEntries',{...priorEntry,id:catalogEntryId,runtime,title:input.title.trim(),workspace,origin:'dialog',status:'prepared',sessionId:freshId,createdAt:priorEntry?.createdAt||now,modifiedAt:now,exactLastScan:priorEntry?.exactLastScan||null});db.put('terminalSessions',{id:input.id,kind:'native',catalogEntryId,projectId,nodeId:identity.nodeId,status:'prepared',workspace,nativeSession,nativeOptions:{allowAll:input.allowAll===true,freshId},privateEnv:resumeEnvironment(process.env),createdAt:now});});
+      reportCapacity();send({type:'reply',id:m.id,result:{id:input.id,entryId:catalogEntryId,kind:'native',workspace,user:nativeSession.user,runtime,sessionId:nativeSession.id||freshId,launcher:[process.execPath,join(base,'src','terminal-resume.mjs'),join(data,'worker.sqlite'),input.id]}});return;
+    }
     if(m.action==='terminal_check') {
       const input=m.path;
       if(!Array.isArray(input?.claims)||input.nodeId!==identity.nodeId)throw new Error(tr('worker.invalidTakeoverId'));
@@ -646,9 +684,9 @@ async function query(m) {
       const prior=db.get('terminalSessions',id);
       if(m.action==='terminal_release') {
         // Even if the prepare request timed out, the revocation is recorded so that a delayed request cannot re-prepare an old link.
-        releaseTerminalSession(db,id);
+        const released=releaseTerminalSession(db,id),catalogEntry=released.catalogEntryId?db.get('nativeCatalogEntries',released.catalogEntryId):null;
         reportCapacity();
-        send({type:'reply',id:m.id,result:{released:true}});return;
+        send({type:'reply',id:m.id,result:{released:true,...(catalogEntry?{catalogEntry}: {})}});return;
       }
       if(paused)throw new Error(tr('worker.remoteExecutionPaused2'));
       if(m.action==='terminal_new') {
@@ -775,7 +813,8 @@ async function query(m) {
     if (m.action === 'runtimes') { send({ type: 'reply', id: m.id, result: { runtimes: await refreshRuntimes() } }); return; }
     if (m.action === 'token_usage') { send({type:'reply',id:m.id,result:await collectCcusageReport({base,since:m.path?.since||null,until:m.path?.until||null,timezone:m.path?.timezone||SYSTEM_TIME_ZONE})}); return; }
     if (m.action === 'directories') {
-      send({ type: 'reply', id: m.id, result: await browseFolders(roots, m.path?.path, m.path?.offset || 0) }); return;
+      send({ type: 'reply', id: m.id, result: await browseFolders(roots, m.path?.path, m.path?.offset ?? 0,
+        { includeFiles: m.path?.includeFiles === true }) }); return;
     }
     if (m.action === 'git_check') {
       const root = await projectRoot(m.path?.localRoot);
@@ -873,7 +912,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { nativeSessions:2,cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {
@@ -886,7 +925,7 @@ function connect() {
       if(m.type==='source_sync_watch_config'){await sourceSync.watch.configure(m);return;}
       if(m.type==='source_sync_dirty_ack'){sourceSync.watch.acknowledge(m.noticeId);return;}
       if(m.type==='source_sync_cancel'){sourceSync.cancel(m.commandId);return;}
-      if(m.type==='source_sync_receipt_ack'){sourceSync.acknowledge(m.commandId);return;}
+      if(m.type==='source_sync_receipt_ack'){sourceSync.acknowledge(m.commandId,m);return;}
       if (m.type === 'registered') {
         cliRecoveryEnabled=m.cliRecovery===1;
         paused = m.paused;

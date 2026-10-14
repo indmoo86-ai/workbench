@@ -1,5 +1,6 @@
 import { t, dateLocale } from './i18n.js';
 import {renderMarkdown} from './markdown.js';
+import {simplifiedCliOutput} from './output-language.js';
 import {readApiToken} from './browser-token.js';
 
 const title=document.querySelector('#document-title');
@@ -24,7 +25,7 @@ async function openDocument(){
   if(result.shared){const location=document.createElement('p');location.setAttribute('translate','no');location.textContent=result.path||t('Waiting for local synchronization');status.after(location);}
   if(result.shared&&result.content===null){status.textContent=t(result.preview==='binary'?'Binary file; preview unavailable.':result.preview==='too_large'?'File synchronized; text preview exceeds 600 KB.':result.syncState==='missing'?'Local file not found.':'Waiting for local synchronization');return;}
   const text=String(result.content||'');
-  content.replaceChildren(/\.(?:md|markdown)$/i.test(name)?renderMarkdown(text):Object.assign(document.createElement('pre'),{textContent:text}));
+  content.replaceChildren(/\.(?:md|markdown)$/i.test(name)?renderMarkdown(simplifiedCliOutput(text)):Object.assign(document.createElement('pre'),{textContent:text}));
   status.textContent=t('Full text loaded · {v} characters', { v: text.length.toLocaleString(dateLocale()) });
   if(result.syncState==='conflict'||result.syncState==='local_changes')status.textContent+=' · '+t(result.syncState==='conflict'?'Conflict detected; showing actual local file.':'Showing local changes; synchronization pending.');
   copy.hidden=false;

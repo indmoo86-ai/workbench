@@ -124,6 +124,7 @@ export function discussionDisplay(message,data) {
 /** Identify the reply target from the real call relationship; when history pagination lacks the question card, call records can still locate it. */
 export function dialogueReplyDirection(message,messages,data) {
   if(message.sender!=='agent'||message.kind==='handoff'||message.id!==`result-${message.runId}`)return null;
+  if(message.dialogue)return message.dialogue;
   const call=messages.find(m=>m.id===message.replyToId&&m.projectId===message.projectId)?.handoff;
   if(call)return {from:message.senderName,to:call.fromRole};
   const run=data.runs?.find(r=>r.id===message.runId&&r.projectId===message.projectId);
@@ -186,7 +187,7 @@ function createMessageQueue({api,refreshState,create,setError}) {
 }
 
 /** The chat only handles display and user actions; role selection, idempotency and scheduling are validated by Home. */
-export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopRun, decideApproval, create, formatTime, setError, configureDevice }) {
+export function createRoomUI({ api, refreshState, openTask, stopRun, decideApproval, create, formatTime, setError, configureDevice }) {
   const historyViewer=createHistoryViewer({api});
   const messageQueue=createMessageQueue({api,refreshState,create,setError});
   const cliRecoveryUI=createCliRecoveryUI({api,refreshState,getData:()=>data,create});
@@ -231,7 +232,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     }), header.lastChild);
     const body = create('div', 'message-fullscreen-body');
     const content = create('div', 'message-fullscreen-content');
-    content.append(/\.(md|markdown)$/i.test(name) ? renderMarkdown(text) : create('pre', 'attachment-text', text));
+    content.append(/\.(md|markdown)$/i.test(name) ? renderMarkdown(simplifiedCliOutput(text)) : create('pre', 'attachment-text', text));
     body.append(content); previewDialog.replaceChildren(header, body);
     if (!previewDialog.open) previewDialog.showModal();
   }
@@ -252,7 +253,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
           previewDialog.setAttribute('aria-label', 'Image preview');
           previewDialog.replaceChildren();
           const image = create('img'); image.src = url; image.alt = item.name;
-          previewDialog.append(button('Close',()=>previewDialog.close()), image, create('p','',item.name));
+          previewDialog.append(iconAction('close','Close',()=>previewDialog.close()), image, create('p','',item.name));
           previewDialog.showModal();
         } else if (/\.(md|markdown|txt)$/i.test(item.name)) {
           const response = await fetch(url);
@@ -294,7 +295,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
   function openAttachmentTransfer(item) {
     if(!transferDialog){transferDialog=create('dialog','attachment-transfer-dialog');transferDialog.setAttribute('aria-label','Send to device');document.body.append(transferDialog);}
     transferDialog.replaceChildren();
-    const header=create('div','dialog-heading');header.append(create('h2','','Send to device'),button('Close',()=>transferDialog.close()));
+    const header=create('div','dialog-heading');header.append(create('h2','','Send to device'),iconAction('close','Close',()=>transferDialog.close()));
     const select=create('select');select.setAttribute('aria-label','Target device');
     const bindings=(data.workspaces||[]).filter(w=>w.projectId===item.projectId);
     const workers=(data.workers||[]).filter(w=>bindings.some(b=>b.nodeId===w.id)).sort((a,b)=>Number(b.nodeKind==='cloud')-Number(a.nodeKind==='cloud'));
@@ -524,6 +525,50 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     return meta;
   }
 
+  /** Recipients come only from routing records; displayed prose is never parsed as dispatch metadata. */
+  function messageRecipients(message,replyDirection) {
+    const routed=message.kind==='discussion'&&message.discussion?.toRoleId
+      ? [data.roles?.find(role=>role.id===message.discussion.toRoleId)||{id:message.discussion.toRoleId,name:message.discussion.toRoleId}]
+      : Array.isArray(message.handoff?.toRoles)&&message.handoff.toRoles.length
+      ? message.handoff.toRoles
+      : message.handoff?.toRole ? [{id:message.handoff.toRoleId,name:message.handoff.toRole}] : [];
+    const tasks=(message.taskIds||[]).map(id=>data.tasks?.find(task=>task.id===id)).filter(Boolean);
+    const roster=message.sender==='human'?tasks.flatMap(task=>task.schedulingRoster||[]):[];
+    if(roster.length)return [...new Map(roster.filter(role=>role?.name).map(role=>[role.id||role.name,role])).values()];
+    const requestIds=Array.isArray(message.requestIds)?message.requestIds:[];
+    const taskRequestIds=tasks.map(task=>task.requestId).filter(Boolean);
+    const requested=[...requestIds,...taskRequestIds].map(id=>data.requests?.find(request=>request.id===id))
+      .map(request=>data.roles?.find(role=>role.id===request?.targetRoleId)).filter(Boolean);
+    const singleTaskTargets=message.sender==='human'&&!requested.length?tasks.map(task=>task.roleSnapshot||data.roles?.find(role=>role.id===task.roleId)).filter(Boolean):[];
+    const replyTarget=replyDirection?.to?[data.roles?.find(role=>role.name===replyDirection.to)||{name:replyDirection.to}]:[];
+    const resolved=[...routed,...requested,...singleTaskTargets];
+    return [...new Map((resolved.length?resolved:replyTarget).filter(role=>role?.name).map(role=>[role.id||role.name,role])).values()];
+  }
+
+  /** Remove only leading mentions that exactly match already-resolved recipients; stored text is never changed. */
+  function messageDisplayText(text,recipients) {
+    let display=String(text||'');
+    const targets=new Set(recipients.flatMap(role=>[role.id,role.name]).filter(Boolean).map(String));
+    while(targets.size) {
+      const mention=display.match(/^@([^\s]+)[ \t]+/u);
+      if(!mention||!targets.has(mention[1]))break;
+      display=display.slice(mention[0].length);
+    }
+    return display;
+  }
+
+  /** A persisted outbound card is complete; only a receiver's own reply follows its run state. */
+  function messageCardMeta(message) {
+    const outbound=message.sender!=='agent'||['handoff','discussion'].includes(message.kind);
+    const kind=message.kind==='discussion'?'Question':message.kind==='handoff'
+      ? ({consult:'Question',direct:'Instruction',note:'Notice'}[message.handoff?.kind]||'Instruction')
+      : message.sender==='agent'?'Reply':'Message';
+    if(outbound)return {kind,status:'Completed'};
+    const run=data.runs?.find(item=>item.id===message.runId);
+    const task=run&&data.tasks?.find(item=>item.id===run.taskId);
+    return {kind,status:run?t(taskProgress(task||{roleSnapshot:run.roleSnapshot},run).label):'Completed'};
+  }
+
   /** Copy the original message text without the rendered action buttons, time or quote summary. */
   function copyMessageButton(text) {
     const copy = iconAction('copy', 'Copy', async b => {
@@ -557,11 +602,12 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     return copy;
   }
 
-  /** CLI prose is simplified for display only; copying and the Original view retain the complete stored text. */
+  /** Chat prose is simplified for display only; copying and the Original view retain the complete stored text. */
   const renderLinkedMarkdown=(text,runId)=>localizeDocumentLinks(linkRunDocuments(renderMarkdown(simplifiedCliOutput(text)),runId),runId,api);
-  function replyPreview(text, markdown = true, runId = null) {
+  function replyPreview(text, markdown = true, runId = null, key = '') {
     const preview = create('div', 'chat-reply-preview');
-    preview.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', text));
+    preview.dataset.previewKey = `${projectId}:${key}`;
+    preview.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', simplifiedCliOutput(text)));
     return preview;
   }
 
@@ -602,7 +648,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
       header.append(heading,copy,close);
       const body = create('div', 'message-fullscreen-body');
       const content = create('div', 'message-fullscreen-content');
-      content.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', text));
+      content.append(markdown ? renderLinkedMarkdown(text,runId) : create('div', 'chat-message-text', simplifiedCliOutput(text)));
       if (attachments.length) {
         const files = create('div', 'chat-attachments');
         for (const item of attachments) files.append(attachmentCard(item));
@@ -653,7 +699,7 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     col.append(create('div', 'chat-name', `@${role.name || t('Role')} · ${label}`));
     const bubble = create('div', 'chat-bubble');
     const preview = run && !run.explicitPublish ? liveText(run.id) : '';
-    if (preview) bubble.append(replyPreview(preview,true,run?.id));
+    if (preview) bubble.append(replyPreview(preview,true,run?.id,`run:${run?.id || task.id}`));
     else {
       const typing = create('div', 'chat-typing');
       typing.append(create('span'), create('span'), create('span'));
@@ -680,7 +726,6 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
       }));
     }
     if (run) actions.push(iconAction('log', 'Log', () => openTask(task.id,run.id)));
-    if (run&&openLiveScene) actions.push(iconAction('live', 'Live execution (read-only)', () => openLiveScene(run)));
     if (actions.length) col.append(chatMeta('', actions));
     row.append(col);
     if (run && ['starting', 'running', 'waiting_user', 'stopping'].includes(run.status)) void pullLive(run.id);
@@ -699,67 +744,58 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     const header = create('div', 'chat-message-header');
     const time = create('time', '', formatTime(m.createdAt));
     if (m.createdAt) time.dateTime = m.createdAt;
-    header.append(create('div', 'chat-name', agent ? `@${m.senderName}` : m.broadcast ? 'Me · notify everyone' : 'Me'), time);
+    const sender=create('div', 'chat-name', agent ? m.senderName : 'Me');
+    // Saved role names are identities, not UI dictionary keys.
+    if(agent)sender.setAttribute('translate','no');
+    header.append(sender, time);
     col.append(header);
     const bubble = create('div', `chat-bubble${handoff || replyDirection ? ' handoff-card' : ''}`);
-    if(discussion){const title=create('div','handoff-title');title.append(create('strong','',`${m.senderName||t('Me')} → @${discussion.to}`));bubble.append(title,create('div','handoff-label',t('Peer discussion · {state}', { state: discussion.state })));}
     if (m.replyToId) {
-      const source = messages.find(q => q.id === m.replyToId);
-      bubble.append(create('div', 'quoted-message', source ? t('{senderName}: {v}', { senderName: source.senderName, v: source.text.slice(0, 180) }) : 'Quoting an earlier message'));
+      const source = m.replySource || messages.find(q => q.id === m.replyToId);
+      const quote=create(source?.id?'button':'div', 'quoted-message', source ? t('{senderName}: {v}', { senderName: source.senderName, v: simplifiedCliOutput(source.text).slice(0, 180) }) : 'Quoting an earlier message');
+      if(source?.id){quote.type='button';quote.title='View quoted original';quote.setAttribute('aria-label','View quoted original');quote.addEventListener('click',()=>void historyViewer.open(m.projectId,'message',source.id).catch(error=>setError(error.message)));}
+      bubble.append(quote);
     }
+    const recipients=messageRecipients(m,replyDirection);
+    if(recipients.length){const list=create('div','chat-recipient-list');for(const recipient of recipients)list.append(create('span','chat-recipient',`@${recipient.name}`));bubble.append(list);}
+    const bodyText=messageDisplayText(handoff?m.handoff.summary||m.text:m.text,recipients);
     if (handoff) {
-      const title = create('div', 'handoff-title');
-      title.append(create('strong', '', `@${m.handoff.fromRole}`), create('span', '', '→'), create('strong', '', `@${m.handoff.toRole}`));
-      bubble.append(title, create('div', 'handoff-label', m.handoff.kind==='consult'?'Role conversation · question':'Collaboration handoff'), replyPreview(m.handoff.summary || m.text,true,m.runId));
+      bubble.append(replyPreview(bodyText,true,m.runId,`message:${m.id}`));
     } else {
-      if(replyDirection) {
-        const title=create('div','handoff-title');
-        title.append(create('strong','',`@${replyDirection.from}`),create('span','','→'),create('strong','',`@${replyDirection.to}`));
-        bubble.append(title,create('div','handoff-label','Role conversation · reply'));
-      }
-      bubble.append(replyPreview(m.text, agent, m.runId));
+      bubble.append(replyPreview(bodyText, agent, m.runId,`message:${m.id}`));
     }
     if (m.attachments?.length) {
       const files = create('div','chat-attachments');
       for(const item of m.attachments) files.append(attachmentCard(item));
       bubble.append(files);
     }
-    if(!discussion && (handoff||!agent)) {
-      const ids=handoff?[m.requestId]:(m.taskIds||[]).map(id=>data.tasks?.find(t=>t.id===id)?.requestId).filter(Boolean);
-      for(const id of ids) {
-        const request=data.requests?.find(r=>r.id===id),progress=request?.messageProgress;
-        if(!progress)continue;
-        const target=data.roles?.find(r=>r.id===request.targetRoleId)?.name;
-        const note=create('div',`message-progress${progress.attention?' needs-attention':''}`,`${target?`@${target} · `:''}${progress.label}`);
-        const times={registeredAt:'Registered',sentAt:'Sent',receivedAt:'Device acknowledged',startedAt:'Run started',resultAt:'Run ended',resumeStartedAt:'Initiator resumed'};
-        note.dataset.stage=progress.stage;note.dataset.state=progress.state||'';note.title=[progress.reason,...Object.entries(progress.timestamps||{}).filter(([,v])=>v).map(([k,v])=>t('{v}: {time}', { v: times[k]||k, time: formatTime(v) }))].filter(Boolean).join('\n');
-        if(progress.reason&&['waiting','error'].includes(progress.state))note.append(create('span','message-progress-reason',` · ${progress.reason}`));
-        bubble.append(note);
-      }
-    }
-    const actions = [iconAction('quote', 'Quote', () => quoteReply(m))];
+    const actions = [],discussionActions=[];
     if(discussion?.canReply) {
       actions.push(iconAction('reply','Reply to this question',()=>{quoteReply(m);draft().discussion={threadId:discussion.thread.id,expectedQuestionId:discussion.questionId,revision:discussion.thread.revision,directionRevision:discussion.thread.directionRevision};saveDrafts();}));
-    }
+    } else actions.push(iconAction('quote', 'Reply', () => quoteReply(m)));
     if(discussion?.canReply||discussion?.canResume) {
-      actions.push(iconAction('check',discussion.canResume?'Changes verified; continue the original task':'Mark question as handled',async b=>{
+      discussionActions.push(iconAction('check',discussion.canResume?'Changes verified; continue the original task':'Mark question as handled',async b=>{
         b.disabled=true;const requestId=`user-${discussion.canResume?'resume':'resolve'}:${discussion.thread.id}:${discussion.questionId}:${discussion.thread.revision}`;
         try{await api(`/api/projects/${encodeURIComponent(m.projectId)}/discussions/${encodeURIComponent(discussion.thread.id)}/resolve`,{method:'POST',json:{requestId,expectedQuestionId:discussion.questionId,revision:discussion.thread.revision,directionRevision:discussion.thread.directionRevision,...(discussion.canResume?{resumeAfterRunId:discussion.resumeAfterRunId}:{}),conclusion:discussion.canResume?'User reviewed the exception log and actual changes and explicitly chose to continue the original task':'User explicitly marked this question as handled in the web UI'}});await refreshState({quiet:true});}catch(e){setError(e.message);b.disabled=false;}
       }));
     }
-    if(discussion?.canStop)actions.push(iconAction('stop','Stop original task',async b=>{
+    if(discussion?.canStop)discussionActions.push(iconAction('stop','Stop original task',async b=>{
       b.disabled=true;
       try{await api(`/api/runs/${encodeURIComponent(discussion.stopRunId)}/stop`,{method:'POST',json:{commandId:`discussion-owner-stop:${discussion.stopRunId}:${discussion.questionId}`}});await refreshState({quiet:true});}catch(e){setError(e.message);b.disabled=false;}
     }));
     actions.push(copyMessageButton(handoff ? m.handoff.summary || m.text : m.text));
-    actions.push(iconAction('original','Original',()=>{void historyViewer.open(m.projectId,m.runId&&!discussion?'result':'message',m.runId&&!discussion?m.runId:m.id).catch(e=>setError(e.message));}));
+    // Execution originals live in the Run details; ordinary messages still resolve to their own stored text.
+    if(!m.runId||discussion||handoff)actions.push(iconAction('original','Original',()=>void historyViewer.open(m.projectId,'message',m.id).catch(e=>setError(e.message))));
     if (m.runId) {
       const run = data.runs?.find(r => r.id === m.runId);
       if (run) actions.push(iconAction('log', 'Log', () => openTask(run.taskId,run.id)));
     }
     actions.push(fullscreenMessageButton(handoff ? m.handoff.summary || m.text : m.text, m.senderName, agent || Boolean(handoff), m.attachments, null, m.runId));
-    if(m.runId&&openLiveScene){const run=data.runs?.find(r=>r.id===m.runId);if(run)actions.push(iconAction('live','Live execution (read-only)',()=>openLiveScene(run)));}
-    col.append(bubble, chatMeta('', actions));
+    actions.push(...discussionActions);
+    const cardMeta=messageCardMeta(m),footer=create('div','chat-card-footer');
+    footer.append(create('span','chat-card-kind',t('{kind} · {status}',{kind:t(cardMeta.kind),status:t(cardMeta.status)})));
+    const actionBar=create('div','chat-card-actions');actionBar.append(...actions);footer.append(actionBar);bubble.append(footer);
+    col.append(bubble);
     row.append(col);
     return row;
   }
@@ -769,6 +805,8 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     const history = histories.get(projectId), messages = history?.messages || [];
     const scrollTop = scroller.scrollTop;
     const atBottom = scroller.scrollHeight - scroller.clientHeight - scrollTop < 120;
+    // 状态刷新会重建消息节点，按消息身份保留正文阅读位置，不抢回顶部。
+    const previewScroll = new Map([...feed.querySelectorAll('.chat-reply-preview')].map(node => [node.dataset.previewKey, { top: node.scrollTop, left: node.scrollLeft }]));
     feed.replaceChildren();
     older.hidden = !history?.hasMore;
     if (!messages.length) feed.append(create('div', 'chat-empty', history
@@ -792,6 +830,10 @@ export function createRoomUI({ api, refreshState, openTask, openLiveScene, stopR
     }
     const queueStrip=renderSessionQueue(data.sessionQueues?.[projectId],{create,api,refreshState,projectId,roleName:id=>(data.roles||[]).find(r=>r.id===id)?.name||id});
     if(queueStrip)feed.append(queueStrip);
+    feed.querySelectorAll('.chat-reply-preview').forEach(node => {
+      const position = previewScroll.get(node.dataset.previewKey);
+      if (position) { node.scrollTop = position.top; node.scrollLeft = position.left; }
+    });
     scroller.scrollTop = atBottom ? scroller.scrollHeight : scrollTop;
     updateLiveFullscreen();
   }

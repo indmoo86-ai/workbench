@@ -77,7 +77,12 @@ export function attributeSourceChange({records,repositoryId,path,afterHash,nodeI
 /** Capture enabled Run preimages and serialize proof reads per tool without pretending to observe external shells. */
 export class SourceProvenanceTracker {
   constructor({db,run,repositories,blobRoot,publish}){Object.assign(this,{db,run,repositories,blobRoot,publish});this.states=new Map();this.tools=new Map();this.epochs=new Map();this.pending=new Set();}
-  async start(){for(const repo of this.repositories){try{const capture=repo.scopeKind==='directory'?captureDirectorySnapshot:captureSourceSnapshot;const snapshot=await capture({root:repo.localRoot,repositoryId:repo.id,scopePolicy:repo.scopePolicy,blobRoot:this.blobRoot});this.states.set(repo.id,snapshot.entries);}catch{this.states.set(repo.id,null);}}}
+  /** Measure pre-input work separately from CLI startup; an unavailable scope still cannot supply attribution evidence. */
+  async start(){
+    const started=performance.now();let files=0,unavailableScopes=0;
+    for(const repo of this.repositories){try{const capture=repo.scopeKind==='directory'?captureDirectorySnapshot:captureSourceSnapshot;const snapshot=await capture({root:repo.localRoot,repositoryId:repo.id,scopePolicy:repo.scopePolicy,blobRoot:this.blobRoot});this.states.set(repo.id,snapshot.entries);files+=Object.values(snapshot.entries).filter(Boolean).length;}catch{this.states.set(repo.id,null);unavailableScopes++;}}
+    return {elapsedMs:Math.round(performance.now()-started),scopes:this.repositories.length,files,unavailableScopes};
+  }
   observe(event){
     const update=event.payload?.item;if(!update)return;const id=update.id||update.tool_use_id;if(!id)return;
     const item={...this.tools.get(id),...update};this.tools.set(id,item);

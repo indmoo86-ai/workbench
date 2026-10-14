@@ -13,6 +13,7 @@ const CYCLE = 'sessionCycles', ALERT = 'sessionQueueAlerts', RECEIPT = 'sessionR
 const iso = ms => new Date(ms).toISOString();
 const ms = value => Date.parse(value);
 const workerBinding = (db, roleId) => {const r=db.get('roles',roleId);return JSON.stringify({nodeId:r?.nodeId,runtime:r?.runtime,model:r?.model,revision:r?.revision,runtimes:db.get('workers',r?.nodeId||'')?.runtimes});};
+const receiptRequests=(db,receipt)=>(receipt.requestIds||[receipt.requestId]).map(id=>db.get('coordinationRequests',id||'')).filter(r=>r?.projectId===receipt.projectId&&r.targetRoleId===receipt.roleId);
 
 /** Project-level merge parameters; an invalid combination is rejected and the stored value stays unchanged. */
 export function queueConfig(db, projectId) {
@@ -65,9 +66,9 @@ export class SessionQueue {
       if (!session || session.state !== 'open') return [];
       if (message.partial || message.visibility === 'internal' || !['human', 'agent'].includes(message.sender)) return [];
       if(['user_question','technical_notice'].includes(message.kind))return [];
-      const request = message.requestId ? this.db.get('coordinationRequests', message.requestId) : null;
+      const requests=[...new Set([message.requestId,...(message.requestIds||[])].filter(Boolean))].map(id=>this.db.get('coordinationRequests',id)).filter(r=>r?.projectId===message.projectId);
       const tasks = (message.sender === 'human' ? message.taskIds || [] : []).map(id => this.db.get('tasks', id)).filter(t => t?.projectId === message.projectId);
-      const addressed = new Set([...explicitRequestRoleIds, ...(request?.projectId === message.projectId ? [request.targetRoleId] : []), ...tasks.map(t => t.roleId)]);
+      const addressed = new Set([...explicitRequestRoleIds, ...requests.map(r=>r.targetRoleId), ...tasks.map(t => t.roleId)]);
       const at = this.now(), created = [];
       const recipients = session.participants.map(p => p.roleId)
         .filter(roleId => roleId !== message.roleId)                               // the sender is never woken by itself
@@ -75,8 +76,10 @@ export class SessionQueue {
       for (const roleId of recipients) {
         const id = `${message.id}:${roleId}`;
         if (this.db.get(RECEIPT, id)) continue;                                    // redelivery never registers twice
+        const directed=requests.filter(r=>r.targetRoleId===roleId);
         const receipt = { id, projectId: message.projectId, sessionId: session.id, roleId, messageId: message.id,
-          explicitRequest: addressed.has(roleId), requestId: request?.targetRoleId === roleId ? request.id : null,
+          explicitRequest: addressed.has(roleId), requestId: directed[0]?.id || null,
+          ...(message.requestIds&&directed.length?{requestIds:directed.map(r=>r.id)}:{}),
           taskId: tasks.find(t => t.roleId === roleId)?.id || null,
           status: 'queued', batchId: null, createdAt: iso(at), order: at };
         this.db.put(RECEIPT, receipt); created.push(receipt);
@@ -98,7 +101,7 @@ export class SessionQueue {
   readableReceipts(projectId, roleId, sessionId) {
     const view = reviewView(this.db, { projectId, roleId });
     return this.db.listProject(RECEIPT, projectId).filter(r => r.sessionId === sessionId && r.roleId === roleId && r.status === 'queued'
-      && !r.taskId && !this.db.get('coordinationRequests', r.requestId || '')?.taskId && view.get('roomMessages', r.messageId));
+      && !r.requestIds?.length && !r.taskId && !this.db.get('coordinationRequests', r.requestId || '')?.taskId && view.get('roomMessages', r.messageId));
   }
 
   /** Fair choice for one role: rotate across ready sessions, starting after the persisted position. */
@@ -211,27 +214,29 @@ export class SessionQueue {
 
   /** Each addressed request needs its own delivered result, blocker or valid dependency wait. */
   requestHandled(receipt) {
-    const request = this.db.get('coordinationRequests', receipt.requestId || '');
-    if (!request || request.targetRoleId !== receipt.roleId || request.projectId !== receipt.projectId) return false;
-    if (['succeeded', 'failed', 'cancelled'].includes(request.status)) return Boolean(request.status === 'cancelled' || request.result?.trim() || request.reportSummary?.trim() || request.error?.trim());
-    return request.status === 'waiting_call' && Boolean(request.resumeSummary?.trim()) && request.waitRequestIds?.length > 0
-      && request.waitRequestIds.every(id => this.db.get('coordinationRequests', id)?.projectId === request.projectId);
+    const requests=receiptRequests(this.db,receipt);
+    if(!requests.length||requests.length!==(receipt.requestIds||[receipt.requestId]).length)return false;
+    return requests.every(request=>{
+      if (['succeeded', 'failed', 'cancelled'].includes(request.status)) return Boolean(request.status === 'cancelled' || request.result?.trim() || request.reportSummary?.trim() || request.error?.trim());
+      return request.status === 'waiting_call' && Boolean(request.resumeSummary?.trim()) && request.waitRequestIds?.length > 0
+        && request.waitRequestIds.every(id => this.db.get('coordinationRequests', id)?.projectId === request.projectId);
+    });
   }
 
   /** Existing formal requests keep their own task/Run; receipt tracking never creates a second driver. */
   attachRequest(request) {
     for (const receipt of this.db.listProject(RECEIPT, request.projectId).filter(r => r.roleId === request.targetRoleId
-      && (r.requestId === request.id || request.taskId && r.taskId === request.taskId))) {
-      this.db.put(RECEIPT, { ...receipt, requestId: request.id, taskId: request.taskId || receipt.taskId });
+      && (r.requestIds?.includes(request.id)||r.requestId === request.id || request.taskId && r.taskId === request.taskId))) {
+      this.db.put(RECEIPT, { ...receipt, requestId: receipt.requestIds?receipt.requestId:request.id, taskId: receipt.requestIds?receiptRequests(this.db,receipt).find(r=>r.taskId)?.taskId||receipt.taskId:request.taskId || receipt.taskId });
       const key=`${receipt.sessionId}:${receipt.roleId}`,collector=this.db.get(COLLECTOR,key);
-      const unassigned=this.db.listProject(RECEIPT,request.projectId).some(r=>r.sessionId===receipt.sessionId&&r.roleId===receipt.roleId&&r.status==='queued'&&!r.taskId&&!this.db.get('coordinationRequests',r.requestId||'')?.taskId);
+      const unassigned=this.db.listProject(RECEIPT,request.projectId).some(r=>r.sessionId===receipt.sessionId&&r.roleId===receipt.roleId&&r.status==='queued'&&!r.requestIds?.length&&!r.taskId&&!this.db.get('coordinationRequests',r.requestId||'')?.taskId);
       if(collector&&!unassigned)this.db.put(COLLECTOR,{...collector,open:false,firstAt:null,explicit:false,waitingReason:null});
     }
   }
 
   settleRequest(request) {
     this.attachRequest(request);
-    for (const receipt of this.db.listProject(RECEIPT, request.projectId).filter(r => r.requestId === request.id)) {
+    for (const receipt of this.db.listProject(RECEIPT, request.projectId).filter(r => r.requestIds?.includes(request.id)||r.requestId === request.id)) {
       if (this.requestHandled(receipt)) this.db.put(RECEIPT, { ...receipt, status: 'processed', requestStatus: request.status });
     }
   }
@@ -342,8 +347,8 @@ export class SessionQueue {
     const batches = this.db.listProject(BATCH, projectId);
     const state = r => {
       if (r.status === 'processed') return 'processed';
-      const request=this.db.get('coordinationRequests',r.requestId||'');
-      if(request?.currentRunId&&!['succeeded','failed','cancelled'].includes(request.status))return request.status==='waiting_call'?'waiting_reply':'processing';
+      const active=receiptRequests(this.db,r).filter(request=>request.currentRunId&&!['succeeded','failed','cancelled'].includes(request.status));
+      if(active.length)return active.every(request=>request.status==='waiting_call')?'waiting_reply':'processing';
       const b = r.batchId ? batches.find(x => x.id === r.batchId) : null;
       if(b?.status==='processing'&&(b.waitingForDiscussion||b.waitingForCall))return 'waiting_reply';
       if (b?.status === 'processing') return 'processing';

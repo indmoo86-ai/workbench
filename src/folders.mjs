@@ -4,16 +4,42 @@ import { tr } from './i18n.mjs';
 
 /** Check boundaries using canonical paths; the browser cannot widen the Worker's permitted root directories. */
 const inside = (root, path) => { const r = relative(root, path); return !r || (r !== '..' && !r.startsWith('../') && !isAbsolute(r)); };
-export async function browseFolders(roots, path, offset = 0) {
+export async function browseFolders(roots, path, offset = 0, options = { includeFiles: false }) {
   if (!Number.isInteger(offset) || offset < 0) throw new Error(tr('folders.invalidDirectoryPagination'));
-  if (!path) return { path: null, parent: null, folders: roots.map(p => ({ name: p, path: p })), hasMore: false, nextOffset: 0 };
+  const includeFiles = options?.includeFiles === true;
+  if (!path) {
+    const rootFolders = roots;
+    if (!includeFiles) return { path: null, parent: null, folders: rootFolders.map(p => ({ name: p, path: p })), hasMore: false, nextOffset: 0 };
+    const allEntries = rootFolders.map(p => ({ name: p, path: p, type: 'folder', workspace: p }));
+    const entries = allEntries.slice(offset, offset + 200);
+    return { path: null, parent: null, folders: entries.map(({ name, path }) => ({ name, path })), entries,
+      hasMore: allEntries.length > offset + 200, nextOffset: allEntries.length > offset + 200 ? offset + 200 : 0 };
+  }
   if (typeof path !== 'string' || !isAbsolute(path)) throw new Error(tr('folders.directoryMustBeAbsolutePath'));
-  const current = await realpath(path);
-  if (!roots.some(r => inside(r, current))) throw new Error(tr('folders.directoryOutsideRangeNodeAllows'));
-  if (!(await stat(current)).isDirectory()) throw new Error(tr('folders.selectFolder'));
-  const entries = (await readdir(current, { withFileTypes: true })).filter(e => e.isDirectory() && !e.name.startsWith('.') && e.name !== 'node_modules').sort((a, b) => a.name.localeCompare(b.name));
+  // Worker startup canonicalizes roots; an unrelated unmounted root must not block a valid selection.
+  const canonicalRoots = roots;
+  const selected = await realpath(path);
+  if (!canonicalRoots.some(r => inside(r, selected))) throw new Error(tr('folders.directoryOutsideRangeNodeAllows'));
+  const selectedStat = await stat(selected);
+  let current = selected, selectedPath;
+  if (!selectedStat.isDirectory()) {
+    if (!includeFiles || !selectedStat.isFile()) throw new Error(tr('folders.selectFolder'));
+    current = dirname(selected);
+    if (!canonicalRoots.some(r => inside(r, current))) throw new Error(tr('folders.directoryOutsideRangeNodeAllows'));
+    selectedPath = selected;
+  }
+  const allowed = (await readdir(current, { withFileTypes: true }))
+    .filter(e => !e.name.startsWith('.') && e.name !== 'node_modules' && (e.isDirectory() || includeFiles && e.isFile()))
+    .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
+  const page = allowed.slice(offset, offset + 200);
+  const folders = page.filter(e => e.isDirectory()).map(e => ({ name: e.name, path: join(current, e.name) }));
   const parent = dirname(current);
-  return { path: current, parent: parent !== current && roots.some(r => inside(r, parent)) ? parent : null,
-    folders: entries.slice(offset, offset + 200).map(e => ({ name: e.name, path: join(current, e.name) })),
-    hasMore: entries.length > offset + 200, nextOffset: offset + 200 };
+  const result = { path: current, parent: parent !== current && canonicalRoots.some(r => inside(r, parent)) ? parent : null, folders,
+    hasMore: allowed.length > offset + 200, nextOffset: offset + 200 };
+  if (includeFiles) result.entries = page.map(e => {
+    const entryPath = join(current, e.name), type = e.isDirectory() ? 'folder' : 'file';
+    return { name: e.name, path: entryPath, type, workspace: type === 'folder' ? entryPath : current };
+  });
+  if (selectedPath) result.selectedPath = selectedPath;
+  return result;
 }

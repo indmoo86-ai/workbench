@@ -59,3 +59,41 @@
 - Accepted work can now submit reports and settle/read existing context while dispatch is paused, through the same narrow Worker/Home allowlist; new operations and stopped identities remain blocked. Exact probe-placeholder reports are rejected before persistence. Print adapters retain bounded tool diagnostic output separately from assistant replies.
 - Reproduced the fourth-reviewer rejection, acceptance of placeholder reports and lost tool-result output before fixing them. Seventeen focused regression/continuation tests and thirteen existing tests passed locally; six focused checks passed on Linux. Real isolated Grok successfully reported while dispatch was paused; real Agy received rejection for its placeholder attempt and stored the substantive report once. A test initially expected undefined for Store's missing record; correcting it to the actual null contract passed. Native runs used isolated data and did not alter the business review chain.
 - Installed runtime `d8da3de` into the existing local Home/Worker and connected Linux Worker with backups and unchanged role/native configuration. The previously blocked real review chain was then continued through a user-authorized message: the missing Grok report was supplemented without rewriting history, Claude completed the outstanding item-by-item discussion and a focused wording clarification, and the supervisor updated the existing final Markdown. Independent checks preserved all prior project execution reports and native associations, verified the unchanged original-document byte prefix/hash, and read the resulting appendix. Communication/document delivery is complete; this is not implementation or business acceptance. The periodic follow-up is stopped. Code is locally committed, not publicly pushed.
+
+## 2026-10-13 — Project settings categories
+
+- Split Project Settings into four sticky tabs: basic information, repositories/workspace, file sync, and collaboration/scheduling. Switching changes visibility only; existing inputs, section saves and backend rules are retained. Global settings remain separate. See [ARCHITECTURE](ARCHITECTURE.md#three-column-workspace-and-recent-artifacts) for the implementation boundary.
+- Real Edge browser verification against an isolated Home (no API mocks) passed for draft text/numbers/checkboxes, expanded folder controls, independent basic-information saving, sync dialog access, keyboard navigation and desktop/mobile sticky tabs. Switching tabs made no write requests. All 56 existing tests and syntax checks passed.
+- Local development and isolated verification only: no production restart, dispatch pause, project activation or publication. Unrelated quota-statistics work remains uncommitted and preserved.
+
+## 2026-10-13 — Approved double-terminal logo
+
+- Replaced the raster source with the user-approved preview and regenerated transparent, centered 192px and 512px application icons. Updated page, favicon, Apple touch icon, PWA manifest and service-worker cache references together.
+- Real browser verification against an isolated Home confirmed image loading, matching versioned URLs, expected dimensions, transparent corners and centered margins. The saved source is byte-identical to the approved image. Existing services and running tasks were not restarted or paused; this records a local asset update, not deployment.
+
+## 2026-10-13 — Session UI integration
+
+- Integrated the session-filter-controls and terminal-dialog-actions branches with the four Project Settings tabs and approved logo. Resolved the shared settings layout to retain full-width headers and sticky category tabs without resetting drafts.
+- Session filters default to all devices and Agents. The read-only live scene is entered from role cards; new/resume session actions open their existing confirmation forms. An integration review found that offline devices lost cached independent entries under All; Home now returns those entries with an explicit partial/offline result, without permitting offline history reads or terminal actions.
+- Real isolated browser checks passed for settings drafts, icon assets, offline cached entries, session filters and live-scene/native-entry routing. Controlled terminal/catalog responses were used only for action routing and failure cases; offline cache, settings and icon checks used actual Home APIs. The existing 56 tests passed. Release checks and private evidence remain outside Git; unrelated quota work is excluded.
+
+## 2026-10-13 — Unified frontend dialogs
+
+- Applied the approved compact white dialog style to application modals and the new-project panel. Role/supervisor tabs now occupy the header directly; draft preservation, existing saves and cancellation semantics remain unchanged. Browser-native confirmations are not replaced.
+- Isolated Edge checks covered twelve static dialog types at desktop/mobile sizes, role/supervisor header geometry and pinned actions, history scrolling, native session/file picking and live-scene entries. Regression checks protect inline original-text actions from modal footer styling. The native picker used an isolated Home/Worker with a controlled CLI; no real tasks were started or stopped. All 56 existing tests passed.
+- Frontend and documentation changes only. No backend edits, service restart, deployment or push; pre-existing quota work remains separate.
+
+## 2026-10-13 — Unified standalone settings pages
+
+- Extended the approved dialog visual language to Basic Settings, Token Usage, Project Settings and Scheduled Jobs. Global/project tablists now share the sticky title bar rather than a separate row. Full-page layouts, section saves and nested modal behavior remain intact; changes are limited to frontend markup, styles and cache revision.
+- Real Edge checks against an isolated Home covered all five global tabs and the three other pages at desktop/mobile sizes. Seeded usage remained 8,000 tokens, project drafts survived tab switches, pages had no horizontal overflow and browsing/querying issued no configuration or dispatch writes. No production services or running tasks were touched; pre-existing quota-statistics changes remain separate.
+
+## 2026-10-13 — Logo transparent container
+
+- Removed the sidebar logo button's legacy gradient backing and corner clipping. The approved raster asset, dimensions and placement remain unchanged; transparent image margins now reveal the page instead of a second colored frame.
+- Real Edge verification against an isolated Home reproduced the gradient before the fix and confirmed transparent, borderless rendering afterward, including hover, sidebar toggle and visible keyboard focus. No backend changes, service restart or deployment.
+
+## 2026-10-13 — Scrollable chat bodies
+
+- Kept the existing message-body height while replacing ten-line clipping with internal scrolling. Status refreshes restore each visible message's scroll position by project/message or Run identity; full-screen reading remains unchanged.
+- Real isolated Home and Edge checks passed for desktop/mobile wheel scrolling, short messages without overflow, preserved height, reading position after desktop refresh and the final paragraph of a 100-paragraph full-screen reply. No backend changes, task operations or service restart; unrelated quota work is retained separately.

@@ -19,6 +19,7 @@
 | [plan-supervisor-proactive-followup](plan-supervisor-proactive-followup.md) | Implementation mapping and acceptance for direct supervisor silence follow-up (Chinese) | Executed inline with independent review; release excluded |
 | [design-session-handoff](design-session-handoff.md) | Controlled cross-device role session handoff | Proposal. Not implemented |
 | [design-cli-session-recovery](design-cli-session-recovery.md) | Verified idle reclaim, human confirmation and same-native-session recovery | Implemented; independent, isolated and release verification |
+| [design-native-session-browser](design-native-session-browser.md) | Group chats / Sessions navigation, read-only native histories and iTerm/SSH entry | Feature-branch implementation; not deployed; binary-history and GUI acceptance limits recorded |
 | [session-queue-v3](design/session-queue-v3.md) | Authoritative conversation collaboration and external CLI queue contract | Approved V3; opt-in implementation |
 | [session-queue-v3-acceptance](design/session-queue-v3-acceptance.md) | Repair verification, runtime results and remaining drill limits | Isolated-tested and release-verified; no automatic project activation |
 | [session-queue-v3-audit](design/session-queue-v3-audit.md) / [merge-order](design/session-queue-v3-merge-order.md) | Historical phased audit and merge sequence | Archived; not implementation guidance |

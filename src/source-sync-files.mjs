@@ -2,12 +2,22 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {constants} from 'node:fs';
 import {mkdir,lstat,realpath,open,readFile,writeFile,readdir} from 'node:fs/promises';
-import {join} from 'node:path';
+import {join,resolve} from 'node:path';
 import {SOURCE_SYNC_LIMITS,SOURCE_SYNC_CAPTURE_POLICY,DIRECTORY_SYNC_CAPTURE_POLICY,contentHash,syncError,excludedSourcePath,validateSourcePath,manifestDigest,entryEqual} from './source-sync-manifest.mjs';
 
 const exec=promisify(execFile);
 const git=async(root,args,encoding='utf8')=>(await exec('git',args,{cwd:root,encoding,timeout:30000,maxBuffer:24*1024*1024})).stdout;
 const exists=async path=>{try{return await lstat(path);}catch(e){if(e.code==='ENOENT')return null;throw e;}};
+const blobSaves=new Map();
+
+/** Bound file I/O and drain in-flight captures before rejecting, so a failed snapshot leaves no background writes. */
+export async function captureSourceEntries(paths,capture) {
+  const result=new Array(paths.length);let cursor=0,failed=false,error;
+  await Promise.all(Array.from({length:Math.min(8,paths.length)},async()=>{
+    while(!failed&&cursor<paths.length){const index=cursor++;try{result[index]=await capture(paths[index]);}catch(e){if(!failed){failed=true;error=e;}}}
+  }));
+  if(failed)throw error;return result;
+}
 
 /** Walk components, not just the final path: parent links and nested repositories are not source roots. */
 export async function sourceFilePath(root,path,{createParents=false,policy={}}={}) {
@@ -46,7 +56,17 @@ export async function readSourceFile(root,path,policy={}) {
 /** Private content stores are keyed only by verified hashes and never by caller paths. */
 export async function saveSourceBlob(blobRoot,bytes) {
   if(bytes.length>SOURCE_SYNC_LIMITS.fileBytes)throw syncError('file_too_large');
-  const hash=contentHash(bytes);await mkdir(blobRoot,{recursive:true,mode:0o700});
+  const hash=contentHash(bytes),key=resolve(blobRoot,hash);
+  // Concurrent file captures can share content. Join the current verification/write, never cache a completed verification.
+  if(blobSaves.has(key))return blobSaves.get(key);
+  const pending=saveBlob(blobRoot,hash,bytes).finally(()=>blobSaves.delete(key));blobSaves.set(key,pending);return pending;
+}
+
+async function saveBlob(blobRoot,hash,bytes) {
+  // Most startup preimages already exist. Verify them directly instead of mkdir + a knowingly failing exclusive write.
+  try{const existing=await readSourceBlob(blobRoot,hash);if(!existing.equals(bytes))throw syncError('blob_corrupt',hash);return hash;}
+  catch(e){if(e.code!=='ENOENT')throw e;}
+  await mkdir(blobRoot,{recursive:true,mode:0o700});
   const path=join(blobRoot,hash);
   try{await writeFile(path,bytes,{flag:'wx',mode:0o600});}catch(e){if(e.code!=='EEXIST')throw e;const existing=await readSourceBlob(blobRoot,hash);if(!existing.equals(bytes))throw syncError('blob_corrupt',hash);}
   return hash;
@@ -114,8 +134,8 @@ export async function captureSourceSnapshot(options) {
 
 /** Directory scopes use saved-content baselines and the same hash/transfer contract as repository scopes. */
 export async function captureDirectorySnapshot(options) {
-  const root=await realpath(options.root),policy=options.scopePolicy||{},entries=Object.create(null),excluded=[];
-  let visited=0,fileCount=0,changedBytes=0,ignored=[];
+  const root=await realpath(options.root),policy=options.scopePolicy||{},entries=Object.create(null),excluded=[],paths=[];
+  let visited=0,changedBytes=0,ignored=[];
   // Git ignore is an optional file-selection source, never the directory scope's version history.
   try{if(await realpath((await git(root,['rev-parse','--show-toplevel'])).trim())===root)ignored=(await git(root,['ls-files','-z','--others','--ignored','--exclude-standard','--directory'])).split('\0').filter(Boolean);}catch(e){if(!e.stderr?.includes('not a git repository')&&!String(e.message).includes('not a git repository')&&e.code!=='ENOENT')throw e;}
   const isIgnored=path=>ignored.some(p=>path===p||path.startsWith(p.endsWith('/')?p:p+'/'));
@@ -130,13 +150,17 @@ export async function captureDirectorySnapshot(options) {
         if(await exists(join(dir,item.name,'.git'))){excluded.push({path,reason:'nested_repository'});continue;}
         await walk(join(dir,item.name),path+'/');continue;
       }
-      const captured=await readSourceFile(root,path,policy);if(!captured.entry)throw syncError('source_busy',path);
-      entries[path]=captured.entry;if(++fileCount>SOURCE_SYNC_LIMITS.paths)throw syncError('manifest_too_large');
-      if(!entryEqual(captured.entry,options.baselineEntries?.[path]||null))changedBytes+=captured.entry.size;
-      if(changedBytes>SOURCE_SYNC_LIMITS.batchBytes)throw syncError('batch_too_large');
-      if(options.blobRoot)await saveSourceBlob(options.blobRoot,captured.bytes);
+      paths.push(path);if(paths.length>SOURCE_SYNC_LIMITS.paths)throw syncError('manifest_too_large');
     }
   }
   await walk(root);
+  const captured=await captureSourceEntries(paths,async path=>{
+    const value=await readSourceFile(root,path,policy);if(!value.entry)throw syncError('source_busy',path);
+    if(!entryEqual(value.entry,options.baselineEntries?.[path]||null))changedBytes+=value.entry.size;
+    if(changedBytes>SOURCE_SYNC_LIMITS.batchBytes)throw syncError('batch_too_large');
+    if(options.blobRoot)await saveSourceBlob(options.blobRoot,value.bytes);
+    return value.entry;
+  });
+  for(let i=0;i<paths.length;i++)entries[paths[i]]=captured[i];
   return {repositoryId:options.repositoryId,generation:options.generation,scopeKind:'directory',scopePolicy:policy,capturePolicy:DIRECTORY_SYNC_CAPTURE_POLICY,baseCommit:null,entries,digest:manifestDigest(entries,policy),excluded};
 }

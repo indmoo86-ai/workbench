@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 import { nativeSessionId } from './terminal-resume.mjs';
 import { tr } from './i18n.mjs';
 import { executionText } from './input-language.mjs';
+import { ClaudeContextUsage } from './context-usage.mjs';
 
 const MAX_TOOL_OUTPUT = 12000;
 
@@ -44,6 +45,7 @@ export class CliPrintSession {
     this.inheritInstructions = inheritInstructions;
     this.stopping = false; this.done = false;
     this.lastThinkingAt = 0;
+    this.contextTracker = runtime==='claude'?new ClaudeContextUsage():null;
     this.answer = ''; this.textBuffer = ''; this.finalText = ''; this.runtimeError = '';
   }
   bin() {
@@ -150,6 +152,8 @@ export class CliPrintSession {
       this.nativeSessionId = sessionId;
       this.emit('status', { nativeSessionId: sessionId });
     }
+    const context=this.contextTracker?.receive(raw,this.nativeSessionId||this.resumeSessionId||null);
+    if(context)this.emit('context_usage',context);
     const eventPayload = typeof raw.event === 'string' && raw[raw.event] && typeof raw[raw.event] === 'object'
       ? { ...raw[raw.event], type: raw[raw.event].type || raw.event }
       : null;

@@ -1,4 +1,5 @@
 import {t,onLanguageChange} from './i18n.js';
+import {setActionIcon} from './role-icons.js';
 
 const el=(tag,cls,text)=>Object.assign(document.createElement(tag),{className:cls||'',...(text===undefined?{}:{textContent:text})});
 const labels={queued:'Queued',capturing:'Scanning files',applying:'Applying files',completed:'Synchronized',partial_conflict:'Conflicts detected',blocked:'Blocked',cancelling:'Cancelling',cancelled:'Cancelled',preview_ready:'Scope ready',evidence_ready:'Evidence ready',open:'Conflict open',resolving:'Repair in progress',verifying:'Verifying',resolved_pending_sync:'Waiting for device receipts',resolved:'Resolved',needs_input:'Needs attention'};
@@ -14,7 +15,7 @@ export function sourceSyncPanel({api:request,getData,getProject,refreshState=()=
   const valid=(id,v)=>id===projectId&&v===view&&dialog.open;
   const device=id=>getData().workers?.find(w=>w.id===id),name=id=>device(id)?.name||id;
   const status=value=>t(labels[value]||value);
-  function modal(title){view++;dialog.replaceChildren();const h=el('header','source-sync-heading'),heading=el('h2','',t(title));heading.id='source-sync-title';h.append(heading,button('Close',()=>dialog.close()));const body=el('div','source-sync-body'),note=el('p','workspace-note');note.setAttribute('role','status');dialog.append(h,body,note);if(!dialog.open)dialog.showModal();return {body,note,id:projectId,v:view};}
+  function modal(title){view++;dialog.replaceChildren();const h=el('header','source-sync-heading'),heading=el('h2','',t(title));heading.id='source-sync-title';h.append(heading,setActionIcon(button('Close',()=>dialog.close(),'icon-button'),'close',t('Close')));const body=el('div','source-sync-body'),note=el('p','workspace-note');note.setAttribute('role','status');dialog.append(h,body,note);if(!dialog.open)dialog.showModal();return {body,note,id:projectId,v:view};}
   dialog.addEventListener('close',()=>view++);
   async function load(force=false){
     if(!projectId||loading||(!force&&Date.now()-loadedAt<2000))return;const id=projectId,e=epoch;loading=true;

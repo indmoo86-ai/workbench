@@ -41,13 +41,19 @@ function parseHandoffArgs(args) {
 }
 
 export async function main(argv = process.argv.slice(2)) {
-  loadTurnContext();
+  const turnId=argv[0]==='--turn'?argv[1]:undefined;
+  if(argv[0]==='--turn')argv=argv.slice(2);
   const [cmd, sub, ...rest] = argv;
   const tail = [sub, ...rest].filter(v => v !== undefined);
-  const supervisor = process.env.WB_SYSTEM_SUPERVISOR === '1';
   try {
-    // Discovery flags never perform a write (including nested commands such as chat post --help).
-    if(tail.some(value=>['--help','-h'].includes(value))&&!tail.includes('--'))return out(helpText());
+    // Discovery must work even when a retained process inherited a deleted turn context.
+    if(!cmd||['help','-h','--help'].includes(cmd)||(tail.some(value=>['--help','-h'].includes(value))&&!tail.includes('--'))||(cmd==='deliver'&&sub==='help')) {
+      const text=process.env.WB_SYSTEM_SUPERVISOR==='1'?tr('wbCli.wbScheduleJsonSupervisorSubmits',{HELP:helpText()}):helpText();
+      return out(process.env.WB_DISCUSSION_PROTOCOL==='2'?`${text}\n\n${discussionHelp()}`:text);
+    }
+    if(!['collaboration','sync','discuss','capabilities','session','chat','setup','pass','report','history','result','schedule','timer','role','boot','status','docs','git','note','ask','wait','deliver','call','handoff'].includes(cmd))throw new Error(tr('wbCli.unknownCommand',{cmd,HELP:helpText()}));
+    loadTurnContext(process.env,{turnId});
+    const supervisor = process.env.WB_SYSTEM_SUPERVISOR === '1';
     const roleSession=Boolean(process.env.WB_ROLE_SESSION_ID),discussion=roleSession&&process.env.WB_DISCUSSION_PROTOCOL==='2';
     const sourceSync=process.env.WB_SOURCE_SYNC==='1';
     if(cmd==='collaboration') {
@@ -64,7 +70,6 @@ export async function main(argv = process.argv.slice(2)) {
       if(!['peers','ask','reply','read','resolve','budget_extend'].includes(sub)||rest.length>1)throw new Error(discussionHelp());
       return out(await agentRequest('/api/agent/discussions',{runId:process.env.WB_RUN_ID,action:sub,input:rest.length?JSON.parse(rest[0]):sub==='peers'?{view:'summary'}:{}}));
     }
-    if(discussion&&(!cmd||['help','-h','--help'].includes(cmd)))return out(`${helpText()}\n\n${discussionHelp()}`);
     if (cmd === 'capabilities') return out({protocol:2,sourceSyncTools:sourceSync?1:0,discussionProtocol:discussion?2:0,sessionTools:1,timerTools:1,queueTools:process.env.WB_QUEUE_BATCH==='1'?2:0,tools:['setup catalog',...(sourceSync?['sync status','sync read','sync request','sync propose',...(supervisor?['sync assign']:[])]:[]),...(roleSession?['discuss peers']:[]),...(discussion?['discuss ask','discuss reply','discuss read','discuss resolve',...(supervisor?['discuss budget_extend']:[])]:[]),'call','wait',...(supervisor?['schedule','timer','role prompt','collaboration list','collaboration create','collaboration link','collaboration add-member','collaboration remove-member','collaboration release','collaboration close']:[]),...(process.env.WB_QUEUE_BATCH==='1'?['pass']:[]),'note','git status','report','history search','history read','result read','deliver','session current','session list','session summary','session read','chat summary']});
     if (cmd === 'session' && sub === 'current') return out(await agentRequest('/api/agent/sessions/current',{runId:process.env.WB_RUN_ID}));
     if (cmd === 'session' && sub === 'list') return out(await agentRequest('/api/agent/sessions/list',{runId:process.env.WB_RUN_ID,...sessionOptions(rest)}));
@@ -73,6 +78,7 @@ export async function main(argv = process.argv.slice(2)) {
     if (cmd === 'chat' && sub === 'summary') return out(await agentRequest('/api/agent/conversation/summary',{runId:process.env.WB_RUN_ID,...sessionOptions(rest)}));
     if (cmd === 'setup' && sub === 'catalog') return out(await setupCatalog());
     if (cmd === 'pass') return out(await agentRequest('/api/agent/pass',{runId:process.env.WB_RUN_ID}));
+    if(cmd==='report'&&sub==='status'){if(rest.length!==1)throw new Error(tr('runReports.invalidSubmissionId'));return out(await agentRequest('/api/agent/report',{runId:process.env.WB_RUN_ID,action:'status',submissionId:rest[0]}));}
     if (cmd === 'report') return out(await agentRequest('/api/agent/report',{...JSON.parse(tail.join(' ')),runId:process.env.WB_RUN_ID}));
     if (cmd === 'history' && sub === 'search') return out(await agentRequest('/api/agent/history/search',{runId:process.env.WB_RUN_ID,query:rest.join(' ')}));
     if ((cmd === 'history' || cmd === 'result') && sub === 'read') return out(await agentRequest('/api/agent/history/read',{runId:process.env.WB_RUN_ID,kind:cmd==='history'?'message':'result',id:rest[0],offset:rest[1]===undefined?0:Number(rest[1]),version:rest[2]}));
@@ -87,7 +93,6 @@ export async function main(argv = process.argv.slice(2)) {
     }
     if (cmd === 'setup' && sub === 'propose') return out(await setupPropose(JSON.parse(rest.join(' '))));
     if (cmd === 'role' && sub === 'prompt') return out(await updateRolePrompt(JSON.parse(rest.join(' '))));
-    if (!cmd || cmd === 'help' || cmd === '-h' || cmd === '--help') return out(supervisor ? tr('wbCli.wbScheduleJsonSupervisorSubmits', { HELP: helpText() }) : helpText());
     if (cmd === 'boot' || cmd === 'status') return out(await boot());
     if (cmd === 'docs' && (!sub || sub === 'list')) return out(await docsList());
     if (cmd === 'docs' && sub === 'read') return out(await docsRead(rest.join(' ')));
@@ -103,12 +108,14 @@ export async function main(argv = process.argv.slice(2)) {
       return out(await requestDelivery(sub, rest[0], rest.slice(1).join(' ')));
     }
     if (cmd === 'call') {
-      const values = {}, flags = { '--role': 'role', '--kind': 'kind', '--request-id': 'requestId', '--text': 'text', '--delivery-id': 'deliveryId','--source-sync-batch-id':'sourceSyncBatchId' };
+      const values = {}, flags = { '--role': 'role', '--kind': 'kind', '--request-id': 'requestId', '--text': 'text', '--file':'file', '--delivery-id': 'deliveryId','--source-sync-batch-id':'sourceSyncBatchId' };
       for (let i = 0; i < tail.length; i += 2) {
         const key = flags[tail[i]];
-        if (!key || tail[i + 1] === undefined || values[key] !== undefined) throw new Error(tr('wbCli.invalidDuplicateWbCallParameters'));
+        if (!key || tail[i + 1] === undefined || key!=='role'&&values[key] !== undefined) throw new Error(tr('wbCli.invalidDuplicateWbCallParameters'));
+        if(key==='role'&&values.role!==undefined){values.roles||=[values.role];values.roles.push(tail[i+1]);continue;}
         values[key] = tail[i + 1];
       }
+      if(values.roles)delete values.role;
       return out(await callRole(values));
     }
     if (cmd === 'handoff' && (sub === 'last' || sub === 'read')) return out(await handoffLast());

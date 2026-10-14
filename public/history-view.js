@@ -1,4 +1,5 @@
 import { t } from './i18n.js';
+import {setActionIcon} from './role-icons.js';
 function element(tag, className, text) {
   const node = document.createElement(tag);
   if (className) node.className = className;
@@ -7,24 +8,25 @@ function element(tag, className, text) {
 }
 
 /** Show and copy the original body stored by Home in segments; all body text is written to the page via textContent only. */
-export function createHistoryViewer({ api }) {
+export function createHistoryViewer({ api, inline = false }) {
   if (typeof api !== 'function') throw new Error('api must be a function');
   let dialog, activeState;
 
   function ensureDialog() {
     if (dialog) return dialog;
-    dialog = element('dialog', 'history-viewer');
-    const title = element('h2', 'history-viewer-title', 'Original Text');
+    dialog = element(inline ? 'section' : 'dialog', inline ? 'run-original' : 'history-viewer');
+    const title = element(inline ? 'h3' : 'h2', 'history-viewer-title', 'Original Text');
     const content = element('pre', 'history-viewer-content');
     const status = element('p', 'history-viewer-status');
     const actions = element('div', 'history-viewer-actions');
     const next = element('button', 'secondary', 'Load next segment');
     const copy = element('button', 'secondary', 'Copy full text');
-    const close = element('button', 'secondary', 'Close');
+    const close = element('button', 'icon-button');setActionIcon(close,'close','Close');
     for (const button of [next, copy, close]) button.type = 'button';
-    actions.append(next, copy, close);
-    dialog.append(title, content, status, actions);
-    document.body.append(dialog);
+    const heading=element('div','dialog-heading');heading.append(title);if(!inline)heading.append(close);
+    actions.append(next, copy);
+    dialog.append(heading, content, status, actions);
+    if(!inline)document.body.append(dialog);
     dialog.parts = { title, content, status, next, copy, close };
     close.addEventListener('click', () => { activeState = null; dialog.close(); });
     dialog.addEventListener('cancel', () => { activeState = null; });
@@ -72,16 +74,17 @@ export function createHistoryViewer({ api }) {
     view.parts.status.textContent = 'Loading…';
     view.parts.next.hidden = true;
     view.parts.next.disabled = false;
-    view.parts.copy.disabled = false;
+    view.parts.copy.disabled = true;
     view.parts.next.onclick = null;
     view.parts.copy.onclick = null;
-    if (!view.open) view.showModal();
+    if (!inline && !view.open) view.showModal();
     let first;
     try {
       first = await requestPart(state);
       if (!first) return null;
       state.totalLength = first.totalLength;
       render(view, state);
+      view.parts.copy.disabled = false;
     } catch (error) {
       showError(view, state, error);
       return null;
@@ -115,5 +118,6 @@ export function createHistoryViewer({ api }) {
     return first;
   }
 
-  return { open };
+  // Reuse one reader across detail-tab refreshes; close invalidates late pages without changing saved history.
+  return { open, element: ensureDialog, close() { activeState=null;if(!inline&&dialog?.open)dialog.close(); } };
 }

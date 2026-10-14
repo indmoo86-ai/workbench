@@ -3,6 +3,7 @@ import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import { tr } from './i18n.mjs';
 import { executionText } from './input-language.mjs';
+import { contextSample } from './context-usage.mjs';
 
 const git = promisify(execFile);
 const MAX_TOOL_OUTPUT = 12000;
@@ -218,7 +219,11 @@ export class CodexSession {
       this.items.set(p.item.id,p.item);
       this.emit('tool',{text:p.item.tool||p.item.type,item:completedToolSnapshot(p.item)});
     }
-    if (m.method === 'thread/tokenUsage/updated') this.emit('usage', { ...(p.tokenUsage?.total || p.tokenUsage || p), source: 'runtime', modelContextWindow: p.tokenUsage?.modelContextWindow });
+    if (m.method === 'thread/tokenUsage/updated') {
+      this.emit('usage', { ...(p.tokenUsage?.total || p.tokenUsage || p), source: 'runtime', modelContextWindow: p.tokenUsage?.modelContextWindow });
+      this.emit('context_usage',contextSample({usedTokens:p.tokenUsage?.last?.inputTokens,limitTokens:p.tokenUsage?.modelContextWindow,model:this.model,sessionId:p.threadId||this.threadId||this.resumeSessionId||null}));
+    }
+    if(m.method==='item/completed'&&p.item?.type==='contextCompaction')this.emit('context_usage',contextSample({usedTokens:null,model:this.model,sessionId:p.threadId||this.threadId||this.resumeSessionId||null,state:'compacted'}));
     if (m.method === 'turn/started') {this.turnId = p.turn?.id;this.emit('status',{inputDeliveryState:'accepted'});}
     if (m.method === 'turn/completed') {
       const status = p.turn?.status;
