@@ -276,10 +276,16 @@ export function reviewView(db, { projectId, roleId }) {
 
 /** Shared documents must still match the pre-review content on this device; own private handoffs stay readable. */
 export function reviewDocumentAllowed(db, run, file) {
-  if(typeof file?.path!=='string'||file.path.includes('\\')||file.path!==posix.normalize(file.path)||posix.isAbsolute(file.path))return false;
+  return reviewSourceFileAllowed(db,run,{sourceNodeId:run.nodeId,reviewPath:file?.path,hash:file?.hash});
+}
+
+/** Alternate-source reads keep the caller's identity; hash existence never releases a peer opinion. */
+export function reviewSourceFileAllowed(db,run,{sourceNodeId,reviewPath,hash,scopeId,sourceRunId,preflight=false}){
+  if(typeof reviewPath!=='string'||reviewPath.includes('\\')||reviewPath!==posix.normalize(reviewPath)||posix.isAbsolute(reviewPath))return false;
+  if(sourceRunId&&reviewView(db,{projectId:run.projectId,roleId:run.roleId}).get('runs',sourceRunId)?.reviewRedacted)return false;
   const guarded=guardedSessions(db,run.projectId,run.roleId);
   if(!guarded.size)return true;
-  if(file.path.startsWith('handoffs/private/'))return file.path.startsWith(`handoffs/private/${run.roleId}/`);
+  if(reviewPath.startsWith('handoffs/private/'))return sourceNodeId===run.nodeId&&reviewPath.startsWith(`handoffs/private/${run.roleId}/`);
   return [...guarded.keys()].map(id=>db.get(KIND,id)).filter(s=>s?.type==='independent-review'&&!s.reviewReleasedAt)
-    .every(s=>s.documentBaselines?.some(b=>b.nodeId===run.nodeId&&b.path===file.path&&b.hash===file.hash));
+    .every(s=>s.documentBaselines?.some(b=>b.nodeId===sourceNodeId&&b.path===reviewPath&&(!scopeId||!b.scopeId||b.scopeId===scopeId)&&(preflight||b.hash===hash)));
 }

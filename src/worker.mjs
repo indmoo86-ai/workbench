@@ -16,6 +16,9 @@ import { Store, terminal } from './store.mjs';
 import {validateCliCapacity,reservedTerminalSlots} from './device-capacity.mjs';
 import { readRunDocument } from './run-document.mjs';
 import {readProjectFile,listProjectFiles} from './project-file-read.mjs';
+import {budgetReadReply} from './read-query-response.mjs';
+import {inspectReadSource,readSourceCurrent} from './cross-device-read-worker.mjs';
+import {executeReadQuery,normalizeFileRead,normalizeReadQuery,readError} from './node-query-recipes.mjs';
 import { CodexSession } from './codex.mjs';
 import { CliPrintSession } from './cli-print-session.mjs';
 import { browseFolders } from './folders.mjs';
@@ -86,7 +89,7 @@ const sessions = new Map();
 let organizerRunning = 0;
 const organizerControllers = new Set();
 let capacity = validateCliCapacity(db.get('settings','cli-capacity')?.capacity??Number(process.env.WORKER_CONCURRENCY||2));
-let ws, paused = true, quitting = false, registered = false, readySent = false, reconnectCleanup,cliRecoveryEnabled=false;
+let ws, paused = true, quitting = false, registered = false, readySent = false, reconnectCleanup,cliRecoveryEnabled=false,readToolsEnabled=false;
 const eventSent = new Map();
 let runtimes = await inspectRuntimes(), probing;
 // The first version is still in isolated acceptance testing; only adapters that are explicitly enabled and have version-tested evidence report the capability.
@@ -321,6 +324,7 @@ async function command(m) {
         WB_RUN_ID: c.runId,
         WB_ROLE_SESSION_ID: m.run.roleSessionId || '',
         WB_SOURCE_SYNC:'1',
+        WB_READ_TOOLS:readToolsEnabled?'1':'0',
         WB_CONVERSATION_ID: m.run.projectId,
         WB_REQUEST_ID: m.run.requestId || '',
         WB_ROLE: m.run.roleSnapshot?.name || '',
@@ -539,7 +543,42 @@ async function query(m) {
     try{send({type:'reply',id:m.id,result:await applyCapacity(m.path?.capacity)});}catch(e){send({type:'reply',id:m.id,error:e.message});}return;
   }
   const modifies=['repository_setup','execution_receive','execution_baseline_advance','terminal_prepare','terminal_new','native_terminal_prepare'].includes(m.action);
+  const guarded=['source_inspect','source_read','read_query','project_file','file','document','collaboration_documents'].includes(m.action);
+  const reply=result=>send(guarded?budgetReadReply({id:m.id,result}).message:{type:'reply',id:m.id,result});
   try {
+    if(['source_inspect','source_read','read_query'].includes(m.action)){
+      const source=m.path?.source;
+      if(!source)throw readError('invalid_read_request');
+      const proof=await inspectReadSource({db,descriptor:source,projectRoot,nodeId:identity.nodeId});
+      if(m.action==='source_inspect'){reply(proof);return;}
+      if(!Number.isSafeInteger(source.generation)||source.generation<1||JSON.stringify(proof)!==JSON.stringify(source.proof))throw readError('configuration_changed');
+      let result;
+      if(m.action==='source_read'){
+        const input=normalizeFileRead(m.path.input);
+        if(input.sourceNodeId!==source.sourceNodeId||input.scopeId!==source.scopeId||input.sourceWorkspace.workspaceId!==source.workspaceId||input.sourceWorkspace.generation!==source.generation)throw readError('source_workspace_mismatch');
+        result=await readSourceCurrent({source,input});
+      }else{
+        const request=normalizeReadQuery(m.path.input);
+        if(request.params.scopeId!==source.scopeId||request.params.sourceWorkspace.workspaceId!==source.workspaceId||request.params.sourceWorkspace.generation!==source.generation)throw readError('source_workspace_mismatch');
+        result=await executeReadQuery({request,source,
+          workspaceCheck:async()=>{
+            let git=null;
+            try{
+              const options={cwd:source.root,timeout:1000,maxBuffer:16000,env:{...process.env,GIT_OPTIONAL_LOCKS:'0'}};
+              const top=(await exec('git',['rev-parse','--show-toplevel'],options)).stdout.trim();
+              if(await realpath(top)===source.root)git={head:(await exec('git',['rev-parse','HEAD'],options)).stdout.trim(),branch:(await exec('git',['rev-parse','--abbrev-ref','HEAD'],options)).stdout.trim()};
+            }catch{}
+            return {exists:true,git};
+          },
+          observeSession:()=>{
+            const run=db.get('runs',source.sourceRunId);
+            return cliRecovery.observe({projectId:run.projectId,roleId:run.roleId,taskId:run.taskId,roleSessionId:run.roleSessionId,nativeSessionId:run.nativeSession?.id,priorRunId:run.id});
+          }});
+        result={...result,workspaceId:source.workspaceId,generation:source.generation,scopeId:source.scopeId,scopeGeneration:source.scopeGeneration,proof};
+      }
+      if(JSON.stringify(await inspectReadSource({db,descriptor:source,projectRoot,nodeId:identity.nodeId}))!==JSON.stringify(proof))throw readError('configuration_changed');
+      reply(result);return;
+    }
     if(m.action==='queue_verification'){
       const input=m.path,r=db.get('runs',input?.runId||'');
       if(!r||r.projectId!==input.projectId||r.roleId!==input.roleId||r.collaborationBatchId!==input.batchId)throw new Error(tr('sessionQueue.reservationMismatch'));
@@ -555,7 +594,7 @@ async function query(m) {
         const info=await stat(target);if(!info.isFile()||info.size>200000)throw new Error(tr('wbTools.fileExceeds200kbUseShorter'));
         const bytes=await readFile(target);return {path:relative(knowledge,target),text:bytes.toString('utf8'),hash:createHash('sha256').update(bytes).digest('hex')};
       };
-      if(input.action==='read'){send({type:'reply',id:m.id,result:await read(input.path)});return;}
+      if(input.action==='read'){reply(await read(input.path));return;}
       if(!['list','snapshot'].includes(input.action))throw new Error(tr('collabSessions.invalidAction'));
       const files=[];let partial=false;
       const walk=async path=>{
@@ -568,7 +607,7 @@ async function query(m) {
           else if(entry.isFile()){try{const {text,...file}=await read(next);files.push(file);}catch{partial=true;}}
         }
       };
-      await walk('docs');await walk('handoffs');send({type:'reply',id:m.id,result:{files,partial}});return;
+      await walk('docs');await walk('handoffs');reply({files,partial});return;
     }
     if(m.action==='cli_session_check'||m.action==='cli_session_stop'){
       if(!cliRecoveryEnabled)throw Error(tr('cliRecovery.bindingChanged'));
@@ -579,7 +618,7 @@ async function query(m) {
     if(m.action==='project_file'||m.action==='project_files'){
       const root=await projectRoot(m.path?.root),args={...m.path,root};
       const result=m.action==='project_files'?await listProjectFiles(args):await readProjectFile(args);
-      send({type:'reply',id:m.id,result});return;
+      reply(result);return;
     }
     if(['role_switch_inspect','role_switch_prepare','role_switch_release','role_switch_status'].includes(m.action)) {
       if(m.path?.nodeId!==identity.nodeId)throw new Error('CLI switch addressed to another Worker.');
@@ -872,7 +911,7 @@ async function query(m) {
     const root = await realpath(r.workspace);
     if(m.action==='artifact_files'){send({type:'reply',id:m.id,result:await inspectArtifactFiles(root,m.path)});return;}
     if (m.action === 'document') {
-      send({type:'reply',id:m.id,result:await readRunDocument(root,m.path)});return;
+      reply(await readRunDocument(root,m.path));return;
     }
     if (m.action === 'file') {
       if (!m.path || m.path.split(/[\\/]/).some(p => p.startsWith('.') || /credential|secret/i.test(p))) throw new Error(tr('worker.readingPathNotAllowed'));
@@ -880,7 +919,7 @@ async function query(m) {
       if (!inside(root, file)) throw new Error(tr('worker.fileOutsideAllowedRoot'));
       const info = await stat(file); if (!info.isFile() || info.size > 200000) throw new Error(tr('worker.onlyTextPreviewsUp200kb'));
       const content = await readFile(file, 'utf8'); if (content.includes('\0')) throw new Error(tr('worker.binaryFilesDoNotSupport'));
-      send({ type: 'reply', id: m.id, result: { path: m.path, content } });
+      reply({path:m.path,content});
     } else {
       const files = [];
       const walk = async (dir, depth) => {
@@ -894,7 +933,7 @@ async function query(m) {
       };
       await walk(root, 0); send({ type: 'reply', id: m.id, result: { files } });
     }
-  } catch (e) { send({ type: 'reply', id: m.id, error: e.message }); }
+  } catch (e) { send(guarded?budgetReadReply({id:m.id,error:['source_inspect','source_read','read_query'].includes(m.action)?e.code||'read_failed':e.message}).message:{type:'reply',id:m.id,error:e.message}); }
   finally {if(modifies)db.remove('sourceSyncOperations',m.id);}
 }
 // On Worker restart, only known PIDs are verified; no --resume is attempted and no replacement process is started.
@@ -912,7 +951,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { nativeSessions:2,cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { queryRecipes:1,fileReadFreshness:1,readSourceBindings:1,fileReadModes:['source_current','expected_version'],nativeSessions:2,cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {
@@ -928,6 +967,7 @@ function connect() {
       if(m.type==='source_sync_receipt_ack'){sourceSync.acknowledge(m.commandId,m);return;}
       if (m.type === 'registered') {
         cliRecoveryEnabled=m.cliRecovery===1;
+        readToolsEnabled=m.readTools===1;
         paused = m.paused;
         // Home announces its language; run payloads carry their own, this covers Worker-originated text outside a run.
         if (m.language) try { setLanguage(m.language); } catch { /* keep current */ }

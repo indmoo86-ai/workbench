@@ -11,12 +11,14 @@ allowed.add('/api/agent/pass');
 allowed.add('/api/agent/collaboration-sessions');
 allowed.add('/api/agent/documents');
 allowed.add('/api/agent/source-sync');
+for(const path of ['/api/agent/read-source','/api/agent/node-query','/api/agent/file-read'])allowed.add(path);
 
 /** Dispatch pause must not swallow accepted work's conclusions; new work and write operations remain blocked. */
 export function allowsPausedAgentOperation(pathname,input={}) {
   return new Set(['/api/agent/report','/api/agent/wait','/api/agent/note','/api/agent/setup/catalog','/api/agent/history/search','/api/agent/history/read','/api/agent/sessions/current','/api/agent/sessions/list','/api/agent/sessions/summary','/api/agent/sessions/read','/api/agent/conversation/summary']).has(pathname)
     ||pathname==='/api/agent/discussions'&&['peers','read','reply','resolve'].includes(input.action)
-    ||pathname==='/api/agent/pass'||pathname==='/api/agent/documents'||pathname==='/api/agent/collaboration-sessions'&&input.action==='list';
+    ||pathname==='/api/agent/pass'||pathname==='/api/agent/documents'||pathname==='/api/agent/collaboration-sessions'&&input.action==='list'
+    ||['/api/agent/read-source','/api/agent/node-query','/api/agent/file-read'].includes(pathname);
 }
 
 /** Pause is not cancellation: retained identity, connection and live process checks still apply to every tool call. */

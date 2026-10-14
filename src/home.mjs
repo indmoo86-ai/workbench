@@ -29,6 +29,7 @@ import {RoleDiscussions} from './role-discussions.mjs';
 import {supportsDiscussion} from './discussion-policy.mjs';
 import {recentProjectArtifacts} from './run-artifacts.mjs';
 import {ProjectFiles} from './project-files.mjs';
+import {CrossDeviceRead} from './cross-device-read.mjs';
 import { RoleSteering } from './role-steering.mjs';
 import { WorkspaceStateFeed } from './workspace-state.mjs';
 import { messageProgress, reconcileCallResults } from './message-progress.mjs';
@@ -157,6 +158,7 @@ const send = (ws, payload) => { if (ws?.readyState === 1) ws.send(JSON.stringify
 const online = id => sockets.get(id)?.readyState === 1;
 const sourceSync=new SourceSyncHome({db,data,online,socket:id=>sockets.get(id),change,rooms,query:workerQuery});
 const projectFiles=new ProjectFiles({db,online,query:workerQuery});
+const crossDeviceRead=new CrossDeviceRead({db,online,query:workerQuery});
 const setup = new ProjectSetup(db, rooms, workerQuery, online, change);
 const credentials = new CredentialStore(join(data, 'credentials'));
 const hosting = new Hosting(db, credentials);
@@ -361,7 +363,7 @@ function workerQuery(run, action, path, timeout = 10000) {
   const id = randomUUID();
   return new Promise((resolveQuery, reject) => {
     const timer = setTimeout(() => { queries.delete(id); reject(new Error(tr('home.nodeQueryTimedOut'))); }, timeout);
-    queries.set(id, { nodeId: run.nodeId, resolve: value => { clearTimeout(timer); resolveQuery(value); }, reject: e => { clearTimeout(timer); reject(e); } });
+    queries.set(id, { nodeId: run.nodeId,readProtocol:['source_inspect','source_read','read_query'].includes(action),resolve: value => { clearTimeout(timer); resolveQuery(value); }, reject: e => { clearTimeout(timer); reject(e); } });
     send(sockets.get(run.nodeId), { type: 'query', id, runId: run.id, action, path, language: getLanguage() });
   });
 }
@@ -615,6 +617,11 @@ const server = http.createServer(async (req, res) => {
         if (!run || terminal.has(run.status) || ['stopping', 'reconciling'].includes(run.status)) throw new Error(tr('home.currentExecutionHasEndedStopping'));
         if(db.get('settings','main')?.paused&&!allowsPausedAgentOperation(pathname,b))throw new Error(tr('home.remoteExecutionPaused'));
         if(run.switchOperationId&&!['/api/agent/setup/catalog','/api/agent/history/search','/api/agent/history/read','/api/agent/sessions/current','/api/agent/sessions/list','/api/agent/sessions/summary','/api/agent/sessions/read','/api/agent/conversation/summary'].includes(pathname))throw new Error('CLI handoff maintenance permits history reads only.');
+        if(['/api/agent/read-source','/api/agent/node-query','/api/agent/file-read'].includes(pathname)){
+          if(Object.keys(b).some(k=>!['runId','input'].includes(k)))throw Error('invalid_read_request');
+          const method=pathname==='/api/agent/read-source'?'inspect':pathname==='/api/agent/node-query'?'query':'read';
+          return json(res,await crossDeviceRead[method](run,b.input));
+        }
         if(pathname==='/api/agent/source-sync'){const result=await sourceSync.agent.execute(run,b.action,b.input||{});change();return json(res,result);}
         if(pathname==='/api/agent/source-candidates'){const result=b.finish?await sourceSync.agent.completeCandidate(run,b.candidateId):sourceSync.agent.stageCandidate(run,b);change();return json(res,result);}
         if(pathname==='/api/agent/discussions') {
@@ -680,6 +687,9 @@ const server = http.createServer(async (req, res) => {
         res.write('event: change\ndata: {}\n\n'); viewers.add(res);
         req.on('close', () => viewers.delete(res)); return;
       }
+      const readAccessRoute=pathname.match(/^\/api\/projects\/([^/]+)\/read-access$/);
+      if(readAccessRoute&&req.method==='GET')return json(res,crossDeviceRead.configuration(readAccessRoute[1]));
+      if(readAccessRoute&&req.method==='PUT'){const result=crossDeviceRead.updateConfiguration(readAccessRoute[1],await body(req));change();return json(res,result);}
       const collabFlagRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/feature$/);
       if(collabFlagRoute&&req.method==='POST'){const p=setCollaborationSessionsEnabled(db,collabFlagRoute[1],(await body(req)).enabled);change();return json(res,{enabled:p.features.collaborationSessions});}
       const queueRoute=pathname.match(/^\/api\/projects\/([^/]+)\/collaboration-sessions\/(queue|queue-config)$/);
@@ -1108,7 +1118,7 @@ wss.on('connection', ws => {
         sockets.set(nodeId, ws); clearTimeout(registerTimer);
         const config=db.get('workerConfigs',nodeId),limits=registrationCapacity(m.node,config);
         db.put('workers', { ...m.node, ...config,...limits,id:nodeId, lastSeen: new Date().toISOString() });
-        send(ws, { type: 'registered', paused: !!db.get('settings', 'main')?.paused, language: getLanguage(),cliRecovery:1,...(m.node.capabilities?.cliCapacity===1?{capacity:limits.desiredCapacity}:{}) }); change(); return;
+        send(ws, { type: 'registered', paused: !!db.get('settings', 'main')?.paused, language: getLanguage(),cliRecovery:1,readTools:m.node.capabilities?.readSourceBindings===1?1:0,...(m.node.capabilities?.cliCapacity===1?{capacity:limits.desiredCapacity}:{}) }); change(); return;
       }
       if (!nodeId || sockets.get(nodeId) !== ws) throw new Error(tr('home.nodeNotRegisteredYet'));
       if(['source_sync_receipt','source_sync_command_ack','source_sync_watch_ack','source_sync_watch_status','source_sync_dirty'].includes(m.type)){
@@ -1178,7 +1188,11 @@ wss.on('connection', ws => {
         if(['message','tool','usage','context_usage'].includes(m.event.type))outputChanged();else change();
       }
       if (m.type === 'command_ack') { const c = db.get('commands', m.id); if (c?.nodeId === nodeId&&!c.acked) {db.put('commands', { ...c, acked: true,ackedAt:new Date().toISOString() });change();} }
-      if (m.type === 'reply') { const q = queries.get(m.id); if (q?.nodeId === nodeId) { queries.delete(m.id); m.error ? q.reject(new Error(m.error)) : q.resolve(m.result); } }
+      if (m.type === 'reply') { const q = queries.get(m.id); if (q?.nodeId === nodeId) {
+        queries.delete(m.id);
+        if(m.error){const error=new Error(m.error);if(q.readProtocol&&typeof m.error==='string'&&/^[a-z_]{1,64}$/.test(m.error))error.code=m.error;q.reject(error);}
+        else q.resolve(m.result);
+      } }
     } catch (e) { send(ws, { type: 'error', error: e.message }); }
   });
   ws.on('close', () => {

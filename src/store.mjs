@@ -1,6 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync,statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { giteeRepository } from './repository.mjs';
 import { roleWorkspace } from './project-repositories.mjs';
@@ -32,6 +32,7 @@ const unresolvedRecovery = "COALESCE(json_extract(data,'$.state'),'')!='resolved
 /** SQLite is the persistent record kept separately by Home and each Worker; files are not shared across machines. */
 export class Store {
   constructor(file) {
+    this.file=file;
     if (file !== ':memory:') mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
     this.db = new DatabaseSync(file);
     this.db.exec(`PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;
@@ -48,10 +49,33 @@ export class Store {
       CREATE INDEX IF NOT EXISTS records_schedulable_requests ON records(id) WHERE kind='coordinationRequests' AND ${schedulableRequest};
       CREATE INDEX IF NOT EXISTS records_pending_call_results ON records(id) WHERE kind='coordinationRequests' AND ${pendingCallResult};
       CREATE INDEX IF NOT EXISTS records_conflict_runs ON records(json_extract(data,'$.sourceConflictId')) WHERE kind='runs' AND json_extract(data,'$.sourceConflictId') IS NOT NULL;
-      CREATE INDEX IF NOT EXISTS records_unresolved_recoveries ON records(id) WHERE kind='cliRecoveries' AND ${unresolvedRecovery};`);
+      CREATE INDEX IF NOT EXISTS records_unresolved_recoveries ON records(id) WHERE kind='cliRecoveries' AND ${unresolvedRecovery};
+      CREATE INDEX IF NOT EXISTS records_native_driver_read ON records(json_extract(data,'$.projectId'),json_extract(data,'$.roleId'),json_extract(data,'$.nativeSession.id')) WHERE kind='runs';`);
   }
   get(kind, id) { const r = this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind, id); return r ? JSON.parse(r.data) : null; }
+  /** Admission uses the result-store filesystem, never a remote workspace or a caller-provided path. */
+  readResultFreeBytes(){
+    if(this.file===':memory:')return Infinity;
+    const info=statfsSync(dirname(this.file));return info.bavail*info.bsize;
+  }
   list(kind) { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(r.data)); }
+  /** Read one role/session with a hard row budget; omitted history is unknown, never proof of idle. */
+  readNativeDriverRecords(binding,{limit=100}={}){
+    if(!binding?.projectId||!binding.roleId||!binding.taskId||!Number.isSafeInteger(limit)||limit<1||limit>100)throw Error('invalid_read_request');
+    // A legacy prior Run is already unique; forcing the native-session index scans its role history.
+    if(!binding.nativeSessionId){
+      const record=this.get('runs',binding.priorRunId||'');
+      const matches=record&&record.id!==binding.runId&&record.projectId===binding.projectId&&record.roleId===binding.roleId
+        &&(!binding.roleSessionId||!record.roleSessionId||record.roleSessionId===binding.roleSessionId);
+      return {records:matches?[record]:[],partial:false};
+    }
+    const conditions=["kind='runs'","json_extract(data,'$.projectId')=?","json_extract(data,'$.roleId')=?"],params=[binding.projectId,binding.roleId];
+    conditions.push("json_extract(data,'$.nativeSession.id')=?");params.push(binding.nativeSessionId);
+    if(binding.runId){conditions.push('id!=?');params.push(binding.runId);}
+    if(binding.roleSessionId){conditions.push("(json_extract(data,'$.roleSessionId') IS NULL OR json_extract(data,'$.roleSessionId')=?)");params.push(binding.roleSessionId);}
+    const rows=this.db.prepare(`SELECT data FROM records INDEXED BY records_native_driver_read WHERE ${conditions.join(' AND ')} ORDER BY rowid DESC LIMIT ?`).all(...params,limit+1);
+    return {records:rows.slice(0,limit).reverse().map(r=>JSON.parse(r.data)),partial:rows.length>limit};
+  }
   /** Poll only live scheduling candidates; unknown Run states still reserve capacity, and history stays intact. */
   activeRuns(nodeId) {
     return this.db.prepare(`SELECT data FROM records INDEXED BY records_active_runs WHERE kind='runs' AND ${activeRun}${nodeId===undefined?'':" AND json_extract(data,'$.nodeId')=?"} ORDER BY rowid`).all(...(nodeId===undefined?[]:[nodeId])).map(r=>JSON.parse(r.data));
@@ -164,6 +188,14 @@ export class Store {
       for (const t of this.list('tasks').filter(t => t.projectId === id)) this.remove('tasks', t.id);
       for (const m of this.list('roomMessages').filter(m => m.projectId === id)) this.remove('roomMessages', m.id);
       this.remove('proactiveFollowups',id);
+      // Only explicit project deletion releases its private read evidence; there is no background eviction.
+      const readOperations=this.listProject('readOperations',id),readUsage=this.get('readStorageUsage','home');
+      if(readUsage)this.put('readStorageUsage',{...readUsage,
+        usedBytes:Math.max(0,readUsage.usedBytes-readOperations.reduce((sum,r)=>sum+(r.resultBytes||0),0)),
+        reservedBytes:Math.max(0,readUsage.reservedBytes-readOperations.reduce((sum,r)=>sum+(r.reservedBytes||0),0))});
+      for(const operation of readOperations){this.remove('readOperations',operation.id);this.remove('readResults',operation.id);}
+      this.remove('projectReadAccess',id);
+      for(const binding of this.listProject('readWorkspaceBindings',id))this.remove('readWorkspaceBindings',binding.id);
       for(const kind of ['cliRecoveries','cliRecoveryDecisions'])for(const record of this.list(kind).filter(r=>r.projectId===id))this.remove(kind,record.id);
       this.db.prepare('DELETE FROM room_message_receipts WHERE project_id=?').run(id);
       for (const r of this.list('roles').filter(r => r.projectId === id)) this.remove('roles', r.id);

@@ -1,6 +1,7 @@
 // English message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'readTools.guide': 'Read tools: wb read source|query|file <one JSON argument>. Source discovery takes requestId, sourceNodeId, sourceWorkspace (kind=bound_project or managed_run with sourceRunId) and scopeId; use its workspaceId/generation for query/file reads. Query accepts only recipeId=workspace_check or cli_session_check, recipeVersion=1 and params containing sourceWorkspace/scopeId. File adds path, freshness=source_current or expected_version with expectHash, and optional metadata. Reuse requestId only for identical retries: it returns the original result and observedAt with replayed=true. Use a new requestId for a new source observation. Projects must be explicitly enabled through read-access; no cache fill, materialization, arbitrary commands or S execution.',
   'sourceSync.preparationScan': 'Pre-input file verification: {scopes} scopes, {files} files, {seconds}s; {unavailable} unavailable scopes (no attribution evidence).',
   'runReports.invalidSubmissionId': 'Invalid report submission ID.',
   'runReports.superseded': 'This submission was saved as revision {revision}; revision {currentRevision} is now current. The older conclusion was not restored.',

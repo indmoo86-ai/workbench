@@ -140,3 +140,21 @@
 - Added the five user-confirmed non-blocking Claude review suggestions to the canonical design: accessible source-ancestor base selection without overriding explicit/frozen SHAs; direct Q/F work can precede full P0 resource work while cache writes and S retain their budgets and gates; before/after-only observation is reported honestly; Q wrappers bind check in code and reject stop injection; implementation requires readable exact source and deployment baselines.
 - Clarified that p95 targets and the 100 MiB / 5000-file sample conditions are unmeasured performance candidates, not functional limits, timeouts or SLA promises. Kept the digest algorithm and nine vectors unchanged; added A69–A75 for 75 acceptance scenarios and updated both documentation indexes.
 - Documentation only. The supplied Claude approval concerns the exact prior v2.3 artifact and does not establish other reviewers' decisions, implementation or live acceptance. No code/configuration changes, role dispatch, push, deployment or service restart; unrelated work remains separate.
+
+## 2026-10-14 — Cross-device P1 plan approved
+
+- The user approved revision 2 and sequential inline implementation. The product baseline is daacf7403976ccf338052cd91a65d7b4ed17f1f2; the approved plan is carried in a separate documentation-only commit before code work.
+- Q/F will add pure observation, bounded complete replies and owner-scoped durable replay. Cache fill, materialization and S execution remain later increments. Existing uncommitted frontend/quota work is not copied or changed; no production configuration, deployment or restart is included.
+
+## 2026-10-14 — Cross-device P1 code and initial transport verification
+
+- Added fixed query schemas, registered physical-source identities, pure indexed native observation, stable current-source reads and complete-frame size protection. Home enforces live identity, explicit grants and source-aware independent-review visibility; request results persist with bounded reservations and unchanged original timestamps.
+- Connected managed wb commands, immutable-turn context, negotiated Worker capabilities and bilingual help. No source synchronization, formal Git gates, tasks, reports or user files are modified by these reads.
+- Focused checks and the maintained suite passed. An isolated actual Home/Mac Worker/wb bridge exercised new reads, original-result replay, changed bytes, oversized escaped-file previews and an unchanged concurrent test Run. Linux/page/whole-branch review remain the final gates. No push, deployment or existing-service restart.
+
+## 2026-10-14 — Cross-device P1 isolated acceptance and final review fixes
+
+- Completed actual private Mac/Linux dual-direction wb/Worker checks, managed-worktree dirty-file reads, missing/replaced directory and generation checks, offline-original replay and real browser Resources/document previews. First acceptance used clean code commit 06dd33fb85b89290549de455891ff415b1b3e7a9. Added an actual isolated Home restart, expected startup reconciliation and persisted-result replay; source-module hashes were unchanged with only documentation edits pending. No paid native-model turn or production service was used.
+- One independent whole-branch review found a nested-project scope leak through a parent repository and a legacy unique-Run query that still scanned role history. Both reproductions failed before the fix and passed afterwards; known excluded paths now stop before Worker dispatch, and real SQLite EXPLAIN uses the Run primary key without a temporary sort. Focused checks 31/31, maintained suite 56/56, syntax and whitespace checks passed.
+- Final twenty warm local F samples measured median 187.58 ms/p95 191.99 ms; short process CPU/RSS samples are recorded separately from sustained idle/peak-memory and production acceptance, which were not performed. Existing concurrent test Run/process, source-sync state and reports remained unchanged during reads. Other-worktree frontend/quota modifications were retained.
+- P1 is committed and isolated-verified, not merged, pushed, deployed or enabled on business projects. The approved v2.3.1 design hash is unchanged. Cache/materialization, full shared-resource management, S execution and cross-round services remain later implementation gates.
