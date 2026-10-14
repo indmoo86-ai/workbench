@@ -295,7 +295,8 @@ async function dispatch(nodeId) {
   } finally {dispatching.delete(nodeId);}
 }
 function snapshot() {
-  const launches=new Map(db.list('commands').filter(c=>c.type==='launch').map(c=>[c.runId,c]));
+  const launchCommands=db.list('commands').filter(c=>c.type==='launch'),launches=new Map(launchCommands.map(c=>[c.runId,c]));
+  const continuationLaunches=new Map(launchCommands.toReversed().map(c=>[c.runId,c]));
   // Keep fixed supervisors separate from editable work roles and hide the platform assistant.
   const supervisorIds=new Map(db.list('projects').filter(p=>!p.systemConfig&&p.supervisorRoleId).map(p=>[p.id,p.supervisorRoleId]));
   return { version: tr('home.040ProjectWorkspace'), language: getLanguage(), capabilities: {roleSteering:1}, homePlatform: process.platform, projects: db.list('projects').filter(p => !p.systemConfig), roles: db.list('roles').filter(r => !r.systemSupervisor), rooms: db.list('rooms'), workspaces: db.list('workspaces'), tasks: db.list('tasks'), runs: db.list('runs'),
@@ -315,7 +316,7 @@ function snapshot() {
     executionPlans: db.list('executionPlans').map(({fingerprint,...p})=>p),
     roleSessions:db.list('roleSessions').filter(session=>!session.historyClearedAt).map(({nativeSession,...session})=>session),
     scheduledJobs: db.list('scheduledJobs'),scheduledOccurrences:db.list('scheduledOccurrences').slice(-200),runReports:db.list('runReports'),runAlerts:db.list('runAlerts').filter(a=>a.status==='open'),
-    requests: db.list('coordinationRequests').map(request => {const {fingerprint,targetSnapshot,...r}=request;return {...r,messageProgress:messageProgress(db,request,online,launches.get(request.currentRunId)||null)};}),
+    requests: db.list('coordinationRequests').map(request => {const {fingerprint,targetSnapshot,...r}=request;return {...r,messageProgress:messageProgress(db,request,online,launches.get(request.currentRunId)||null,continuationLaunches)};}),
     deliveries: db.list('deliveries').map(({ fingerprint, ...r }) => r),
     workers: db.list('workers').map(w => ({ ...w, runtimes: visibleRuntimes(w.runtimes), online: online(w.id) })) };
 }

@@ -144,8 +144,15 @@ export class SourceSyncHome {
     const c=this.db.get('sourceSyncCommands',m[1]);
     if(!c||!matches(req.headers.authorization||'',`Bearer ${c.secret}`)){json(res,{error:'Unauthorized'},401);return true;}
     const batch=this.db.get('sourceSyncBatches',c.batchId);
-    const evidenceUpload=req.method==='PUT'&&['capture','receipt'].includes(m[2]);
-    if(!this.db.get('projects',c.projectId)||!batch||batch.status==='cancelled'&&!evidenceUpload)throw syncError('batch_inactive');
+    const evidenceRequest=req.method==='PUT'&&['capture','receipt'].includes(m[2])||req.method==='GET'&&m[2]==='receipt';
+    if(!this.db.get('projects',c.projectId)||!batch||batch.status==='cancelled'&&!evidenceRequest)throw syncError('batch_inactive');
+    if(m[2]==='receipt'&&req.method==='GET'){
+      // A small proof avoids retransmitting historical manifests over a slow or recovering connection.
+      const uploaded=c.action==='apply'?this.db.get('sourceSyncUploadReceipts',c.id)?.result:null;
+      const bundle=c.action==='capture'&&(c.result||batch.status==='cancelled')?this.db.get('sourceSyncUploads',c.id)?.bundle:null;
+      const result=uploaded||(bundle?{status:'completed',...bundle}:null);
+      json(res,{receiptHash:result?contentHash(JSON.stringify(result)):null});return true;
+    }
     if(m[2]==='plan'&&req.method==='GET'){const {result,lastResult,secret,status,lastSentAt,ackedAt,receivedAt,...plan}=c;json(res,plan);return true;}
     if(m[2]==='receipt'&&req.method==='PUT'&&c.action==='apply'){
       const result=await body(req);if(!Array.isArray(result.files)||result.files.length>10000)throw syncError('invalid_receipt');
@@ -242,11 +249,13 @@ export class SourceSyncClient {
       }
       const result=await this.worker.execute(command);
       this.watch.received(command,result);
-      if(result.status==='completed'&&command.action==='capture'){
+      let alreadyUploaded=false;
+      if(saved)try{const proof=await (await this.request(message,'receipt')).json();alreadyUploaded=proof.receiptHash===contentHash(JSON.stringify(result));}catch{ /* Old Homes can still accept the original upload path. */ }
+      if(!alreadyUploaded&&result.status==='completed'&&command.action==='capture'){
         const needed=await (await this.request(message,'capture','PUT',{base:result.base,manifest:result.manifest})).json();
         for(const entry of needed.missing)await this.request(message,`blobs/${entry.hash}`,'PUT',await readSourceBlob(this.blobRoot,entry.hash));
       }
-      if(command.action==='apply'&&Array.isArray(result.files))await this.request(message,'receipt','PUT',result);
+      if(!alreadyUploaded&&command.action==='apply'&&Array.isArray(result.files))await this.request(message,'receipt','PUT',result);
       this.db.put('sourceSyncTransport',{...this.db.get('sourceSyncTransport',command.id),ready:true,recoveryAttempts:0,nextRecoveryAt:0});
       this.flush();
       if(!['completed','partial_conflict','cancelled'].includes(result.status))this.send({type:'source_sync_receipt',commandId:command.id,result});

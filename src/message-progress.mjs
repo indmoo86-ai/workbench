@@ -4,11 +4,12 @@ import {currentContinuation} from './coordination-wait.mjs';
 import {executionProgress} from '../public/execution-progress.js';
 
 /** Message progress is derived from existing request, command, and run evidence; no separate, possibly contradictory state table is created. */
-export function messageProgress(db,request,online,launch) {
+export function messageProgress(db,request,online,launch,launches) {
   const registeredAt=request.createdAt,current=currentContinuation(db,request.id);
   if(current&&current.id!==request.id){request=current;launch=undefined;}
   const run=db.get('runs',request.currentRunId||''),task=db.get('tasks',request.taskId||'');
-  const command=launch===undefined?db.list('commands').find(c=>c.type==='launch'&&c.runId===run?.id):launch;
+  // Preserve find's first-match and missing-Run semantics while reusing the caller's current snapshot.
+  const command=launch===undefined?(launches?launches.get(run?.id):db.list('commands').find(c=>c.type==='launch'&&c.runId===run?.id)):launch;
   const parent=db.get('coordinationRequests',request.parentRequestId||'');
   const effective=currentContinuation(db,(parent||request).id);
   const next=effective?.id!==(parent||request).id?effective:null;
