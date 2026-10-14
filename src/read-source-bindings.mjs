@@ -6,6 +6,7 @@ import {normalizeReadSelector,readError} from './node-query-recipes.mjs';
 const childPath=(root,path)=>{const rel=relative(root,path);return !isAbsolute(rel)&&rel!=='..'&&!rel.startsWith('../')?rel:null;};
 const fingerprint=value=>contentHash(JSON.stringify(value));
 const rootOf=b=>b?.localRoot||b?.workspace;
+const repositoryId=b=>b.repositoryId||b.id;
 
 /** Resolve source ownership from Home records only; managed sources never fall back to ordinary roots. */
 export function resolveReadSource(db,callerRun,input){
@@ -19,7 +20,7 @@ export function resolveReadSource(db,callerRun,input){
     if(!owner||owner.projectId!==projectId||owner.nodeId!==sourceNodeId)throw readError('source_workspace_mismatch');
     if(!owner.workspace)throw readError('source_workspace_missing');
     workspaceRoot=owner.workspace;layout=owner.repositories||[];
-    binding=projectScope?{localRoot:workspaceRoot}:layout.find(b=>b.repositoryId===scopeId);
+    binding=projectScope?{localRoot:workspaceRoot}:layout.find(b=>repositoryId(b)===scopeId);
     if(!rootOf(binding))throw readError('source_workspace_missing');
   }else{
     owner=db.get('workspaces',`${projectId}:${sourceNodeId}`);
@@ -29,7 +30,7 @@ export function resolveReadSource(db,callerRun,input){
     if(binding?.projectId!==projectId||binding.nodeId!==sourceNodeId||!workspaceRoot||!rootOf(binding))throw readError('source_workspace_missing');
   }
   const root=resolve(rootOf(binding));workspaceRoot=resolve(workspaceRoot);
-  const excludeRoots=[...new Set(layout.filter(b=>b.repositoryId!==scopeId&&rootOf(b)).map(b=>childPath(root,resolve(rootOf(b)))).filter(p=>p!==null))].sort();
+  const excludeRoots=[...new Set(layout.filter(b=>repositoryId(b)!==scopeId&&rootOf(b)).map(b=>childPath(root,resolve(rootOf(b)))).filter(p=>p!==null))].sort();
   if(!projectScope&&excludeRoots.includes(''))throw readError('source_workspace_mismatch');
   const scopePolicy={sharedDocs:projectScope,excludeRoots};
   const workspaceId='read:'+fingerprint([projectId,sourceNodeId,sourceWorkspace.kind,owner.workspaceRunId||sourceRunId||projectId]).slice(0,40);

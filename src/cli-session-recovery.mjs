@@ -1,5 +1,7 @@
 import {createHash} from 'node:crypto';
-import {execFileSync} from 'node:child_process';
+import {execFileSync,execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {readFile} from 'node:fs/promises';
 import {terminalProcessIdentity,processIdentityKey,sameProcessIdentity} from './terminal-resume.mjs';
 import {tr} from './i18n.mjs';
 
@@ -7,6 +9,30 @@ const terminal=new Set(['succeeded','failed','interrupted']);
 const hash=value=>createHash('sha256').update(JSON.stringify(value)).digest('hex');
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 const processRows=()=>execFileSync('ps',['-axo','pid=,ppid=,pgid='],{encoding:'utf8',timeout:3000,maxBuffer:1024*1024}).trim().split('\n').map(line=>line.trim().split(/\s+/).map(Number));
+const exec=promisify(execFile);
+/** One bounded no-argument process snapshot serves Q; Linux startup ticks remain PID-reuse proof. */
+async function driverProcessFacts(records){
+  const {stdout}=await exec('ps',['-axo','pid=,ppid=,uid=,pgid=,lstart=,stat='],{encoding:'utf8',timeout:3000,maxBuffer:1024*1024,env:{...process.env,LC_ALL:'C'}});
+  const facts=new Map(),groups=new Set(records.filter(r=>r.processIdentity&&r.processIdentity.pgid===r.processIdentity.pid).map(r=>r.processIdentity.pgid));
+  const selected=new Set(records.flatMap(r=>[r.pid,...(r.driverStopProcesses||[]).map(p=>p.pid)]).filter(Boolean));
+  for(const line of stdout.trim().split('\n')){
+    const m=line.trim().match(/^(\d+)\s+(\d+)\s+(\d+)\s+(\d+)\s+(\w{3}\s+\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(\S+)$/);
+    if(!m)continue;
+    if(!selected.has(Number(m[1]))&&!groups.has(Number(m[4])))continue;
+    facts.set(Number(m[1]),{pid:Number(m[1]),ppid:Number(m[2]),uid:Number(m[3]),pgid:Number(m[4]),start:m[5],zombie:m[6].startsWith('Z')});
+  }
+  let partial=false;
+  if(process.platform==='linux'){
+    const boot=(await readFile('/proc/sys/kernel/random/boot_id','utf8')).trim();
+    let count=0;
+    for(const [pid,fact] of facts){
+      if(count++>=100){partial=true;facts.set(pid,{pid,unknown:true});continue;}
+      try{const info=await readFile('/proc/'+pid+'/stat','utf8');fact.start=boot+':'+info.slice(info.lastIndexOf(')')+2).split(' ')[19];}
+      catch{facts.set(pid,{pid,unknown:true});}
+    }
+  }
+  return {identity:pid=>facts.get(pid)||null,rows:()=>[...facts.values()].map(p=>[p.pid,p.ppid,p.pgid]),partial};
+}
 
 /** Recheck saved startup identities before every signal; a bare PID never authorizes shutdown. */
 export async function stopVerifiedDriver(expected,{identity=terminalProcessIdentity,signal=(pid,name)=>process.kill(pid,name),rows=()=>execFileSync('ps',['-axo','pid=,ppid=,pgid='],{encoding:'utf8',timeout:3000,maxBuffer:1024*1024}),onTracked=()=>{},graceMs=3000,killMs=3000}={}) {
@@ -56,7 +82,7 @@ export function driverIdentity(run,pid,identity=terminalProcessIdentity) {
 
 /** Inspect only this role's native drivers; process facts do not replace task or native history. */
 export class CliSessionRecovery {
-  constructor({db,warmSessions,activeSessions,emit,identity=terminalProcessIdentity,stop=stopVerifiedDriver,rows=processRows}){Object.assign(this,{db,warmSessions,activeSessions,emit,identity,stop,rows});this.pending=new Map();}
+  constructor({db,warmSessions,activeSessions,emit,identity=terminalProcessIdentity,stop=stopVerifiedDriver,rows=processRows,processFacts=driverProcessFacts}){Object.assign(this,{db,warmSessions,activeSessions,emit,identity,stop,rows,processFacts});this.pending=new Map();}
   records(binding){
     if(!binding?.projectId||!binding.roleId||!binding.taskId)throw Error(tr('cliRecovery.bindingChanged'));
     return this.db.list('runs').filter(run=>run.id!==binding.runId&&run.projectId===binding.projectId&&run.roleId===binding.roleId
@@ -69,8 +95,8 @@ export class CliSessionRecovery {
     this.emit(run.id,'status',{pid:null,previousPid:run.pid,runtimeRetained:false,processSettled:true,driverState:'exited',
       ...(!terminal.has(run.status)?{status:'interrupted',controlLost:true,error:tr('cliRecovery.oldProcessExited')}:{})});
   }
-  inspect(binding){
-    const candidates=this.records(binding),seen=new Set(),processes=[];
+  inspect(binding,{records,readOnly=false,identity=this.identity,rows=this.rows}={}){
+    const candidates=records||this.records(binding),seen=new Set(),processes=[];
     // One driver can serve several turns; an older success cannot override a newer active owner.
     for(const run of candidates.reverse()){
       const original=run.processIdentity;
@@ -78,10 +104,10 @@ export class CliSessionRecovery {
         &&original.nativeSessionId===run.nativeSession?.id&&original.runtime===run.nativeSession?.runtime;
       const keys=[{pid:run.pid,proof:original,child:false},...(run.driverStopProcesses||[]).filter(p=>p.pid!==run.pid).map(proof=>({pid:proof.pid,proof,child:true}))];
       if(associated&&original.pgid===original.pid){
-        const root=this.identity(original.pid),anchor=keys.some(({proof})=>{const current=this.identity(proof?.pid);return sameProcessIdentity(current,proof)&&current.pgid===original.pgid;});
+        const root=identity(original.pid),anchor=keys.some(({proof})=>{const current=identity(proof?.pid);return sameProcessIdentity(current,proof)&&current.pgid===original.pgid;});
         // Without a surviving startup proof, group membership blocks dispatch but does not authorize killing.
-        if(!root||root.unknown||sameProcessIdentity(root,original))for(const[pid,,pgid]of this.rows())if(pgid===original.pgid&&!keys.some(k=>k.pid===pid)){
-          const current=this.identity(pid);if(!current||current.zombie)continue;
+        if(!root||root.unknown||sameProcessIdentity(root,original))for(const[pid,,pgid]of rows())if(pgid===original.pgid&&!keys.some(k=>k.pid===pid)){
+          const current=identity(pid);if(!current||current.zombie)continue;
           if(!current.unknown&&current.pgid!==original.pgid)continue;
           keys.push({pid,proof:anchor&&current.uid===original.uid&&!current.unknown?processIdentityKey(current):null,child:true});
         }
@@ -89,7 +115,7 @@ export class CliSessionRecovery {
       let live=false,covered=false;
       for(const{pid,proof,child}of keys){
         if(!pid)continue;if(seen.has(pid)){covered=true;continue;}seen.add(pid);
-        const current=this.identity(pid);
+        const current=identity(pid);
         if(!current||current.zombie||proof&&!current.unknown&&current.start!==proof.start)continue;
         live=true;
         const verified=Boolean(associated&&(!binding.roleSessionId||run.roleSessionId===binding.roleSessionId)&&sameProcessIdentity(current,proof)&&(typeof process.getuid!=='function'||current.uid===process.getuid()));
@@ -99,13 +125,20 @@ export class CliSessionRecovery {
         const idle=verified&&!owner&&terminal.has(run.status)&&run.runtimeRetained===true;
         processes.push({runId:run.id,ownerRunId:owner?.[0]||null,pid,verified,warm,idle,state:warm||idle?'idle':verified?'unconfirmed':'unknown',proof:verified?proof:null});
       }
-      if(!live&&!covered&&run.pid)this.retire(run);
+      if(!readOnly&&!live&&!covered&&run.pid)this.retire(run);
     }
     const blockers=processes.filter(p=>!p.warm),fingerprint=hash({binding:{projectId:binding.projectId,roleId:binding.roleId,roleSessionId:binding.roleSessionId,nativeSessionId:binding.nativeSessionId},processes:blockers.map(p=>({runId:p.runId,ownerRunId:p.ownerRunId,pid:p.pid,idle:p.idle,proof:p.proof}))});
     return {state:blockers.length?(blockers.every(p=>p.verified)?'waiting':'unknown'):'ready',canStop:blockers.length>0&&blockers.every(p=>p.verified),fingerprint,
       processes:processes.map(({proof,...p})=>p),blockers};
   }
   view(result){const{blockers,...view}=result;return view;}
+  /** Q observes bounded persisted startup proofs only; it cannot retire history or reclaim a driver. */
+  async observe(binding){
+    const {records,partial}=this.db.readNativeDriverRecords(binding,{limit:100});
+    const facts=this.identity===terminalProcessIdentity?await this.processFacts(records):{identity:this.identity,rows:this.rows,partial:false};
+    const result=this.inspect(binding,{records,readOnly:true,identity:facts.identity,rows:facts.rows}),incomplete=partial||facts.partial;
+    return {state:incomplete?'unknown':result.state,processes:result.processes,partial:incomplete,readOnly:true};
+  }
   async check(binding){
     const key=binding.roleSessionId||`${binding.projectId}:${binding.roleId}`;
     if(this.pending.has(key))return {state:'stopping',canStop:false,reason:tr('cliRecovery.stopPending')};

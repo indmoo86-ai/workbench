@@ -48,10 +48,22 @@ export class Store {
       CREATE INDEX IF NOT EXISTS records_schedulable_requests ON records(id) WHERE kind='coordinationRequests' AND ${schedulableRequest};
       CREATE INDEX IF NOT EXISTS records_pending_call_results ON records(id) WHERE kind='coordinationRequests' AND ${pendingCallResult};
       CREATE INDEX IF NOT EXISTS records_conflict_runs ON records(json_extract(data,'$.sourceConflictId')) WHERE kind='runs' AND json_extract(data,'$.sourceConflictId') IS NOT NULL;
-      CREATE INDEX IF NOT EXISTS records_unresolved_recoveries ON records(id) WHERE kind='cliRecoveries' AND ${unresolvedRecovery};`);
+      CREATE INDEX IF NOT EXISTS records_unresolved_recoveries ON records(id) WHERE kind='cliRecoveries' AND ${unresolvedRecovery};
+      CREATE INDEX IF NOT EXISTS records_native_driver_read ON records(json_extract(data,'$.projectId'),json_extract(data,'$.roleId'),json_extract(data,'$.nativeSession.id')) WHERE kind='runs';`);
   }
   get(kind, id) { const r = this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind, id); return r ? JSON.parse(r.data) : null; }
   list(kind) { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(r.data)); }
+  /** Read one role/session with a hard row budget; omitted history is unknown, never proof of idle. */
+  readNativeDriverRecords(binding,{limit=100}={}){
+    if(!binding?.projectId||!binding.roleId||!binding.taskId||!Number.isSafeInteger(limit)||limit<1||limit>100)throw Error('invalid_read_request');
+    const conditions=["kind='runs'","json_extract(data,'$.projectId')=?","json_extract(data,'$.roleId')=?"],params=[binding.projectId,binding.roleId];
+    if(binding.nativeSessionId){conditions.push("json_extract(data,'$.nativeSession.id')=?");params.push(binding.nativeSessionId);}
+    else {conditions.push('id=?');params.push(binding.priorRunId||'');}
+    if(binding.runId){conditions.push('id!=?');params.push(binding.runId);}
+    if(binding.roleSessionId){conditions.push("(json_extract(data,'$.roleSessionId') IS NULL OR json_extract(data,'$.roleSessionId')=?)");params.push(binding.roleSessionId);}
+    const rows=this.db.prepare(`SELECT data FROM records INDEXED BY records_native_driver_read WHERE ${conditions.join(' AND ')} ORDER BY rowid DESC LIMIT ?`).all(...params,limit+1);
+    return {records:rows.slice(0,limit).reverse().map(r=>JSON.parse(r.data)),partial:rows.length>limit};
+  }
   /** Poll only live scheduling candidates; unknown Run states still reserve capacity, and history stays intact. */
   activeRuns(nodeId) {
     return this.db.prepare(`SELECT data FROM records INDEXED BY records_active_runs WHERE kind='runs' AND ${activeRun}${nodeId===undefined?'':" AND json_extract(data,'$.nodeId')=?"} ORDER BY rowid`).all(...(nodeId===undefined?[]:[nodeId])).map(r=>JSON.parse(r.data));

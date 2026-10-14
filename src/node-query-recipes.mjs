@@ -47,3 +47,24 @@ export function normalizeFileRead(input){
   return {requestId:readId(input.requestId),...normalizeReadSelector(input),path:validateSourcePath(input.path,{sharedDocs:true}),freshness,
     ...(input.expectHash!==undefined?{expectHash:input.expectHash}:{}),metadata:input.metadata??false};
 }
+
+/** Fixed projection excludes driver command arguments, credentials and arbitrary handler output. */
+export async function executeReadQuery({request,source,workspaceCheck,observeSession,clock=()=>new Date(),timeoutMs=READ_QUERY_LIMITS.timeoutMs}){
+  normalizeReadQuery(request);
+  if(source.sourceNodeId!==request.sourceNodeId)throw readError('source_workspace_mismatch');
+  let timer;
+  const result=await Promise.race([
+    Promise.resolve().then(()=>request.recipeId==='workspace_check'?workspaceCheck(source):observeSession(source)),
+    new Promise((_,reject)=>{timer=setTimeout(()=>reject(readError('query_timeout')),Math.min(timeoutMs,READ_QUERY_LIMITS.timeoutMs));})
+  ]).finally(()=>clearTimeout(timer));
+  let items,state,partial=Boolean(result.partial),truncated=false;
+  if(request.recipeId==='workspace_check')items=[{exists:result.exists===true,git:result.git?{head:result.git.head,branch:result.git.branch}:null}];
+  else {
+    state=['ready','waiting','unknown'].includes(result.state)?result.state:'unknown';
+    items=(result.processes||[]).slice(0,READ_QUERY_LIMITS.rows).map(p=>({pid:p.pid,verified:p.verified===true,idle:p.idle===true,state:p.state}));
+    truncated=(result.processes||[]).length>items.length;
+  }
+  const output={recipeId:request.recipeId,recipeVersion:1,sourceNodeId:source.sourceNodeId,observedAt:clock().toISOString(),items,state,partial:partial||truncated,truncated};
+  if(Buffer.byteLength(JSON.stringify(output))>READ_QUERY_LIMITS.bytes)throw readError('response_too_large');
+  return output;
+}
