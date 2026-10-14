@@ -31,7 +31,7 @@ export function resolveReadSource(db,callerRun,input){
   }
   const root=resolve(rootOf(binding));workspaceRoot=resolve(workspaceRoot);
   const nestedProject=!projectScope?childPath(root,workspaceRoot):null;
-  // 仓库授权不能同时暴露其中另有授权范围的项目目录。
+  // A repository grant must not also expose a separately scoped project nested inside it.
   const excludeRoots=[...new Set([...layout.filter(b=>repositoryId(b)!==scopeId&&rootOf(b)).map(b=>childPath(root,resolve(rootOf(b)))).filter(p=>p!==null),
     ...(nestedProject?[nestedProject]:[])])].sort();
   if(!projectScope&&excludeRoots.includes(''))throw readError('source_workspace_mismatch');

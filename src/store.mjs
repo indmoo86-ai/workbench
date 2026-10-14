@@ -62,7 +62,7 @@ export class Store {
   /** Read one role/session with a hard row budget; omitted history is unknown, never proof of idle. */
   readNativeDriverRecords(binding,{limit=100}={}){
     if(!binding?.projectId||!binding.roleId||!binding.taskId||!Number.isSafeInteger(limit)||limit<1||limit>100)throw Error('invalid_read_request');
-    // 旧 Run ID 已经唯一；强制走原生会话索引会扫描整个角色历史。
+    // A legacy prior Run is already unique; forcing the native-session index scans its role history.
     if(!binding.nativeSessionId){
       const record=this.get('runs',binding.priorRunId||'');
       const matches=record&&record.id!==binding.runId&&record.projectId===binding.projectId&&record.roleId===binding.roleId

@@ -12,7 +12,7 @@
 
 **Plan revision:** 2, incorporating the serialized-reply, requestId replay and exact-baseline review findings. These are implementation-plan corrections, not evidence that the runtime defects are fixed.
 
-**Status:** Plan revision 2 approved by the user on 2026-10-14. Execute inline in an isolated feature worktree, followed by one independent whole-branch review. No deployment or restart is included.
+**Status:** P1 implemented sequentially on the isolated feature branch and independently reviewed on 2026-10-14. Both final findings were reproduced and fixed in one RED/GREEN pass. Isolated actual Mac/Linux/wb and browser checks passed on code commit `06dd33fb85b89290549de455891ff415b1b3e7a9`. Not merged, pushed, deployed or enabled on business projects; existing services were not restarted.
 
 ## Exact code baseline and worktree handoff
 
@@ -187,4 +187,20 @@ The implementation gate is now open for this isolated worktree only. Production 
 | requestId retry versus a new fresh read was ambiguous | Original completed result and observedAt replay for the same owner/ID/input; new ID for new observation; durable bounded storage and explicit unavailable/revoked cases | Task 3 Step 5/5a, Task 4 wb help/bridge and Task 5 fresh/replay device checks |
 | Starting code commit was unspecified | Full daacf7403976ccf338052cd91a65d7b4ed17f1f2 baseline, committed-object source anchors, separate documentation handoff and actual feature/version evidence | Baseline section and Task 5 Step 1 |
 
-The user has confirmed the revised plan and its logical implementation order. The serialization arithmetic and source inspection verify the risks, not the future fix or any live-device acceptance.
+The user confirmed this revised plan and its logical implementation order. Plan corrections by themselves do not prove a runtime fix; actual implementation evidence is recorded below.
+
+## P1 implementation and verification handoff
+
+The approved documentation-only commit is `49ccf0468637c3cdcfc44da73277d49cff63ef36`. Tasks 1–5 produced commits `dfb1fc8`, `53481ee`, `083545c`, `16c843c` and `72a7f9e`; final code fixes are in `06dd33fb85b89290549de455891ff415b1b3e7a9`. The original v2.3.1 design and its recorded hash remain unchanged. This section records implementation evidence separately from design approval.
+
+- Focused private checks: 31/31. Maintained suite: 56/56. `npm run check` and `git diff --check` passed. Tests and actual-device artifacts remain in ignored project-local storage rather than the repository.
+- A fresh independent whole-branch review identified unauthorized nested-project access through a parent repository grant and a unique prior-Run lookup still scanning role history. Both had failing reproductions before their fix; the corrected path rejects excluded files before Worker dispatch and uses the Run primary key without a history sort. No finding is deferred.
+- Separate actual Home, Mac Worker and Linux Worker instances used private databases and ephemeral forwarding. Real wb processes and immutable bridges read saved source bytes in both directions, including an uncommitted file in a real managed Git worktree. No vendor-model turn was launched.
+- Actual checks covered original-ID replay versus new-ID freshness, offline replay versus truthful fresh-read failure, physical-directory replacement, missing managed directories without fallback, nested-scope exclusion and stale generations. Original results survived both actual Store reopen and an isolated Home-process restart. The deterministic test caller was readmitted only after expected startup reconciliation and Worker reconnection; this does not claim live vendor-session recovery or a production restart.
+- Quote, backslash and control-character files of 600000 bytes returned bounded metadata. Workers stayed online, the owned concurrent test Run stayed running and its process stayed alive. Real browser Resources and standalone document pages showed the serialized-size reason, retained Mac selection and did not offer full-text copying when unavailable.
+- The final twenty warm local wb/bridge/F samples measured median 187.58 ms and p95 191.99 ms. A short Home/Worker sample measured 1.1%/0.5% CPU and about 104.9/94.3 MiB RSS. These are isolated observations, not sustained idle, peak-memory, production-improvement or SLA evidence. The first actual-device check used a clean code worktree; the additional Home-restart check ran with only these documentation edits pending and verified identical source-module hashes.
+- Source-sync baselines/batches, reports, user files, existing native sessions and unrelated quota/frontend modifications were not changed by this increment. Q/F remains opt-in; installation does not enable a real project.
+
+The P1 code/isolated-verification gate is complete. Integration, rollout and four-provider model-turn acceptance remain separate. Receiver cache/materialization, the full P0 resource subsystem, S execution and service handoff are not implemented by these commits; their next plans must satisfy the follow-on gates above before opening writes or execution.
+
+The final packaging check corrected only two newly added comments to the existing English source style required by the maintained i18n test. Runtime logic is identical to the actual-device-tested code; the final full suites and syntax/whitespace gates apply to that packaging state. No integration or release action is implied by this documentation.
