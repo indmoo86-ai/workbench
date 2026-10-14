@@ -1429,8 +1429,21 @@ document.querySelector('#toggle-wechat').onclick = event => void wechatAction(ev
 document.querySelector('#check-wechat').onclick = event => void wechatAction(event.currentTarget, '/api/wechat/health');
 document.querySelector('#send-wechat-entry').onclick = event => void wechatAction(event.currentTarget, `/api/projects/${document.querySelector('#wechat-project').value}/wechat`);
 
+/** The sidebar footer marks the page that is currently open, matching the right panel tab bar. */
+function renderSidebarNav() {
+  const target = app.view !== 'settings' ? null
+    : app.settingsTab === 'usage' ? 'show-token-usage'
+    : app.settingsTab === 'timers' ? 'show-scheduled-jobs'
+    : 'show-app-settings';
+  document.querySelectorAll('.sidebar-footer .icon-button').forEach(button => {
+    if (button.id === target) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+}
+
 function renderWorkspace() {
   renderWechat();
+  renderSidebarNav();
   const project = getCurrentProject();
   const hasProjects = app.data.projects.length > 0;
   const settingsOpen = app.view === 'settings';
