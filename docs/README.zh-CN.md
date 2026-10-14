@@ -13,7 +13,7 @@
 | [design-supervisor-proactive-followup](design-supervisor-proactive-followup.md) | 群聊静默后由总管直接跟进，默认十分钟；IM 通知用户协助为后续扩展 | 已开发并通过隔离测试，未部署、未启用真实项目 |
 | [plan-supervisor-proactive-followup](plan-supervisor-proactive-followup.md) | 总管静默跟进的代码落点、持久去重、安静结束及验收 | 已直接实施并独立审核，不含发布 |
 | [design-session-handoff](design-session-handoff.md)（英文） | 受控的跨设备角色会话交接 | 方案。尚未实现 |
-| [design-cross-device-execution](design-cross-device-execution.md) | 跨设备快跑：只读/落盘分流、唯一摘要与向量、审核可见性、用途凭据、输入保护及资源预算 | 设计稿 v2.3，按条件审核意见修订，待同稿复核；未实施，原 Git 交付与同步契约保持 |
+| [design-cross-device-execution](design-cross-device-execution.md) | 跨设备快跑：固定输入、可取得基础提交、只读先行、写入观察限制及资源预算 | 设计稿 v2.3.1，五项 Claude 非阻塞复审建议澄清；性能为未实测候选目标，未实施，不宣称共同审核通过 |
 | [design-cli-session-recovery](design-cli-session-recovery.md) | 空闲占用回收、用户确认及同一原生会话恢复 | 已开发并通过隔离验收；未部署 |
 
 建议先读 README，再读 ARCHITECTURE。需要完整的产品范围时再读 PRD。ARCHITECTURE 只描述实际代码，从不把计划当作功能。设计文档可能描述预期行为；若与代码不一致，以代码为准。
