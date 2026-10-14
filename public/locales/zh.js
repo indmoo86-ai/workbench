@@ -917,7 +917,7 @@ export default {
   'Not enough browser draft storage; the original text is still on this page. Copy a backup first and do not close the page': '浏览器草稿空间不足，原文仍在当前页面，请先复制备份，勿关闭页面',
   'Preparing': '准备执行',
   'Awaiting reconciliation': '等待核对',
-  'Tell the supervisor what to do; @ one role to dispatch directly, @ several and the supervisor arranges them': '告诉主管要做什么；@一位角色直接派发，@多位由主管安排',
+  'Without @, new messages go to the supervisor; replies target the sender, and @ several roles dispatches to each': '新消息不写 @ 时交给总管；回复默认 @ 原发送人，@ 多位角色时分别派发',
   'Type a message; @role to start work': '输入消息，@角色开始工作',
   'Sending…': '发送中…',
   'Retry send': '重试发送',

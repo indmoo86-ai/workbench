@@ -1046,7 +1046,7 @@ Assistance results (context only):
   'rooms.quotedMessageDoesNotBelong': 'The quoted message does not belong to this project',
   'rooms.specifiedRoleDoesNotBelong': 'The specified role does not belong to this project',
   'rooms.supervisor': 'Supervisor',
-  'rooms.messageCanMentionAtMost': 'A message can @-mention at most 4 roles; leave multi-role requests to the supervisor to decide the execution order',
+  'rooms.messageCanMentionAtMost': 'A message can @-mention at most 4 distinct roles; split it into separate messages or ask the supervisor to coordinate',
   'rooms.roleDoesNotExist': 'Role @{name} does not exist',
   'rooms.roleHasNoDeviceCli': 'Role @{name} has no device, CLI, or model configured',
   'rooms.roleDisabled': 'Role @{name} is disabled',

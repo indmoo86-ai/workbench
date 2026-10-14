@@ -1046,7 +1046,7 @@ repository.clone=true 仅在目标不存在时克隆；false 检查已有仓库�
   'rooms.quotedMessageDoesNotBelong': '引用消息不属于此项目',
   'rooms.specifiedRoleDoesNotBelong': '指定角色不属于此项目',
   'rooms.supervisor': '总管',
-  'rooms.messageCanMentionAtMost': '一条消息最多 @4 个角色，多角色交给主管评估执行顺序',
+  'rooms.messageCanMentionAtMost': '一条消息最多 @4 位不同角色，请拆分发送或明确请总管协调',
   'rooms.roleDoesNotExist': '角色 @{name} 不存在',
   'rooms.roleHasNoDeviceCli': '角色 @{name} 尚未配置设备、CLI 和模型',
   'rooms.roleDisabled': '角色 @{name} 已停用',

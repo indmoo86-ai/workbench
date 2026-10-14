@@ -1,4 +1,4 @@
-const CACHE = 'agent-workbench-static-live-actions-v80';
+const CACHE = 'agent-workbench-static-chat-recipients-v81';
 const STATIC = [
   '/', '/styles.css', '/app.js', '/native-sessions.js', '/context-usage.js', '/manifest.webmanifest', '/app-icon.png', '/app-icon-192.png',
   '/platform-admin.js', '/project-space.js', '/token-usage.js', '/run-log-data.js', '/room.js',
