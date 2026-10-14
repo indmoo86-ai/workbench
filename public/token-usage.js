@@ -6,6 +6,25 @@ const TYPES=[
   {key:'cacheReadTokens',label:'Cache read',color:'#29c9c0'}
 ];
 
+/** Sum the selected devices by day/model; legacy totals without an exact split stay visibly unassigned. */
+export function modelUsageChart(devices){
+  const days=new Map(),totals=new Map();
+  for(const device of devices||[])for(const row of device.daily||[]) {
+    const day=days.get(row.date)||{date:row.date,total:0,values:new Map()};days.set(row.date,day);
+    const total=Math.max(0,Number(row.totalTokens)||0);day.total+=total;
+    const breakdown=row.modelBreakdowns||[];
+    const known=breakdown.filter(model=>typeof model.modelName==='string'&&Number.isFinite(Number(model.totalTokens))&&Number(model.totalTokens)>0);
+    const sum=known.reduce((n,model)=>n+Number(model.totalTokens),0);
+    const entries=sum<=total?known.map(model=>[model.modelName,Number(model.totalTokens)]):[];
+    const remainder=total-(sum<=total?sum:0);
+    if(remainder>0)entries.push([null,remainder]);
+    for(const [name,value]of entries){day.values.set(name,(day.values.get(name)||0)+value);totals.set(name,(totals.get(name)||0)+value);}
+  }
+  const color=name=>{if(name===null)return '#94a3b8';let hash=0;for(const char of name)hash=(hash*31+char.charCodeAt(0))>>>0;return `hsl(${hash%360} 65% 46%)`;};
+  const models=[...totals].sort((a,b)=>a[0]===null?1:b[0]===null?-1:b[1]-a[1]||a[0].localeCompare(b[0])).map(([name,total])=>({name,total,color:color(name)}));
+  return {models,days:[...days.values()].sort((a,b)=>a.date.localeCompare(b.date)),max:Math.max(1,...[...days.values()].map(day=>day.total)),unassigned:totals.get(null)||0};
+}
+
 export function usageChartModel(report){
   const devices=(report.devices||[]).map(device=>{
     const total=Number(device.total?.totalTokens||0);
@@ -50,6 +69,20 @@ export function tokenUsageUI({api,getData,create}){
     const key=document.querySelector('#token-usage-device-key');key.replaceChildren(...model.devices.map(device=>create('span','',device.name)));
     const chart=document.querySelector('#token-usage-daily');chart.replaceChildren();
     for(const day of model.days){const group=create('div','usage-day'),bars=create('div','usage-bars');for(let i=0;i<day.values.length;i++){const bar=create('span',`usage-bar usage-bar-${i+1}`);const height=day.values[i]?Math.max(2,Math.round(day.values[i]/model.dailyMax*160)):0;bar.style.height=`${height}px`;bar.title=`${model.devices[i].name} · ${day.date} · ${format(day.values[i])} tokens`;bars.append(bar);}group.append(bars,create('time','',day.date.slice(5)));chart.append(group);}
+    const stacked=modelUsageChart(model.devices),legend=document.querySelector('#token-usage-model-key');legend.replaceChildren();
+    const modelName=name=>name===null?t('Unassigned model'):name;
+    for(const item of stacked.models){const label=create('span','',modelName(item.name));label.translate=false;label.style.setProperty('--legend-color',item.color);label.title=`${format(item.total)} tokens`;legend.append(label);}
+    const note=document.querySelector('#token-usage-model-note');note.hidden=!stacked.unassigned;note.textContent=t('Some saved records have no model breakdown. Collect / backfill now to load available details.');
+    const maximum=stacked.models.length?stacked.max:0,axis=document.querySelector('#token-usage-model-axis');axis.replaceChildren(...[maximum,maximum/2,0].map(value=>create('span','',compact(value))));
+    const modelChart=document.querySelector('#token-usage-model-daily');modelChart.replaceChildren();
+    for(const day of stacked.days){
+      const group=create('div','usage-day'),bars=create('div','usage-bars'),bar=create('button','usage-model-stack');bar.type='button';
+      bar.style.height=`${day.total?Math.max(2,day.total/stacked.max*160):0}px`;
+      const detail=[`${day.date} · ${t('Daily total')} ${format(day.total)} tokens`];
+      for(const item of stacked.models){const value=day.values.get(item.name)||0;if(!value)continue;const segment=create('span','usage-model-segment');segment.style.background=item.color;segment.style.flexGrow=String(value);segment.title=`${modelName(item.name)} · ${day.date} · ${format(value)} tokens\n${t('Daily total')}: ${format(day.total)} tokens`;bar.append(segment);detail.push(`${modelName(item.name)}: ${format(value)} tokens`);}
+      bar.title=detail.join('\n');bar.setAttribute('aria-label',bar.title);bars.append(bar);group.append(bars,create('time','',day.date.slice(5)));modelChart.append(group);
+    }
+    document.querySelector('#token-usage-model-empty').hidden=stacked.models.length>0;
   }
   async function load(refresh){
     const values=Object.fromEntries(new FormData(form)),nodeIds=[values.nodeA,values.nodeB].filter(Boolean);

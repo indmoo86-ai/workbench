@@ -67,6 +67,8 @@ Directed role questions and published replies appear as individual chat bubbles 
 
 For document consultations, `wb call ... --text "review this document" --file path/to/document.md` reads the UTF-8 file directly, attaches its exact text and SHA256 as quoted reference data, and keeps the existing 12000-character call limit. It does not transfer or overwrite a peer's workspace. Larger shared documents should be referenced for on-demand reading; protected independent reviews keep their original document-read boundary. Retained Agy processes use the supplied `wb --turn RUN_ID ...` entry: old turn IDs never follow a new turn. `wb help` remains usable with an expired context, and a saved report receipt explicitly distinguishes registration from the later end of the CLI turn.
 
+Token Usage retains the device comparison and adds daily bars stacked by model across the two selected devices. Colors identify models, and each segment shows its tokens and the day's total on hover. Saved ccusage model breakdowns use the same input/output/cache total as the device charts. Older records without an exact model split appear as unassigned until available details are backfilled; model totals are never divided equally or inferred from a list of model names.
+
 All items below exist in the current code. Items that are only designed are listed separately under [Limitations and roadmap](#limitations-and-roadmap).
 
 **Collaboration**
