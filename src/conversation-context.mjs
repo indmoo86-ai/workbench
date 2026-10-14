@@ -136,7 +136,7 @@ export class ConversationContext {
     try {
       for(const queue of this.db.list('summaryQueues').sort((a,b)=>String(a.updatedAt).localeCompare(String(b.updatedAt)))) {
         if(!this.db.get('projects',queue.projectId))continue;
-        const latest=this.db.list('roomMessages').filter(m=>m.projectId===queue.projectId && (m.conversationId||m.projectId)===queue.conversationId && m.kind!=='summary').at(-1)?.id||null;
+        const latest=this.db.latestConversationMessageId(queue.projectId,queue.conversationId);
         const configKey=digest(config),changed=queue.targetMessageId!==latest || queue.configKey!==configKey;
         if(!changed && (queue.status==='idle' || queue.failures>=3 || Date.parse(queue.retryAt)>Date.now()))continue;
         let job;

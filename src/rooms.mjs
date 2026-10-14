@@ -298,14 +298,14 @@ export class Rooms {
   schedule(isReady) {
     const nodes = new Set(); let changed = false;
     const discussions=new RoleDiscussions(this.db,{online:isReady});changed=discussions.recover().changed;
-    const candidates=[...this.db.list('tasks').filter(t=>t.origin==='chat'&&t.status==='ready'&&!t.switchOperationId),...discussions.candidates()];
+    const candidates=[...this.db.chatTasks(['ready']).filter(t=>!t.switchOperationId),...discussions.candidates()];
     for (let task of orderRoleQueue(candidates,id=>this.db.get('roleQueueTurns',id)?.priorityUsed,id=>this.db.get('discussionQueueTurns',id)?.priorityUsed)) {
       if(!task.discussionDeliveryId&&!task.discussionIntentId&&followupFor(this.db,task)){task=new ProactiveFollowup(this.db).prepareStart(task.id);if(!task){changed=true;continue;}}
       const discussion=Boolean(task.discussionDeliveryId||task.discussionIntentId);
       const kind=task.discussionDeliveryId?'discussionDeliveries':'discussionIntents',recordId=task.discussionDeliveryId||task.discussionIntentId;
       const role = effectiveExecutionRole(this.db,task), worker = this.db.get('workers', role.nodeId);
       const recoveryReason=discussion?null:this.nativeRecoveryReason?.(task);
-      const active = this.db.list('runs').filter(r => !terminal.has(r.status));
+      const active = this.db.activeRuns();
       const reason = this.db.get('settings', 'main')?.paused ? tr('rooms.remoteExecutionPaused')
         : roleSwitchWaitReason(this.db,task) ? roleSwitchWaitReason(this.db,task)
         : steeringWaitReason(this.db,task) ? steeringWaitReason(this.db,task)

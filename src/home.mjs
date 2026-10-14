@@ -328,14 +328,14 @@ function scheduleChat() {
   try { if(scheduledJobs.tick()) change(); } catch(error) {console.error(tr('home.scheduledJobCheckFailed'),error.message);}
   void executionPlans.advance().then(changed=>{if(changed)change();}).catch(error=>console.error(tr('home.executionStageAdvanceFailed'),error.message));
   for (const nodeId of deliveries.schedule()) dispatch(nodeId);
-  for (const task of db.list('tasks').filter(t => t.origin === 'chat' && !t.switchOperationId && !t.requestId && ['ready', 'in_progress'].includes(t.status))) calls.adoptTask(task.id);
+  for (const task of db.chatTasks().filter(t => !t.switchOperationId && !t.requestId)) calls.adoptTask(task.id);
   if(calls.expireWaits())change();
-  for (const request of db.list('coordinationRequests')) {
+  for (const request of db.schedulableRequests()) {
     if (request.status === 'waiting_call') calls.resume(request.id);
     if (['queued', 'waiting_delivery'].includes(request.status)) calls.reconcile(request.id);
   }
   try {if(proactiveFollowup.tick())change();}catch(error){console.error('Proactive follow-up:',error.message);}
-  for(const task of db.list('tasks').filter(task=>task.origin==='chat'&&task.status==='ready'))prepareChatContext(task);
+  for(const task of db.chatTasks(['ready']))prepareChatContext(task);
   const scheduled = rooms.schedule(id => online(id) && sockets.get(id).workerReady);
   for (const nodeId of scheduled.nodes) dispatch(nodeId);
   for(const nodeId of new Set(db.list('commands').filter(c=>!c.acked&&(!c.lastSentAt||Date.now()-Date.parse(c.lastSentAt)>=5000)).map(c=>c.nodeId)))void dispatch(nodeId);
@@ -345,7 +345,7 @@ function scheduleChat() {
     config:normalizePlatformSettings(db.get('settings','main')).conversationOrganizer,
     canRun:nodeId=>!db.get('settings','main')?.paused && online(nodeId) && sockets.get(nodeId).workerReady
       && db.get('workers',nodeId)?.capabilities?.summaryBatches===1
-      && db.list('runs').filter(r=>r.nodeId===nodeId&&!terminal.has(r.status)).length+reservedTerminalSlots(db,nodeId)+(db.get('workers',nodeId)?.organizerBusy||0)<(db.get('workers',nodeId)?.capacity||1),
+      && db.activeRuns(nodeId).length+reservedTerminalSlots(db,nodeId)+(db.get('workers',nodeId)?.organizerBusy||0)<(db.get('workers',nodeId)?.capacity||1),
     query:(snapshot,config)=>workerQuery({nodeId:config.nodeId},'conversation_summary',{snapshot,config},125000),change
   }).catch(error=>console.error(tr('home.backgroundConversationOrganizationFailed'),error.message));
 }

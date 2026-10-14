@@ -50,10 +50,10 @@ export class CliRecoveryHome {
     this.pending.set(task.id,operation);operation.finally(()=>{if(this.pending.get(task.id)===operation)this.pending.delete(task.id);}).catch(()=>{});await operation;
   }
   tick(){
-    for(const task of this.db.list('tasks').filter(t=>t.origin==='chat'&&(t.status==='ready'||this.db.get('runs',t.currentRunId||'')?.cliRecoveryWait))){
+    for(const task of this.db.chatTasks().filter(t=>t.status==='ready'||this.db.get('runs',t.currentRunId||'')?.cliRecoveryWait)){
       if(!this.db.get('settings','main')?.paused)void this.check(task);
     }
-    for(const record of this.db.list('cliRecoveries'))if(!this.current(record)&&record.state!=='resolved')this.db.put('cliRecoveries',{...record,state:'resolved',canStop:false});
+    for(const record of this.db.unresolvedRecoveries())if(!this.current(record))this.db.put('cliRecoveries',{...record,state:'resolved',canStop:false});
   }
   /** Consent targets the verified snapshot; duplicate submissions share one processing receipt. */
   confirm(projectId,taskId,input){

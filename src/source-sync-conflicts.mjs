@@ -27,7 +27,7 @@ export class SourceSyncConflicts {
     if(this.db.get('settings','main')?.paused)return;
     for(const conflict of this.db.list('sourceSyncConflicts').filter(c=>c.status==='open')){
       const config=this.db.get('sourceSyncConfigs',conflict.projectId);if(!config?.enabled||config.generation!==conflict.syncGeneration)continue;
-      if(this.db.list('runs').some(r=>r.sourceConflictId===conflict.id&&!terminal.has(r.status)))continue;
+      if(this.db.activeRuns().some(r=>r.sourceConflictId===conflict.id))continue;
       if((conflict.staleCount||0)>=2){this.escalate(conflict,'repeated_stale_proposal');continue;}
       if(conflict.evidencePending){this.sync.refreshEvidence?.(conflict);continue;}
       const records=this.db.listProject('sourceSyncProvenance',conflict.projectId);
@@ -39,7 +39,7 @@ export class SourceSyncConflicts {
       const owner=writers.map(w=>w.roleId&&this.db.get('roles',w.roleId)).find(r=>r?.enabled&&!r.archivedAt&&isRoleConfigured(r)&&sourceScopeBinding(this.db,c.projectId,c.repositoryId,r.nodeId)&&this.reachability(r));
       if(owner)this.assign(c.id,c.generation,owner.id,{kind:'automatic'});else this.escalate(c,'modifier_unavailable');
     }
-    for(const run of this.db.list('runs').filter(r=>r.sourceConflictId&&terminal.has(r.status)))this.finish(run.id);
+    for(const run of this.db.conflictRuns().filter(r=>terminal.has(r.status)))this.finish(run.id);
   }
   escalate(c,reason){
     const supervisorId=this.db.get('projects',c.projectId)?.supervisorRoleId;

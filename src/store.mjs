@@ -23,6 +23,10 @@ export const terminal = new Set(['succeeded', 'failed', 'interrupted']);
 const now = () => new Date().toISOString();
 // Match the existing !command.result rule, including legacy null/false/zero/empty results.
 const pendingSourceCommand = "COALESCE(json_extract(data,'$.result'),0) IN (0,'')";
+const activeRun = "COALESCE(json_extract(data,'$.status'),'') NOT IN ('succeeded','failed','interrupted')";
+const chatTask = "json_extract(data,'$.origin')='chat' AND json_extract(data,'$.status') IN ('ready','in_progress')";
+const schedulableRequest = "json_extract(data,'$.status') IN ('queued','waiting_call','waiting_delivery')";
+const unresolvedRecovery = "COALESCE(json_extract(data,'$.state'),'')!='resolved'";
 
 /** SQLite is the persistent record kept separately by Home and each Worker; files are not shared across machines. */
 export class Store {
@@ -37,10 +41,35 @@ export class Store {
       CREATE INDEX IF NOT EXISTS room_receipts_project ON room_message_receipts(project_id,seq);
       CREATE INDEX IF NOT EXISTS records_kind_project ON records(kind,json_extract(data,'$.projectId'));
       CREATE INDEX IF NOT EXISTS records_source_command_batch ON records(json_extract(data,'$.projectId'),json_extract(data,'$.batchId')) WHERE kind='sourceSyncCommands';
-      CREATE INDEX IF NOT EXISTS records_source_command_pending ON records(json_extract(data,'$.projectId'),json_extract(data,'$.nodeId')) WHERE kind='sourceSyncCommands' AND ${pendingSourceCommand};`);
+      CREATE INDEX IF NOT EXISTS records_source_command_pending ON records(json_extract(data,'$.projectId'),json_extract(data,'$.nodeId')) WHERE kind='sourceSyncCommands' AND ${pendingSourceCommand};
+      CREATE INDEX IF NOT EXISTS records_active_runs ON records(json_extract(data,'$.nodeId')) WHERE kind='runs' AND ${activeRun};
+      CREATE INDEX IF NOT EXISTS records_chat_tasks ON records(id) WHERE kind='tasks' AND ${chatTask};
+      CREATE INDEX IF NOT EXISTS records_schedulable_requests ON records(id) WHERE kind='coordinationRequests' AND ${schedulableRequest};
+      CREATE INDEX IF NOT EXISTS records_conflict_runs ON records(json_extract(data,'$.sourceConflictId')) WHERE kind='runs' AND json_extract(data,'$.sourceConflictId') IS NOT NULL;
+      CREATE INDEX IF NOT EXISTS records_unresolved_recoveries ON records(id) WHERE kind='cliRecoveries' AND ${unresolvedRecovery};`);
   }
   get(kind, id) { const r = this.db.prepare('SELECT data FROM records WHERE kind=? AND id=?').get(kind, id); return r ? JSON.parse(r.data) : null; }
   list(kind) { return this.db.prepare('SELECT data FROM records WHERE kind=? ORDER BY rowid').all(kind).map(r => JSON.parse(r.data)); }
+  /** Poll only live scheduling candidates; unknown Run states still reserve capacity, and history stays intact. */
+  activeRuns(nodeId) {
+    return this.db.prepare(`SELECT data FROM records INDEXED BY records_active_runs WHERE kind='runs' AND ${activeRun}${nodeId===undefined?'':" AND json_extract(data,'$.nodeId')=?"} ORDER BY rowid`).all(...(nodeId===undefined?[]:[nodeId])).map(r=>JSON.parse(r.data));
+  }
+  chatTasks(statuses=['ready','in_progress']) {
+    return this.db.prepare(`SELECT data FROM records INDEXED BY records_chat_tasks WHERE kind='tasks' AND ${chatTask} ORDER BY rowid`).all().map(r=>JSON.parse(r.data)).filter(t=>statuses.includes(t.status));
+  }
+  schedulableRequests() {
+    return this.db.prepare(`SELECT data FROM records INDEXED BY records_schedulable_requests WHERE kind='coordinationRequests' AND ${schedulableRequest} ORDER BY rowid`).all().map(r=>JSON.parse(r.data));
+  }
+  conflictRuns() {
+    return this.db.prepare("SELECT data FROM records INDEXED BY records_conflict_runs WHERE kind='runs' AND json_extract(data,'$.sourceConflictId') IS NOT NULL ORDER BY rowid").all().map(r=>JSON.parse(r.data)).filter(r=>r.sourceConflictId);
+  }
+  unresolvedRecoveries() {
+    return this.db.prepare(`SELECT data FROM records INDEXED BY records_unresolved_recoveries WHERE kind='cliRecoveries' AND ${unresolvedRecovery} ORDER BY rowid`).all().map(r=>JSON.parse(r.data));
+  }
+  /** Organizer idle checks need an insertion-ordered cursor, not every conversation's message bodies. */
+  latestConversationMessageId(projectId,conversationId) {
+    return this.db.prepare("SELECT id FROM records WHERE kind='roomMessages' AND json_extract(data,'$.projectId')=? AND CASE WHEN COALESCE(json_extract(data,'$.conversationId'),0) IN (0,'') THEN json_extract(data,'$.projectId') ELSE json_extract(data,'$.conversationId') END=? AND COALESCE(json_extract(data,'$.kind'),'')!='summary' ORDER BY rowid DESC LIMIT 1").get(projectId,conversationId)?.id||null;
+  }
   /** Project-local sync metadata must not scan or serialize other projects' full manifests. */
   listProject(kind,projectId) {return this.db.prepare("SELECT data FROM records WHERE kind=? AND json_extract(data,'$.projectId')=? ORDER BY rowid").all(kind,projectId).map(r=>JSON.parse(r.data));}
   /** Filter before materializing manifest bodies; keep history and the existing row order intact. */

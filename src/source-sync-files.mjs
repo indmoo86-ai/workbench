@@ -1,13 +1,14 @@
 import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
-import {constants} from 'node:fs';
-import {mkdir,lstat,realpath,open,readFile,writeFile,readdir} from 'node:fs/promises';
+import {constants,lstat} from 'node:fs';
+import {mkdir,realpath,open,readFile,writeFile,readdir} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
 import {SOURCE_SYNC_LIMITS,SOURCE_SYNC_CAPTURE_POLICY,DIRECTORY_SYNC_CAPTURE_POLICY,contentHash,syncError,excludedSourcePath,validateSourcePath,manifestDigest,entryEqual} from './source-sync-manifest.mjs';
 
 const exec=promisify(execFile);
 const git=async(root,args,encoding='utf8')=>(await exec('git',args,{cwd:root,encoding,timeout:30000,maxBuffer:24*1024*1024})).stdout;
-const exists=async path=>{try{return await lstat(path);}catch(e){if(e.code==='ENOENT')return null;throw e;}};
+// Missing .git markers are routine during each safety walk; avoid rejected promises while keeping a fresh lstat.
+const exists=path=>new Promise((resolve,reject)=>lstat(path,(error,info)=>{if(!error)resolve(info);else if(error.code==='ENOENT')resolve(null);else reject(error);}));
 const blobSaves=new Map();
 
 /** Bound file I/O and drain in-flight captures before rejecting, so a failed snapshot leaves no background writes. */
@@ -21,16 +22,16 @@ export async function captureSourceEntries(paths,capture) {
 
 /** Walk components, not just the final path: parent links and nested repositories are not source roots. */
 export async function sourceFilePath(root,path,{createParents=false,policy={}}={}) {
-  validateSourcePath(path,policy);const canonical=await realpath(root);let current=canonical;
+  validateSourcePath(path,policy);const canonical=await realpath(root);let current=canonical,info;
   const parts=path.split('/');
   for(let i=0;i<parts.length;i++){
-    current=join(current,parts[i]);let info=await exists(current);
+    current=join(current,parts[i]);info=await exists(current);
     if(!info&&i<parts.length-1&&createParents){await mkdir(current,{mode:0o755}).catch(e=>{if(e.code!=='EEXIST')throw e;});info=await exists(current);}
     if(!info){if(i<parts.length-1)return {path:current,missing:true};return {path:current,missing:true};}
     if(info.isSymbolicLink()||i<parts.length-1&&!info.isDirectory()||i===parts.length-1&&(!info.isFile()||info.nlink!==1))throw syncError('unsafe_file',path);
     if(i<parts.length-1&&await exists(join(current,'.git')))throw syncError('nested_repository',path);
   }
-  return {path:current,missing:false};
+  return {path:current,missing:false,stat:info};
 }
 
 /** Capture stable bytes from a no-follow descriptor; never infer stability from mtime alone. */
@@ -44,7 +45,8 @@ export async function readSourceFile(root,path,policy={}) {
       if(before.size>SOURCE_SYNC_LIMITS.fileBytes)throw syncError('file_too_large',path);
       const bytes=Buffer.alloc(before.size);let offset=0;
       while(offset<bytes.length){const r=await file.read(bytes,offset,bytes.length-offset,offset);if(!r.bytesRead)break;offset+=r.bytesRead;}
-      const after=await file.stat();const final=await sourceFilePath(root,path,{policy});const named=final.missing?null:await lstat(final.path);
+      // The final walk already checks and stats the leaf; compare that fresh identity with the open descriptor.
+      const after=await file.stat();const final=await sourceFilePath(root,path,{policy});const named=final.missing?null:final.stat;
       if(offset===before.size&&before.size===after.size&&before.mtimeMs===after.mtimeMs&&before.ctimeMs===after.ctimeMs
         &&named?.ino===after.ino&&named?.dev===after.dev&&named.size===after.size&&named.mtimeMs===after.mtimeMs&&named.ctimeMs===after.ctimeMs)
         return {entry:{hash:contentHash(bytes),size:bytes.length,executable:Boolean(after.mode&0o111)},bytes,modifiedAt:after.mtime.toISOString()};
