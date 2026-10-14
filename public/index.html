@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
     <meta name="color-scheme" content="light">
-    <meta name="theme-color" content="#0866ff">
+    <meta name="theme-color" content="#4f5bce">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-title" content="Agent Workbench">
     <title>Agent Collaboration Workbench</title>
@@ -148,9 +148,9 @@
                 <section class="settings-block project-basic-settings" aria-labelledby="project-basic-heading">
                 <h3 id="project-basic-heading">Basic information</h3>
                 <form id="project-settings-form" class="form-grid">
-                  <label class="full-width">Project name<input name="name" required maxlength="80"></label>
-                  <label class="full-width">Project description<textarea name="description" rows="3" maxlength="12000"></textarea></label>
+                  <label>Project name<input name="name" required maxlength="80"></label>
                   <label>Project folder name<input id="project-folder-name" readonly></label>
+                  <label class="full-width">Project description<textarea name="description" rows="3" maxlength="12000"></textarea></label>
                   <label class="full-width legacy-repository">Gitee repository URL<input name="repoUrl" placeholder="https://gitee.com/org/repo or git@gitee.com:org/repo.git"></label>
                   <p class="workspace-note full-width legacy-repository">Uses the node's existing SSH key or Git credentials; do not put an account password or Token in the URL. Saving the URL does not set origin, clone, pull or push.</p>
                   <label class="legacy-repository">Node to check<select name="nodeId"></select></label><div class="check-action legacy-repository"><button class="secondary" id="repository-check" type="button">Check saved repository</button></div>
@@ -277,14 +277,7 @@
               <p id="token-usage-feedback" class="form-feedback" hidden></p>
               <section id="token-usage-total" class="usage-total"></section>
               <div id="token-usage-pies" class="usage-pies"></div>
-              <section class="settings-block usage-daily-block"><h4>Daily usage</h4><div id="token-usage-device-key" class="usage-device-key"></div><div id="token-usage-daily" class="usage-daily" aria-label="Daily token bar chart"></div></section>
-              <section class="settings-block usage-daily-block usage-model-block">
-                <h4>Daily usage by model</h4>
-                <div id="token-usage-model-key" class="usage-model-key"></div>
-                <p id="token-usage-model-note" class="workspace-note" hidden></p>
-                <p id="token-usage-model-empty" class="workspace-note" hidden>No usage in this date range.</p>
-                <div class="usage-model-plot"><div id="token-usage-model-axis" class="usage-model-axis" aria-hidden="true"></div><div id="token-usage-model-daily" class="usage-daily" aria-label="Daily tokens stacked by model"></div></div>
-              </section>
+              <section class="settings-block usage-daily-block"><h4>Daily usage by model</h4><div id="token-usage-device-key" class="usage-device-key"></div><div id="token-usage-daily" class="usage-daily" aria-label="Daily token bar chart"></div></section>
             </section>
 
             <section class="settings-panel" data-settings-panel="hosting" hidden>
@@ -511,15 +504,18 @@
     <dialog id="supervisor-settings" aria-labelledby="supervisor-dialog-title">
       <div class="dialog-heading"><h2 id="supervisor-dialog-title">Role Details</h2><button class="icon-button" id="close-supervisor-dialog" type="button" aria-label="Close role settings">×</button></div>
       <form id="supervisor-form" class="form-grid">
-        <div class="role-field-row full-width">
+        <h3 class="role-section-title full-width">Basic information</h3>
+        <div class="role-field-row role-basic-row full-width">
           <label>Role name<input name="name" readonly></label>
-          <label>Select machine<select name="nodeId" required></select></label>
         </div>
-        <div class="role-field-row full-width">
+        <h3 class="role-section-title full-width">Runtime configuration</h3>
+        <div class="role-field-row role-runtime-row full-width">
+          <label>Select machine<select name="nodeId" required></select></label>
           <label>Select Agent<select name="runtime" required></select></label>
           <label>Select model<select name="model" required></select></label>
           <label>Reasoning effort / effort<select name="effort"><option value="">Use CLI default</option></select></label>
         </div>
+        <h3 class="role-section-title full-width">Role responsibility and prompt</h3>
         <label class="full-width">Role responsibility<textarea id="supervisor-responsibility" name="responsibility" rows="3" readonly></textarea></label>
         <div class="full-width">
           <div class="artifact-section-heading"><label for="project-supervisor-prompt-preview">Role prompt</label><button id="edit-project-supervisor-prompt" class="secondary compact" type="button" data-prompt-edit="supervisor-prompt" aria-label="Edit default supervisor prompt">Edit</button></div>
@@ -535,12 +531,14 @@
     <dialog id="role-dialog" aria-labelledby="role-dialog-title">
       <div class="dialog-heading"><h2 id="role-dialog-title">Role Details</h2><button class="icon-button" id="close-role-dialog" type="button" aria-label="Close role settings">×</button></div>
       <form id="role-form" class="form-grid">
-        <div class="role-field-row full-width">
+        <h3 class="role-section-title full-width">Basic information</h3>
+        <div class="role-field-row role-basic-row full-width">
           <label>Role name<input name="name" required maxlength="32" placeholder="e.g. Developer"></label>
           <label>Template for new role (optional)<select name="preset"><option value="custom">Blank role</option></select></label>
-          <label>Select machine<select name="nodeId" required></select></label>
         </div>
-        <div class="role-field-row full-width">
+        <h3 class="role-section-title full-width">Runtime configuration</h3>
+        <div class="role-field-row role-runtime-row full-width">
+          <label>Select machine<select name="nodeId" required></select></label>
           <label>Select Agent<select name="runtime" required></select></label>
           <label>Select model<select name="model" required></select></label>
           <label id="role-effort-field" hidden>Reasoning effort / effort<select name="effort"><option value="">Default (unspecified)</option></select></label>
@@ -549,6 +547,7 @@
         <input type="hidden" name="mode" value="workspace-write">
         <label class="checkbox-label full-width" id="role-auto-approve-field" hidden><input type="checkbox" name="autoApprove" checked>Skip approvals by default</label>
         <p id="role-auto-approve-note" class="workspace-note full-width" hidden></p>
+        <h3 class="role-section-title full-width">Role responsibility and prompt</h3>
         <label class="full-width">Role responsibility<textarea name="responsibility" rows="3" maxlength="1000" placeholder="Describe when other roles should ask this role for help. Leave blank if unspecified."></textarea></label>
         <p class="workspace-note full-width">For other roles to choose collaborators. Not injected into this role's execution context.</p>
         <label class="full-width">Role prompt<textarea name="instructions" rows="7" maxlength="12000" placeholder="Describe execution methods, checks, boundaries and output format. Injected when this role executes a task."></textarea></label>

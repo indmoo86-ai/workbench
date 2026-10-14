@@ -243,7 +243,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     if (ownerId === projectId) { input.value = d.text; resizeInput(); }
   }
   function attachmentCard(item, removable = false, ownerId = projectId) {
-    const card = create('div', `attachment-card${removable && item.pastedText ? ' attachment-text-card' : ''}`);
+    const card = create('div', `attachment-card${item.mime.startsWith('image/') ? '' : ' attachment-file-card'}${removable && item.pastedText ? ' attachment-text-card' : ''}`);
     card.title = item.name;
     const open = button('', async () => {
       try {
@@ -269,19 +269,22 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     } else open.append(create('span','attachment-file-icon','▤'));
     open.append(create('span','attachment-name',item.name),create('small','',item.size<1024?`${item.size} B`:`${(item.size/1024).toFixed(1)} KB`));
     card.append(open);
-    if (removable && item.pastedText) card.append(button('Show in text box', async b => {
-      const d = drafts[ownerId];
-      if (!d || d.pending || sendingProject === ownerId) return;
-      b.disabled = true;
-      try {
-        const text = await (await fetch(await attachmentUrl(item))).text();
-        if (d.pending || sendingProject === ownerId || !d.attachments?.some(a => a.id === item.id)) return;
-        restoreText(ownerId, text);
-        d.attachments = d.attachments.filter(a => a.id !== item.id); saveDrafts();
-        if (ownerId === projectId) composer();
-      } catch (error) { setError(error.message); }
-      finally { b.disabled = false; }
-    }, 'attachment-restore'));
+    if (removable && item.pastedText) {
+      const restore=iconAction('edit','Show in text box',async b => {
+        const d = drafts[ownerId];
+        if (!d || d.pending || sendingProject === ownerId) return;
+        b.disabled = true;
+        try {
+          const text = await (await fetch(await attachmentUrl(item))).text();
+          if (d.pending || sendingProject === ownerId || !d.attachments?.some(a => a.id === item.id)) return;
+          restoreText(ownerId, text);
+          d.attachments = d.attachments.filter(a => a.id !== item.id); saveDrafts();
+          if (ownerId === projectId) composer();
+        } catch (error) { setError(error.message); }
+        finally { b.disabled = false; }
+      });
+      restore.classList.add('attachment-restore');card.append(restore);
+    }
     card.append(iconAction('transfer', 'Send to device', () => openAttachmentTransfer(item)));
     if (removable) card.append(button('×', () => {
       const d = drafts[ownerId]; if (d?.pending || sendingProject === ownerId) return;
@@ -367,18 +370,19 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     textUploads.set(entry.id, job); return job;
   }
   function textDraftCard(entry, ownerId) {
-    const card = create('div', 'attachment-card attachment-text-card attachment-text-draft');
+    const card = create('div', 'attachment-card attachment-file-card attachment-text-card attachment-text-draft');
     card.title = entry.name;
     const busy = textUploads.has(entry.id);
     const open = button('', () => previewText(entry.text, entry.name), 'attachment-open');
     open.append(create('span', 'attachment-file-icon', '▤'), create('span', 'attachment-name', entry.name), create('small', '', busy ? 'Uploading…' : entry.error ? 'Upload failed; original text kept' : 'Pending upload'));
     card.append(open);
     if (!busy) {
-      card.append(button(entry.error ? 'Retry upload' : 'Upload', () => { void uploadTextFile(entry, ownerId); }, 'attachment-restore'));
-      card.append(button('Show in text box', () => {
+      card.append(iconAction('refresh',entry.error ? 'Retry upload' : 'Upload', () => { void uploadTextFile(entry, ownerId); }));
+      const restore=iconAction('edit','Show in text box', () => {
         const d = drafts[ownerId]; restoreText(ownerId, entry.text);
         d.textFiles = d.textFiles.filter(value => value.id !== entry.id); saveDrafts(); composer();
-      }, 'attachment-restore'));
+      });
+      restore.classList.add('attachment-restore');card.append(restore);
       card.append(button('×', () => {
         drafts[ownerId].textFiles = drafts[ownerId].textFiles.filter(value => value.id !== entry.id); saveDrafts(); composer();
       }, 'attachment-remove'));
@@ -578,7 +582,14 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     if(outbound)return {kind,status:'Completed'};
     const run=data.runs?.find(item=>item.id===message.runId);
     const task=run&&data.tasks?.find(item=>item.id===run.taskId);
-    return {kind,status:run?t(taskProgress(task||{roleSnapshot:run.roleSnapshot},run).label):'Completed'};
+    const progress=run&&taskProgress(task||{roleSnapshot:run.roleSnapshot},run);
+    // 只计算已完成的这次执行，不把排队时间或缺失的历史时间当作耗时。
+    const elapsedMs=Date.parse(run?.finishedAt)-Date.parse(run?.startedAt);let duration='';
+    if(progress?.state==='completed'&&Number.isFinite(elapsedMs)&&elapsedMs>=0){
+      const total=Math.floor(elapsedMs/1000),hours=Math.floor(total/3600),minutes=Math.floor(total%3600/60),seconds=total%60;
+      duration=`${hours?hours+'h':''}${hours||minutes?minutes+'m':''}${seconds}s`;
+    }
+    return {kind,status:progress?t(progress.label):'Completed',duration};
   }
 
   /** Copy the original message text without the rendered action buttons, time or quote summary. */
@@ -614,8 +625,57 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     return copy;
   }
 
+  let documentPreviewDialog,documentPreviewVersion=0;
+  /** Keep file reading in the existing fullscreen layer; ordinary external links retain their browser behavior. */
+  function previewDocumentLinks(root,context=null){
+    root.addEventListener('click',event=>{
+      const link=event.target.closest?.('a[href]');if(!link||!root.contains(link)||event.button!==0)return;
+      const href=link.getAttribute('href');let url;
+      try{
+        url=new URL(href,location.href);
+        if(url.origin!==location.origin||url.pathname!=='/document.html'){
+          if(!context||/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(href)||!/\.(?:md|markdown|txt)(?:#.*)?$/i.test(href))return;
+          const path=context.get('path'),absolute=href.startsWith('/')||path.startsWith('/');
+          const resolved=new URL(href,new URL(path,'https://document.invalid/'));
+          let documentPath=decodeURIComponent(resolved.pathname);if(!absolute)documentPath=documentPath.replace(/^\//,'');
+          const next=new URLSearchParams(context);next.set('path',documentPath);
+          url=new URL(`/document.html?${next}`,location.href);
+        }
+      }catch{return;}
+      event.preventDefault();void openDocumentPreview(url.searchParams);
+    });
+    return root;
+  }
+  /** Read through the existing authorized API; closing or replacing the reader fences late responses. */
+  async function openDocumentPreview(params){
+    const version=++documentPreviewVersion,path=params.get('path')||'',runId=params.get('runId'),id=params.get('projectId'),scopeId=params.get('scopeId');
+    const name=path.split(/[\\/]/).at(-1)||t('Project Document');let raw='';
+    if(!documentPreviewDialog){
+      documentPreviewDialog=create('dialog','message-fullscreen');documentPreviewDialog.id='document-preview-dialog';
+      documentPreviewDialog.addEventListener('close',()=>{documentPreviewVersion++;});document.body.append(documentPreviewDialog);
+    }
+    documentPreviewDialog.setAttribute('aria-label',name);
+    const header=create('div','message-fullscreen-heading'),heading=create('strong','',name),copy=copyMessageButton(()=>raw);
+    const close=iconAction('close','Close',()=>documentPreviewDialog.close());close.autofocus=true;copy.disabled=true;
+    header.append(heading,copy,close);
+    const body=create('div','message-fullscreen-body'),content=create('div','message-fullscreen-content'),status=create('p','workspace-note',t('Reading file…'));
+    content.append(status);body.append(content);documentPreviewDialog.replaceChildren(header,body);
+    if(!documentPreviewDialog.open)documentPreviewDialog.showModal();
+    try{
+      if(!path||!runId&&(!id||!scopeId))throw new Error('Incomplete document link');
+      const endpoint=id?`/api/projects/${encodeURIComponent(id)}/local-file?${new URLSearchParams({scopeId,path})}`:`/api/runs/${encodeURIComponent(runId)}/document?path=${encodeURIComponent(path)}`;
+      const result=await api(endpoint);if(version!==documentPreviewVersion||!documentPreviewDialog.open)return;
+      if(result.shared){const location=create('p','workspace-note',result.path||t('Waiting for local synchronization'));location.setAttribute('translate','no');content.append(location);}
+      if(result.shared&&result.content===null){status.textContent=t(result.preview==='binary'?'Binary file; preview unavailable.':result.preview==='too_large'?'File synchronized; text preview exceeds 600 KB.':result.syncState==='missing'?'Local file not found.':'Waiting for local synchronization');return;}
+      raw=String(result.content||'');copy.disabled=!raw;
+      const rendered=/\.(?:md|markdown)$/i.test(name)?previewDocumentLinks(renderMarkdown(simplifiedCliOutput(raw)),params):Object.assign(create('pre','artifact-code'),{textContent:raw});
+      content.append(rendered);status.textContent=t('Full text loaded · {v} characters',{v:raw.length.toLocaleString(dateLocale())});
+      if(result.syncState==='conflict'||result.syncState==='local_changes')status.textContent+=' · '+t(result.syncState==='conflict'?'Conflict detected; showing actual local file.':'Showing local changes; synchronization pending.');
+    }catch(error){if(version===documentPreviewVersion&&documentPreviewDialog.open)status.textContent=t('Unable to open document: {message}',{message:error.message});}
+  }
+
   /** Chat prose is simplified for display only; copying and the Original view retain the complete stored text. */
-  const renderLinkedMarkdown=(text,runId)=>localizeDocumentLinks(linkRunDocuments(renderMarkdown(simplifiedCliOutput(text)),runId),runId,api);
+  const renderLinkedMarkdown=(text,runId)=>previewDocumentLinks(localizeDocumentLinks(linkRunDocuments(renderMarkdown(simplifiedCliOutput(text)),runId),runId,api));
   function replyPreview(text, markdown = true, runId = null, key = '') {
     const preview = create('div', 'chat-reply-preview');
     preview.dataset.previewKey = `${projectId}:${key}`;
@@ -718,7 +778,6 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       bubble.append(typing, create('span', 'chat-typing-label', label));
     }
     col.append(bubble);
-    if(progress.reason)col.append(create('p','workspace-note',t(progress.reason)));
     const alert=run&&data.runAlerts?.find(a=>a.id===run.id);
     if(alert)col.append(create('p','run-alert',alert.reason));
     const approvals = run ? renderApprovalsInline(run) : null;
@@ -764,7 +823,8 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     const bubble = create('div', `chat-bubble${handoff || replyDirection ? ' handoff-card' : ''}`);
     if (m.replyToId) {
       const source = m.replySource || messages.find(q => q.id === m.replyToId);
-      const quote=create(source?.id?'button':'div', 'quoted-message', source ? t('{senderName}: {v}', { senderName: source.senderName, v: simplifiedCliOutput(source.text).slice(0, 180) }) : 'Quoting an earlier message');
+      const quoteText=source?simplifiedCliOutput(source.text):'';
+      const quote=create(source?.id?'button':'div', 'quoted-message', source ? t('{senderName}: {v}', { senderName: source.senderName, v: quoteText.slice(0, 180)+(quoteText.length>=180?'...':'') }) : 'Quoting an earlier message');
       if(source?.id){quote.type='button';quote.title='View quoted original';quote.setAttribute('aria-label','View quoted original');quote.addEventListener('click',()=>void historyViewer.open(m.projectId,'message',source.id).catch(error=>setError(error.message)));}
       bubble.append(quote);
     }
@@ -805,7 +865,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     actions.push(fullscreenMessageButton(handoff ? m.handoff.summary || m.text : m.text, m.senderName, agent || Boolean(handoff), m.attachments, null, m.runId));
     actions.push(...discussionActions);
     const cardMeta=messageCardMeta(m),footer=create('div','chat-card-footer');
-    footer.append(create('span','chat-card-kind',t('{kind} · {status}',{kind:t(cardMeta.kind),status:t(cardMeta.status)})));
+    footer.append(create('span','chat-card-kind',t('{kind} · {status}',{kind:t(cardMeta.kind),status:t(cardMeta.status)})+(cardMeta.duration?` · ${cardMeta.duration}`:'')));
     const actionBar=create('div','chat-card-actions');actionBar.append(...actions);footer.append(actionBar);bubble.append(footer);
     col.append(bubble);
     row.append(col);
@@ -822,7 +882,9 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     feed.replaceChildren();
     older.hidden = !history?.hasMore;
     if (!messages.length) feed.append(create('div', 'chat-empty', history
-      ? 'This is the project chat. Without @ it is only logged; @someone dispatches to them; @everyone only sends a notification and does not start an Agent.'
+      ? data.projects?.find(p=>p.id===projectId)?.supervisorRoleId
+        ? 'This is the project chat. New messages without @ go to the supervisor; replies target their sender; multiple @ mentions dispatch to each role; @everyone only sends a notification and does not start an Agent.'
+        : 'This is the project chat. Without @ it is only logged; @someone dispatches to them; @everyone only sends a notification and does not start an Agent.'
       : 'Loading chat…'));
     for (const m of messages) {
       feed.append(renderMessageRow(m, messages));

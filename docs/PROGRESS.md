@@ -141,6 +141,18 @@
 - Clarified that p95 targets and the 100 MiB / 5000-file sample conditions are unmeasured performance candidates, not functional limits, timeouts or SLA promises. Kept the digest algorithm and nine vectors unchanged; added A69–A75 for 75 acceptance scenarios and updated both documentation indexes.
 - Documentation only. The supplied Claude approval concerns the exact prior v2.3 artifact and does not establish other reviewers' decisions, implementation or live acceptance. No code/configuration changes, role dispatch, push, deployment or service restart; unrelated work remains separate.
 
+## 2026-10-14 — Cross-device P1 implementation planning
+
+- Grounded the first Q/F increment in current Home/Worker/bridge code and the committed v2.3.1 spec. The plan separates direct read paths from cache/materialization and S resource/execution work, with real isolated device/page checks and preservation gates.
+- Source inspection found that ordinary CliSessionRecovery.check can automatically reclaim idle drivers and inspect can retire stale records. Planned a separate no-reclaim/no-retire observation path rather than treating the existing check action as read-only or changing its scheduler behavior.
+- Written plan is prepared for user confirmation and execution-method selection. No product code, worktree scaffold, live configuration, native process, deployment or Git push was changed by this planning step.
+
+## 2026-10-14 — Cross-device P1 plan review corrections
+
+- Confirmed the existing 1 MiB WebSocket caps and disconnect/reconciling path against the exact daacf7403976ccf338052cd91a65d7b4ed17f1f2 source objects. Arithmetic probes showed 600000-byte quoted/control text expands beyond the cap; no production connection was used.
+- Revised the plan to budget complete serialized file replies at 512 KiB, use checked metadata/error fallback and cover existing file previews as well as new Agent reads. Clarified durable same-requestId result/observedAt replay, new IDs for fresh observations, bounded private result storage and authorization checks.
+- Fixed the full starting code SHA and distinguished approved documentation handoff from product baseline and unrelated WIP. Added owning regression/device/browser checks. Documentation planning only; no runtime defect is claimed fixed and product implementation remains gated on plan confirmation.
+
 ## 2026-10-14 — Cross-device P1 plan approved
 
 - The user approved revision 2 and sequential inline implementation. The product baseline is daacf7403976ccf338052cd91a65d7b4ed17f1f2; the approved plan is carried in a separate documentation-only commit before code work.
@@ -166,3 +178,11 @@
 - Twenty-three private routing checks passed after failing reproductions, with all 56 maintained tests green. Real English and Chinese browser pages against an isolated Home verified auto-mention, drafts, explicit override, separate targets displayed and persisted, human quotations, and discussion-specific replies. No Worker/vendor turn or production task was started. Cross-role Git handoff checks and paused-dispatch gates remain enforced.
 - Independent review findings were reproduced and fixed: transfer metadata is per recipient, aliases count once, discussion drafts honor explicit mentions without answering the original thread, and cancelling a quote preserves manually retyped mentions. A related message-first discussion display crash was reproduced in the browser and fixed without changing task state.
 - Feature branch only, not pushed or deployed. Original history, current native processes and other-worktree quota/frontend modifications were preserved.
+
+## 2026-10-14 — Integrated local branches and pending UI changes
+
+- Integrated the current GitHub main, reviewed cross-device P1 reads, reply/multi-recipient routing and daily model usage chart into the publication branch. Previously squash-integrated or superseded older branch behavior was checked rather than replayed over newer fixes. Source branches/worktrees and the original pending-change snapshot remain available.
+- The user explicitly included the pending frontend, quota and documentation edits. Retained their compact visual style and newer per-date model aggregation, consolidated the alternative model charts into one, kept the current approved P1 plan and preserved the earlier planning progress entries.
+- Independent integration review identified an outdated empty-chat routing hint, a missing zero-usage state and a duplicate translation. The first two were reproduced in the real isolated browser before minimal fixes; the final page also retained the selected sidebar state and title-bar tabs. Existing histories, reports and synchronization records were not rewritten.
+- Node 22.22.1 verification passed 56 maintained tests plus 60 targeted read/routing/token checks, syntax and whitespace gates. Actual isolated Home/Edge checks covered English/Chinese reply routing, model totals/remainders, empty states, five settings tabs and desktop/mobile layout. Private test scripts/data/screenshots remain ignored; no vendor-model turn or production task was launched.
+- This integration does not deploy or restart any service, enable Q/F on business projects, or implement the separate automatic dependency-preparation proposal. Publishing source and accepting a live runtime remain separate operations.

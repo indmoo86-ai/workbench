@@ -47,15 +47,17 @@ export function normalizeCcusageDaily(report,nodeId,collectedAt=new Date().toISO
     current.totalTokens+=number(row.totalTokens)||number(row.inputTokens)+number(row.outputTokens)+number(row.cacheCreationTokens)+number(row.cacheReadTokens);
     current.costUSD+=number(row.totalCost??row.costUSD);
     current.agents=[...new Set([...current.agents,...(row.metadata?.agents||[]),...(row.agent&&row.agent!=='all'?[row.agent]:[])])].sort();
-    current.models=[...new Set([...current.models,...(row.modelsUsed||row.models||[])])].sort();
-    // ccusage already supplies per-model bytes of usage; retain them rather than guessing a split from modelsUsed.
-    for(const breakdown of row.modelBreakdowns||[]) {
-      if(typeof breakdown.modelName!=='string'||!breakdown.modelName.trim())continue;
-      let model=current.modelBreakdowns.find(model=>model.modelName===breakdown.modelName);
-      if(!model){model={modelName:breakdown.modelName,...total([])};current.modelBreakdowns.push(model);}
-      for(const key of ['inputTokens','outputTokens','cacheCreationTokens','cacheReadTokens'])model[key]+=number(breakdown[key]);
-      model.totalTokens+=number(breakdown.totalTokens)||number(breakdown.inputTokens)+number(breakdown.outputTokens)+number(breakdown.cacheCreationTokens)+number(breakdown.cacheReadTokens);
-      model.costUSD+=number(breakdown.totalCost??breakdown.costUSD??breakdown.cost);
+    const names=row.modelsUsed||row.models||[];
+    current.models=[...new Set([...current.models,...(Array.isArray(names)?names:[])])].sort();
+    // Preserve actual per-model amounts; model names alone cannot determine their share of a daily total.
+    const breakdowns=Array.isArray(row.modelBreakdowns)?row.modelBreakdowns:Object.entries(row.breakdown||{}).map(([modelName,values])=>({...values,modelName}));
+    for(const item of breakdowns){
+      const modelName=typeof item.modelName==='string'?item.modelName.trim():'';if(!modelName)continue;
+      let model=current.modelBreakdowns.find(value=>value.modelName===modelName);
+      if(!model){model={modelName,...Object.fromEntries(fields.map(key=>[key,0]))};current.modelBreakdowns.push(model);}
+      for(const key of ['inputTokens','outputTokens','cacheCreationTokens','cacheReadTokens'])model[key]+=number(item[key]);
+      model.totalTokens+=number(item.totalTokens)||number(item.inputTokens)+number(item.outputTokens)+number(item.cacheCreationTokens)+number(item.cacheReadTokens);
+      model.costUSD+=number(item.totalCost??item.costUSD??item.cost);
     }
     current.modelBreakdowns.sort((a,b)=>a.modelName.localeCompare(b.modelName));
     result.set(date,current);

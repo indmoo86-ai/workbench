@@ -88,7 +88,7 @@ export function renderMarkdown(source) {
   return root;
 }
 
-/** Local or cloud documents in role replies open in a same-origin read-only page; the path is re-authorized by the Run workspace. */
+/** Same-origin document URLs retain the authorized Run identity for the in-page reader and direct-link fallback. */
 export function runDocumentHref(href,runId){
   if(!runId||typeof href!=='string'||!/^(?:\/(?!\/)|\.\.?\/|\.workbench\/docs\/)/.test(href)||!/\.(?:md|markdown|txt)$/i.test(href))return null;
   return `/document.html?${new URLSearchParams({runId,path:href})}`;
@@ -114,8 +114,8 @@ export function linkRunDocuments(root,runId){
     const original=link.getAttribute('href'),href=runDocumentHref(original,runId);
     if(!href)continue;
     link.setAttribute('href',href);
-    link.setAttribute('target','_blank');
-    link.setAttribute('rel','opener');
+    link.removeAttribute('target');
+    link.removeAttribute('rel');
     link.dataset.documentPath=original;
   }
   return root;

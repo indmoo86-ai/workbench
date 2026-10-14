@@ -12,7 +12,7 @@
 
 **Plan revision:** 2, incorporating the serialized-reply, requestId replay and exact-baseline review findings. These are implementation-plan corrections, not evidence that the runtime defects are fixed.
 
-**Status:** P1 implemented sequentially on the isolated feature branch and independently reviewed on 2026-10-14. Both final findings were reproduced and fixed in one RED/GREEN pass. Isolated actual Mac/Linux/wb and browser checks passed on code commit `06dd33fb85b89290549de455891ff415b1b3e7a9`. Not merged, pushed, deployed or enabled on business projects; existing services were not restarted.
+**Status:** P1 implemented sequentially on the isolated feature branch and independently reviewed on 2026-10-14. Both final findings were reproduced and fixed in one RED/GREEN pass. Isolated actual Mac/Linux/wb and browser checks passed on code commit `06dd33fb85b89290549de455891ff415b1b3e7a9`. Integrated into `fix/shared-project-documents` on 2026-10-14. Production deployment and business-project enablement remain separate; existing services were not restarted.
 
 ## Exact code baseline and worktree handoff
 
@@ -201,6 +201,6 @@ The approved documentation-only commit is `49ccf0468637c3cdcfc44da73277d49cff63e
 - The final twenty warm local wb/bridge/F samples measured median 187.58 ms and p95 191.99 ms. A short Home/Worker sample measured 1.1%/0.5% CPU and about 104.9/94.3 MiB RSS. These are isolated observations, not sustained idle, peak-memory, production-improvement or SLA evidence. The first actual-device check used a clean code worktree; the additional Home-restart check ran with only these documentation edits pending and verified identical source-module hashes.
 - Source-sync baselines/batches, reports, user files, existing native sessions and unrelated quota/frontend modifications were not changed by this increment. Q/F remains opt-in; installation does not enable a real project.
 
-The P1 code/isolated-verification gate is complete. Integration, rollout and four-provider model-turn acceptance remain separate. Receiver cache/materialization, the full P0 resource subsystem, S execution and service handoff are not implemented by these commits; their next plans must satisfy the follow-on gates above before opening writes or execution.
+The P1 code/isolated-verification gate is complete and its commits are integrated into `fix/shared-project-documents`. Production rollout and four-provider model-turn acceptance remain separate. Receiver cache/materialization, the full P0 resource subsystem, S execution and service handoff are not implemented by these commits; their next plans must satisfy the follow-on gates above before opening writes or execution.
 
-The final packaging check corrected only two newly added comments to the existing English source style required by the maintained i18n test. Runtime logic is identical to the actual-device-tested code; the final full suites and syntax/whitespace gates apply to that packaging state. No integration or release action is implied by this documentation.
+The feature branch's final packaging check corrected only two newly added comments to the existing English source style required by the maintained i18n test. Runtime logic was identical to the actual-device-tested code; its full suites and syntax/whitespace gates applied to that packaging state. That packaging step did not itself integrate or deploy the feature; the later integration state is recorded above.

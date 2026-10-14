@@ -14,7 +14,7 @@
 | [plan-supervisor-proactive-followup](plan-supervisor-proactive-followup.md) | 总管静默跟进的代码落点、持久去重、安静结束及验收 | 已直接实施并独立审核，不含发布 |
 | [design-session-handoff](design-session-handoff.md)（英文） | 受控的跨设备角色会话交接 | 方案。尚未实现 |
 | [design-cross-device-execution](design-cross-device-execution.md) | 跨设备快跑：固定输入、可取得基础提交、只读先行、写入观察限制及资源预算 | 用户批准的 v2.3.1 规格原文不变；仅 P1 按计划实施，后续阶段仍为设计，候选性能目标不代表生产承诺 |
-| [plan-cross-device-execution-p1](plan-cross-device-execution-p1.md) | 首批 Q/F：注册来源、安全回包及持久请求重放 | P1 功能分支实现、独立审核及隔离真实 Mac/Linux/浏览器验证完成；未合并、推送或发布 |
+| [plan-cross-device-execution-p1](plan-cross-device-execution-p1.md) | 首批 Q/F：注册来源、安全回包及持久请求重放 | P1 已实现并完成独立审核及隔离真实 Mac/Linux/浏览器验证，已整合到待发布分支；生产部署和启用另行处理 |
 | [design-cli-session-recovery](design-cli-session-recovery.md) | 空闲占用回收、用户确认及同一原生会话恢复 | 已开发并通过隔离验收；未部署 |
 
 建议先读 README，再读 ARCHITECTURE。需要完整的产品范围时再读 PRD。ARCHITECTURE 只描述实际代码，从不把计划当作功能。设计文档可能描述预期行为；若与代码不一致，以代码为准。

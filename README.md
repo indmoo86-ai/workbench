@@ -67,7 +67,7 @@ Directed role questions and published replies appear as individual chat bubbles 
 
 For document consultations, `wb call ... --text "review this document" --file path/to/document.md` reads the UTF-8 file directly, attaches its exact text and SHA256 as quoted reference data, and keeps the existing 12000-character call limit. It does not transfer or overwrite a peer's workspace. Larger shared documents should be referenced for on-demand reading; protected independent reviews keep their original document-read boundary. Retained Agy processes use the supplied `wb --turn RUN_ID ...` entry: old turn IDs never follow a new turn. `wb help` remains usable with an expired context, and a saved report receipt explicitly distinguishes registration from the later end of the CLI turn.
 
-Token Usage retains the device comparison and adds daily bars stacked by model across the two selected devices. Colors identify models, and each segment shows its tokens and the day's total on hover. Saved ccusage model breakdowns use the same input/output/cache total as the device charts. Older records without an exact model split appear as unassigned until available details are backfilled; model totals are never divided equally or inferred from a list of model names.
+Token Usage retains the device-composition comparison and uses one daily chart stacked by model across the two selected devices. Colors identify models; segment tooltips show their tokens, and column tooltips show the day's total. Saved ccusage model breakdowns use the same input/output/cache total as the device charts. A single recorded model can account for an unambiguous historical total; missing or inconsistent multi-model shares remain unclassified until available details are backfilled, never divided equally or guessed.
 
 All items below exist in the current code. Items that are only designed are listed separately under [Limitations and roadmap](#limitations-and-roadmap).
 
@@ -86,7 +86,7 @@ All items below exist in the current code. Items that are only designed are list
 
 **Multi-device**
 
-- Feature-branch Q/F reads: managed `wb read source|query|file <JSON>` discovers registered sources and reads current saved bytes without synchronization, Git-clean checks or execution copies. Projects default off; the authenticated `read-access` API grants explicit nodes/scopes and the two fixed read-only recipes. Identical request IDs replay the original observation; a new ID requests new facts. Replies and stored results are bounded. Cache fill, materialization and S execution are not implemented. See [the P1 plan](docs/plan-cross-device-execution-p1.md) for verification and deployment status.
+- Q/F reads: managed `wb read source|query|file <JSON>` discovers registered sources and reads current saved bytes without synchronization, Git-clean checks or execution copies. Projects default off; the authenticated `read-access` API grants explicit nodes/scopes and the two fixed read-only recipes. Identical request IDs replay the original observation; a new ID requests new facts. Replies and stored results are bounded. Cache fill, materialization and S execution are not implemented. See [the P1 plan](docs/plan-cross-device-execution-p1.md) for verification and deployment status.
 - Home/Worker split over an authenticated WebSocket. Workers connect outward; the Home never reaches into a machine.
 - Reliable delivery: persistent command and event outbox, idempotent command IDs, reconcile-on-reconnect, and no automatic re-run of executions whose state is unknown.
 - Per-device project directories and a long-lived project baseline branch per repository (Git worktrees), with fixed-SHA cross-device delivery that requires an explicit confirmation before pushing.
@@ -98,7 +98,7 @@ All items below exist in the current code. Items that are only designed are list
 **Operations**
 
 - Scheduled jobs (once, interval, daily, weekly) and a model-free progress patrol that only wakes the supervisor on new anomalies (`wb timer`).
-- Token usage statistics per device, collected with `ccusage`.
+- Token usage statistics per device, collected with `ccusage`, with daily columns stacked by model across the selected devices.
 - GitHub and Gitee account storage and optional repository creation (private by default).
 - Installable PWA shell, desktop three-column layout and a mobile drawer layout.
 - State reads time out after 20 seconds and recover automatically without replaying task submissions. Returning to the page or reconnecting refreshes state while preserving drafts; connection details show the last successful update.

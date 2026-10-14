@@ -185,14 +185,13 @@ body[data-workspace-view="settings"] #show-project-settings { display: none; }
 .usage-legend { display:grid; gap:7px; margin-top:12px; color:var(--muted); font-size:11px; }
 .usage-legend span::before { content:''; display:inline-block; width:8px; height:8px; margin-right:7px; background:var(--legend-color); }
 .usage-daily-block { overflow:hidden; }
-.usage-device-key { display:flex; gap:18px; justify-content:flex-end; margin:-25px 0 12px; color:var(--muted); font-size:11px; }
-.usage-device-key span::before { content:''; display:inline-block; width:9px; height:9px; margin-right:5px; background:var(--accent); }
-.usage-device-key span+span::before { background:#00a8e8; }
+.usage-device-key { display:flex; flex-wrap:wrap; gap:8px 18px; margin:0 0 12px; color:var(--muted); font-size:11px; }
+.usage-device-key span::before { content:''; display:inline-block; width:9px; height:9px; margin-right:5px; background:var(--legend-color); }
 .usage-daily { display:flex; align-items:flex-end; gap:10px; min-height:205px; overflow-x:auto; padding:14px 4px 2px; border-bottom:1px solid var(--line); }
-.usage-day { display:grid; flex:1 0 32px; min-width:32px; align-items:end; gap:6px; height:184px; text-align:center; }
+.usage-day { display:grid; flex:1 0 32px; min-width:32px; align-items:end; justify-items:center; gap:6px; height:184px; text-align:center; }
 .usage-bars { display:flex; align-items:flex-end; justify-content:center; gap:3px; height:160px; }
-.usage-bar { width:11px; background:var(--accent); border-radius:2px 2px 0 0; }
-.usage-bar-2 { background:#00a8e8; }
+.usage-stack { display:flex; flex-direction:column-reverse; width:20px; overflow:hidden; border-radius:2px 2px 0 0; }
+.usage-bar { flex:none; width:100%; background:var(--accent); }
 .usage-day time { color:var(--muted); font-size:9px; writing-mode:vertical-rl; }
 .usage-model-key { display:flex; flex-wrap:wrap; gap:8px 18px; margin:12px 0; color:var(--muted); font-size:11px; }
 .usage-model-key span { overflow-wrap:anywhere; }
@@ -522,13 +521,13 @@ body[data-navigation-mode="sessions"] #node-sidebar > :not(#native-session-sideb
 .chat-bubble { min-width: 0; max-width: 100%; padding: 10px 12px; border-radius: 4px 12px 12px 12px; background: #fff; color: var(--ink); box-shadow: 0 1px 1px rgb(0 0 0 / 6%); box-sizing: border-box; overflow: hidden; }
 .chat-row.human .chat-bubble { border-radius: 12px 4px 12px 12px; background: #95ec69; box-shadow: none; }
 .chat-message-text { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.6; margin: 0; }
+.chat-reply-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 10; max-height: 16em; overflow: hidden; overflow-wrap: anywhere; font-size: 14px; line-height: 1.6; }
 .chat-recipient-list { display:flex; flex-wrap:wrap; gap:6px; margin:0 0 8px; }
 .chat-recipient { color:#0b4f91; font-size:13px; font-weight:750; }
 .chat-card-footer { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:10px -2px -2px; padding-top:8px; border-top:1px solid rgb(126 153 180 / 25%); }
 .chat-card-kind { min-width:0; color:#667e96; font-size:11px; line-height:1.4; }
 .chat-card-actions { display:flex; flex:none; align-items:center; justify-content:flex-end; gap:3px; }
 .chat-card-actions .chat-icon-btn { width:27px; height:27px; }
-.chat-reply-preview { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 10; max-height: 16em; overflow: hidden; overflow-wrap: anywhere; font-size: 14px; line-height: 1.6; }
 .markdown-body { width: 100%; min-width: 0; max-width: 100%; white-space: normal; }
 .markdown-body > :first-child { margin-top: 0; }
 .markdown-body > :last-child { margin-bottom: 0; }
@@ -557,15 +556,15 @@ body[data-navigation-mode="sessions"] #node-sidebar > :not(#native-session-sideb
 .markdown-body th:last-child, .markdown-body td:last-child { border-right: 0; }
 .markdown-body [data-align="center"] { text-align: center; }
 .markdown-body [data-align="right"] { text-align: right; }
-.document-page { overflow: auto; color: #243447; background: #f8fafc; }
-.document-shell { width: min(1060px, calc(100% - 32px)); margin: 28px auto 64px; }
-.document-heading { display: flex; align-items: end; justify-content: space-between; gap: 16px; padding-bottom: 18px; border-bottom: 1px solid #d8e4f0; }
-.document-heading small { color: #6a7e94; font-size: 12px; }
-.document-heading h1 { margin: 7px 0 0; font-size: clamp(20px, 3vw, 30px); overflow-wrap: anywhere; }
-.document-heading button { flex: none; padding: 8px 13px; border: 1px solid #cbd9e8; border-radius: 7px; color: #28567f; background: #fff; }
-#document-status { color: #697d93; font-size: 13px; }
-.document-content { padding: 25px 30px; border: 1px solid #d8e4f0; background: #fff; }
-.document-content .markdown-body { font-size: 15px; line-height: 1.8; }
+.document-page { overflow: auto; color: var(--ink); background: #f1f2f4; }
+.document-shell { width: min(1120px, calc(100% - 32px)); margin: 24px auto 64px; }
+.document-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 24px; border-bottom: 1px solid var(--line); border-radius: 12px 12px 0 0; background: #fff; }
+.document-heading small { color: var(--muted); font-size: 12px; }
+.document-heading h1 { margin: 6px 0 0; font-size: 18px; font-weight: 600; overflow-wrap: anywhere; }
+.document-heading button { flex: none; min-height: 36px; padding: 7px 14px; border: 1px solid var(--line); border-radius: 6px; color: var(--accent); background: #fff; }
+#document-status { margin: 0; padding: 12px 24px; color: var(--muted); background: #fff; font-size: 12px; }
+.document-content { padding: 20px 24px; border: 0; border-radius: 0 0 12px 12px; background: #fff; }
+.document-content .markdown-body { font-size: 14px; line-height: 1.75; }
 .document-content pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 640px) { .document-shell { width: calc(100% - 20px); margin-top: 16px; } .document-content { padding: 18px 16px; } }
 .chat-meta { display: flex; align-items: center; gap: 2px; }
@@ -576,9 +575,10 @@ body[data-navigation-mode="sessions"] #node-sidebar > :not(#native-session-sideb
 }
 .chat-icon-btn svg { width: 13px; height: 13px; display: block; }
 .chat-icon-btn:hover { color: #0b6344; background: rgb(18 132 91 / 10%); }
+/* 引用只占一行，按实际气泡宽度省略；完整原文仍通过引用入口查看。 */
+.quoted-message { margin: 0 0 8px; padding: 6px 8px; border-left: 3px solid #bbcec2; background: rgb(0 0 0 / 4%); color: #66736b; font-size: 12px; min-width: 0; max-width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 button.quoted-message { display:block; width:100%; border-top:0; border-right:0; border-bottom:0; text-align:left; font:inherit; cursor:pointer; }
 button.quoted-message:hover { color:#315b84; background:#e7eef5; }
-.quoted-message { margin: 0 0 8px; padding: 6px 8px; border-left: 3px solid #bbcec2; background: rgb(0 0 0 / 4%); color: #66736b; font-size: 12px; overflow-wrap: anywhere; white-space: pre-wrap; }
 .chat-row.human .quoted-message { background: rgb(0 0 0 / 6%); }
 .chat-typing { display: inline-flex; gap: 4px; align-items: center; min-height: 16px; }
 .chat-typing span { width: 6px; height: 6px; border-radius: 50%; background: #9aa79f; animation: chat-dot 1.2s infinite ease-in-out; }
@@ -660,6 +660,17 @@ button.quoted-message:hover { color:#315b84; background:#e7eef5; }
 #chat-attachments .attachment-card > .chat-icon-btn { bottom: 3px; }
 #chat-attachments .attachment-remove:hover, #chat-attachments .attachment-card > .chat-icon-btn:hover { background: var(--accent-soft); }
 #chat-attachments .attachment-restore { min-height: 24px; margin-left: 64px; padding: 2px 0; font-size: 11px; }
+/* 文件附件统一两行：小图标和大小在上，文件名在下；操作放进首行，图片缩略图不变。 */
+.attachment-file-card { width: 160px; max-width: 100%; padding-right: 0; }
+:is(.attachment-file-card, #chat-attachments .attachment-file-card) .attachment-open { display: grid; grid-template-columns: 16px minmax(0, 1fr) 28px; grid-template-rows: 18px 18px; align-items: center; gap: 2px 6px; max-width: none; min-height: 0; padding: 7px 8px; }
+:is(.attachment-file-card, #chat-attachments .attachment-file-card) .attachment-file-icon { display: grid; place-items: center; grid-column: 1; grid-row: 1; width: 16px; height: 18px; align-self: center; font-size: 16px; line-height: 18px; }
+:is(.attachment-file-card, #chat-attachments .attachment-file-card) .attachment-open small { grid-column: 2; grid-row: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; line-height: 18px; }
+:is(.attachment-file-card, #chat-attachments .attachment-file-card) .attachment-name { display: block; grid-column: 1 / -1; grid-row: 2; min-width: 0; max-width: 100%; font-size: 12px; line-height: 18px; }
+:is(.attachment-file-card, #chat-attachments .attachment-file-card):has(.attachment-remove) .attachment-open { grid-template-columns: 16px minmax(0, 1fr) 56px; }
+:is(.attachment-file-card, #chat-attachments .attachment-file-card):has(.attachment-restore) .attachment-open { grid-template-columns: 16px minmax(0, 1fr) 84px; }
+:is(.attachment-file-card, #chat-attachments .attachment-file-card) > :is(.chat-icon-btn, .attachment-remove) { position: absolute; top: 5px; right: 4px; bottom: auto; display: grid; place-items: center; width: 22px; height: 22px; min-height: 22px; margin: 0; padding: 0; }
+:is(.attachment-file-card, #chat-attachments .attachment-file-card):has(.attachment-remove) > .chat-icon-btn:not(.attachment-restore) { right: 30px; }
+:is(.attachment-file-card, #chat-attachments .attachment-file-card) > .attachment-restore { right: 56px; }
 .attachment-dialog { max-width: min(90vw, 1000px); }
 .attachment-dialog img { display: block; max-width: 100%; max-height: 75vh; object-fit: contain; }
 #chat-file-input[hidden] { display: none; }
@@ -1053,24 +1064,24 @@ dialog::backdrop { background: rgb(18 33 24 / 32%); backdrop-filter: none; }
 .online-status-lit.is-offline .online-status-dot { fill: #a6aea9; }
 .online-status-lit svg { display: block; }
 
-/* Bright blue theme: primary actions use saturated blue, and the light canvas keeps long-text reading contrast. */
+/* 紧凑视觉统一使用低对比灰白表面；靛蓝只强调选中项与主操作，不改变状态含义。 */
 :root {
-  --accent: #0866ff;
-  --accent-dark: #004bcc;
-  --accent-soft: #e8f2ff;
-  --accent-line: #b7d5ff;
-  --accent-gradient: linear-gradient(145deg, #00b5f5, #0866ff 66%, #304dff);
+  --accent: #4f5bce;
+  --accent-dark: #3f49b5;
+  --accent-soft: #eef0fa;
+  --accent-line: #d9def1;
+  --accent-gradient: var(--accent);
   --green: var(--accent);
   --green-dark: var(--accent-dark);
   --green-soft: var(--accent-soft);
-  --ink: #15243b;
-  --muted: #596d87;
-  --line: #d6e3f4;
-  --sidebar: #f0f6ff;
+  --ink: #252938;
+  --muted: #7b8191;
+  --line: #e7e9ee;
+  --sidebar: #f6f7f9;
   --danger: #d92d43;
   --warning: #995600;
 }
-body { color: var(--ink); background: #f7faff; }
+body { color: var(--ink); background: #f1f2f4; }
 .project-sidebar { color: var(--ink); border-color: var(--line); background: var(--sidebar); }
 .brand span, .sidebar-heading, .project-item small { color: var(--muted); }
 /* Logo 自带圆角蓝底，透明留白直接透出页面，不再叠加按钮底板。 */
@@ -1093,7 +1104,7 @@ input:focus, textarea:focus, select:focus { border-color: var(--accent); box-sha
 .repository-bar a, .folder-crumbs button { color: var(--accent-dark); }
 .folder-crumbs button:hover, .folder-item:hover, .folder-item:focus-visible { border-color: var(--accent-line); background: var(--accent-soft); }
 .folder-list { background: #f8fafc; }
-.node-sidebar { background: #f3f7ff; }
+.node-sidebar { background: var(--sidebar); }
 
 .chat-panel,
 .chat-panel.panel { background: #edf4ff; }
@@ -1348,12 +1359,12 @@ body:has(#platform-prompts-dialog[open]) .settings-page { overflow: hidden; }
   #supervisor-form .role-field-row:first-child > label:first-child { grid-column: auto; }
 }
 
-/* Conversation details scroll only the body; the title always stays at the top of the dialog. */
-#run-dialog { display: flex; flex-direction: column; max-height: calc(var(--app-height, 100dvh) - 32px); padding: 0; overflow: hidden; }
+/* 执行详情按页面可用高度固定外框，切换 Tab 不伸缩，只滚动正文。 */
+#run-dialog { display: flex; flex-direction: column; height: calc(var(--app-height, 100dvh) - 40px); max-height: calc(var(--app-height, 100dvh) - 40px); padding: 0; overflow: hidden; }
 #run-dialog:not([open]) { display: none; }
 #run-dialog .run-dialog-heading { flex: 0 0 auto; align-items: center; margin: 0; padding: 14px 20px 12px; border-bottom: 1px solid #dce7f2; background: #fff; }
-.run-dialog-heading-content { min-width: 0; }
-#run-dialog-title { display: -webkit-box; max-height: 2.7em; margin: 0; overflow: hidden; color: #233c56; font-size: 18px; line-height: 1.35; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.run-dialog-heading-content { flex: 1; min-width: 0; }
+#run-dialog-title { display: block; margin: 0; overflow: hidden; color: #233c56; font-size: 18px; line-height: 1.35; white-space: nowrap; text-overflow: ellipsis; }
 .run-dialog-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 7px; color: #718398; font-size: 11px; }
 .run-dialog-meta:empty { display: none; }
 .run-dialog-meta .status-chip { font-size: 10px; }
@@ -1497,9 +1508,9 @@ button.action-icon-button { display: inline-flex; align-items: center; justify-c
 .app-shell .brand, .app-shell .topbar, .app-shell .inspector-header {
   position:relative;
   z-index:4;
-  background:#f0f5fc;
-  border-bottom-color:#dfe7f1;
-  box-shadow:0 3px 10px rgb(35 60 90 / 9%);
+  background:#f6f7f9;
+  border-bottom-color:var(--line);
+  box-shadow:0 1px 4px rgb(37 41 56 / 6%);
 }
 .inspector-header { display:flex; align-items:center; gap:8px; flex-shrink:0; height:54px; min-height:54px; border-bottom:1px solid var(--line); padding:0 14px; background:#f8fbff; }
 .inspector-header h2 { flex:1; min-width:0; margin:0; font-size:15px; letter-spacing:.02em; white-space:nowrap; }
@@ -1509,14 +1520,15 @@ button.action-icon-button { display: inline-flex; align-items: center; justify-c
 .inspector-panel { min-height:0; overflow:auto; flex:1; padding:16px 14px; overscroll-behavior:contain; }
 .inspector-panel[hidden] { display:none; }
 .inspector-tabs { flex-shrink:0; display:flex; align-items:center; gap:4px; border-top:1px solid var(--line); background:#f8fbff; padding:10px; min-height:64px; }
-.sidebar-footer { gap:4px; background:#f8fbff; }
-.sidebar-footer .icon-button:is(:hover,:focus-visible) { color:#0866ff; background:#e5efff; }
-/* The sidebar footer reuses the right panel tab bar style: equal-width items, active item gets a light-blue fill and a blue underline. */
-.inspector-tabs button, .sidebar-footer .icon-button { position:relative; flex:1; min-width:0; width:auto; padding:10px 4px; border:0; border-radius:9px; box-shadow:none; background:transparent; color:#687e9c; font-size:12px; font-weight:650; white-space:nowrap; }
-.inspector-tabs button, .sidebar-footer .icon-button { display:flex; align-items:center; justify-content:center; height:auto; min-height:44px; }
-.inspector-tabs button svg, .sidebar-footer .icon-button svg { width:20px; height:20px; flex-shrink:0; pointer-events:none; }
-.inspector-tabs button[aria-selected="true"], .sidebar-footer .icon-button[aria-current="page"] { color:#0866ff; background:#e5efff; }
-.inspector-tabs button[aria-selected="true"]::before, .sidebar-footer .icon-button[aria-current="page"]::before { content:''; position:absolute; bottom:0; left:38%; right:38%; height:2px; border-radius:2px; background:#0866ff; }
+.sidebar-footer { gap:4px; background:#f6f7f9; }
+.sidebar-footer .icon-button { position:relative; flex:1; min-width:0; width:auto; height:44px; min-height:44px; display:flex; align-items:center; justify-content:center; padding:10px 4px; border:0; border-radius:9px; box-shadow:none; background:transparent; color:#687e9c; }
+.sidebar-footer .icon-button svg { width:20px; height:20px; flex-shrink:0; pointer-events:none; }
+.sidebar-footer .icon-button:is(:hover,:focus-visible) { color:var(--accent); background:var(--accent-soft); }
+.inspector-tabs button { position:relative; flex:1; min-width:0; padding:10px 4px; border:0; border-radius:9px; background:transparent; color:#687e9c; font-size:12px; font-weight:650; white-space:nowrap; }
+.inspector-tabs button { display:flex; align-items:center; justify-content:center; min-height:44px; }
+.inspector-tabs button svg { width:20px; height:20px; flex-shrink:0; pointer-events:none; }
+.inspector-tabs button[aria-selected="true"], .sidebar-footer .icon-button[aria-current="page"] { color:var(--accent); background:var(--accent-soft); }
+.inspector-tabs button[aria-selected="true"]::before, .sidebar-footer .icon-button[aria-current="page"]::before { content:''; position:absolute; bottom:0; left:38%; right:38%; height:2px; border-radius:2px; background:var(--accent); }
 .artifact-section-heading { display:flex; align-items:center; justify-content:space-between; gap:8px; }
 .artifact-section-heading small { color:#7b95b7; font-size:9px; font-weight:700; letter-spacing:.13em; }
 .artifact-section-heading h3 { font-size:14px; margin:3px 0; }
@@ -1662,14 +1674,14 @@ button.action-icon-button { display: inline-flex; align-items: center; justify-c
 
 /* 统一应用内弹窗的视觉层；不改变提交、关闭、权限确认及执行逻辑。 */
 :is(dialog, #project-form-panel) {
-  --dialog-space: 24px;
-  --dialog-line: #e6e8eb;
-  --dialog-blue: #3f6bff;
-  color: #262626;
+  --dialog-space: 28px;
+  --dialog-line: #e7e9ee;
+  --dialog-blue: var(--accent);
+  color: var(--ink);
   background: #fff;
   border: 1px solid var(--dialog-line);
-  border-radius: 4px;
-  box-shadow: 0 12px 40px rgb(0 0 0 / 18%);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgb(37 41 56 / 14%);
   padding: var(--dialog-space);
   max-width: calc(100vw - 32px);
   max-height: calc(var(--app-height, 100dvh) - 40px);
@@ -1679,18 +1691,18 @@ button.action-icon-button { display: inline-flex; align-items: center; justify-c
   scrollbar-color: #c7cbd1 transparent;
 }
 :is(dialog, #role-dialog, #run-dialog) { margin: auto; }
-dialog::backdrop { background: rgb(0 0 0 / 42%); backdrop-filter: none; }
+dialog::backdrop { background: rgb(37 41 56 / 26%); backdrop-filter: none; }
 :is(dialog, #project-form-panel) *, :is(dialog, #project-form-panel) *::before { box-sizing: border-box; }
 :is(dialog, #project-form-panel) :is(form, label, fieldset, section, article, .full-width) { min-width: 0; }
 :is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) {
   position: sticky; top: calc(-1 * var(--dialog-space)); z-index: 3;
   display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  margin: calc(-1 * var(--dialog-space)) calc(-1 * var(--dialog-space)) 24px;
-  padding: 18px var(--dialog-space); min-height: 64px;
+  margin: calc(-1 * var(--dialog-space)) calc(-1 * var(--dialog-space)) 20px;
+  padding: 14px var(--dialog-space); min-height: 56px;
   border: 0; border-bottom: 1px solid var(--dialog-line); background: #fff;
 }
 :is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) > div { min-width: 0; }
-:is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .live-scene-heading) :is(h2, h3), dialog > .message-fullscreen-heading > strong { margin: 0; color: #262626; font-size: 20px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
+:is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .live-scene-heading) :is(h2, h3), dialog > .message-fullscreen-heading > strong { margin: 0; color: var(--ink); font-size: 18px; line-height: 1.4; font-weight: 600; overflow-wrap: anywhere; }
 :is(dialog, #project-form-panel) :is(.dialog-heading, .panel-heading) .eyebrow { display: none; }
 :is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) :is(.icon-button, .chat-icon-btn) {
   display: inline-flex; align-items: center; justify-content: center; flex: 0 0 32px;
@@ -1700,20 +1712,20 @@ dialog::backdrop { background: rgb(0 0 0 / 42%); backdrop-filter: none; }
 :is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) :is(.icon-button, .chat-icon-btn):hover { background: #f2f3f5; color: #262626; }
 :is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) :is(.icon-button, .chat-icon-btn) svg { width: 20px; height: 20px; }
 :is(dialog, #project-form-panel) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea) {
-  max-width: 100%; border: 1px solid #d9dce1; border-radius: 3px; color: #262626; background: #fff;
+  min-width: 0; max-width: 100%; border: 1px solid #e7e9ee; border-radius: 6px; color: var(--ink); background: #f6f7f9;
   font-size: 14px; font-weight: 400; box-shadow: none;
 }
 :is(dialog, #project-form-panel) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select) { height: 36px; padding-inline: 10px; }
-:is(dialog, #project-form-panel) :is(input, select, textarea):focus { border-color: var(--dialog-blue); outline: 0; box-shadow: 0 0 0 2px rgb(63 107 255 / 10%); }
+:is(dialog, #project-form-panel) :is(input, select, textarea):focus { border-color: var(--dialog-blue); outline: 0; box-shadow: 0 0 0 2px rgb(79 91 206 / 12%); }
 :is(dialog, #project-form-panel) :is(input, textarea)::placeholder { color: #a1a5ad; }
 :is(dialog, #project-form-panel) :is(input, select, textarea):disabled { background: #f6f7f8; color: #9298a1; }
 :is(dialog, #project-form-panel) input:is([type="checkbox"], [type="radio"]) { width: 16px; height: 16px; min-height: 16px; flex-shrink: 0; accent-color: var(--dialog-blue); }
-:is(dialog, #project-form-panel) :is(.form-grid, .native-session-form) { gap: 18px 24px; }
-:is(dialog, #project-form-panel) :is(label, .native-field) { color: #42464d; font-size: 14px; font-weight: 400; line-height: 1.5; }
+:is(dialog, #project-form-panel) :is(.form-grid, .native-session-form) { gap: 16px 20px; }
+:is(dialog, #project-form-panel) :is(label, .native-field) { color: #687080; font-size: 12px; font-weight: 400; line-height: 1.5; }
 :is(dialog, #project-form-panel) :is(.workspace-note, .native-picker-note, .native-form-feedback) { color: #858c96; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
-:is(dialog, #project-form-panel) :is(button.primary, a.primary, button.secondary, button.danger) { min-height: 36px; padding: 7px 16px; border: 1px solid #d9dce1; border-radius: 3px; font-size: 14px; font-weight: 400; line-height: 20px; box-shadow: none; }
+:is(dialog, #project-form-panel) :is(button.primary, a.primary, button.secondary, button.danger) { min-height: 36px; padding: 7px 14px; border: 1px solid #e7e9ee; border-radius: 6px; font-size: 14px; font-weight: 400; line-height: 20px; box-shadow: none; }
 :is(dialog, #project-form-panel) :is(button.primary, a.primary) { background: var(--dialog-blue); border-color: var(--dialog-blue); color: #fff; }
-:is(dialog, #project-form-panel) :is(button.primary, a.primary):hover { background: #315de8; border-color: #315de8; }
+:is(dialog, #project-form-panel) :is(button.primary, a.primary):hover { background: var(--accent-dark); border-color: var(--accent-dark); }
 :is(dialog, #project-form-panel) button.secondary { color: #444a53; background: #fff; }
 :is(dialog, #project-form-panel) button.secondary:hover { color: var(--dialog-blue); border-color: var(--dialog-blue); }
 :is(dialog, #project-form-panel) button:focus-visible { outline: 2px solid var(--dialog-blue); outline-offset: 2px; }
@@ -1727,9 +1739,9 @@ dialog.history-viewer > .history-viewer-actions {
   position: sticky; bottom: calc(-1 * var(--dialog-space)); z-index: 2;
   display: flex; justify-content: flex-end; flex-wrap: wrap; align-items: center; gap: 10px;
   margin: 12px calc(-1 * var(--dialog-space)) calc(-1 * var(--dialog-space));
-  padding: 16px var(--dialog-space); border: 0; border-top: 1px solid var(--dialog-line); background: #fff;
+  padding: 12px var(--dialog-space); border: 0; border-top: 1px solid var(--dialog-line); background: #fff;
 }
-:is(dialog, #project-form-panel) :is(.settings-block, .terminal-session-summary, fieldset) { border-color: var(--dialog-line); border-radius: 3px; background: #fff; box-shadow: none; }
+:is(dialog, #project-form-panel) :is(.settings-block, .terminal-session-summary, fieldset) { padding: 14px 0; border: 0; border-bottom: 1px solid var(--dialog-line); border-radius: 0; background: #fff; box-shadow: none; }
 :is(dialog, #project-form-panel) pre { border-radius: 3px; color: #444a53; background: #f7f8fa; }
 dialog :is(.native-picker-path, .selected-path) { padding-inline: 0; border-radius: 0; background: transparent; }
 dialog :is(.native-picker-list, .folder-list) { border-radius: 3px; border-color: var(--dialog-line); }
@@ -1756,16 +1768,26 @@ dialog .live-scene-input { border-color: var(--dialog-line); border-radius: 3px;
 /* 标题栏 Tab 使用原来的表单/历史节点，仅切换可见性。 */
 :is(#role-dialog, #supervisor-settings) > .dialog-heading:has(.role-history-tabs:not([hidden])) { padding-block: 0; }
 :is(#role-dialog, #supervisor-settings) .dialog-heading > .role-history-tabs { align-self: stretch; align-items: stretch; flex: 1; gap: 24px; padding: 0; border: 0; min-width: 0; }
-:is(#role-dialog, #supervisor-settings) .role-history-tabs > button { min-height: 64px; padding: 0 4px; border: 0; border-radius: 0; background: transparent; color: #737b87; box-shadow: none; font-size: 18px; font-weight: 500; white-space: nowrap; }
+:is(#role-dialog, #supervisor-settings) .role-history-tabs > button { min-height: 56px; padding: 0 4px; border: 0; border-radius: 0; background: transparent; color: #7b8191; box-shadow: none; font-size: 18px; font-weight: 500; white-space: nowrap; }
 :is(#role-dialog, #supervisor-settings) .role-history-tabs > button[aria-selected="true"] { color: var(--dialog-blue); box-shadow: inset 0 -2px var(--dialog-blue); background: transparent; }
 :is(#role-dialog, #supervisor-settings) .role-history-tabs > button:hover { color: var(--dialog-blue); background: transparent; }
 :is(#role-form, #supervisor-form) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-:is(#role-form, #supervisor-form) .role-field-row { display: contents; }
-#supervisor-form .role-field-row:first-child > label:first-child { grid-column: auto; }
-:is(#role-form, #supervisor-settings-body, .role-history-panel) { padding: 22px var(--dialog-space) var(--dialog-space); }
-:is(#role-form, #supervisor-form) textarea { min-height: 78px; }
+/* 同一字段节点只换布局：运行配置四项等宽，条件隐藏和原有监听器保持原样。 */
+:is(#role-dialog, #supervisor-settings) { width: min(1120px, calc(100vw - 48px)); height: min(820px, calc(var(--app-height, 100dvh) - 48px)); }
+:is(#role-form, #supervisor-settings-body, .role-history-panel) { flex: 1 1 auto; padding: 20px var(--dialog-space) var(--dialog-space); }
+:is(#role-form, #supervisor-form) .role-field-row { display: grid; gap: 16px 20px; }
+:is(#role-form, #supervisor-form) .role-basic-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+:is(#role-form, #supervisor-form) .role-basic-row:has(> label:only-child) { grid-template-columns: minmax(0, 1fr); }
+:is(#role-form, #supervisor-form) .role-runtime-row { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+:is(#role-form, #supervisor-form) .role-field-row > label { grid-column: auto; }
+:is(#role-form, #supervisor-form) .role-section-title { margin: 6px 0 -4px; padding: 18px 0 0; border: 0; border-top: 1px solid var(--dialog-line); color: var(--ink); background: transparent; font-size: 15px; font-weight: 600; }
+:is(#role-form, #supervisor-form) .role-section-title:first-child { margin-top: 0; padding-top: 0; border: 0; }
+:is(#role-form, #supervisor-form) textarea { min-height: 60px; }
 #role-form textarea[name="instructions"], #project-supervisor-prompt-preview { height: 100px; }
 #role-archive { margin-right: auto; border-color: transparent; color: #6d7480; background: transparent; }
+.role-history-panel .settings-block > strong { color: var(--ink); font-size: 14px; font-weight: 600; }
+.role-history-panel .settings-block > .workspace-note { display: -webkit-box; margin: 6px 0; overflow: hidden; font-size: 12px; line-height: 1.6; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.role-history-panel .settings-block > details > summary { margin-top: 8px; color: var(--accent); font-size: 12px; cursor: pointer; }
 
 /* 历史列表去掉逐条大边框，长标题最多两行，不允许把弹窗撑宽。 */
 #history-dialog { width: min(960px, calc(100vw - 32px)); }
@@ -1777,66 +1799,79 @@ dialog .live-scene-input { border-color: var(--dialog-line); border-radius: 3px;
 dialog.role-switch-dialog { width: min(640px, calc(100vw - 32px)); }
 
 @media (max-width: 600px) {
-  :is(dialog, #role-dialog):not(.live-scene):not(.message-fullscreen):not(#run-dialog) { height: fit-content; }
+  :is(dialog, #role-dialog):not(.live-scene):not(.message-fullscreen):not(#run-dialog):not(#role-dialog):not(#supervisor-settings) { height: fit-content; }
   :is(dialog, #project-form-panel) { --dialog-space: 16px; max-width: calc(100vw - 20px); max-height: calc(var(--app-height, 100dvh) - 24px); }
   :is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .message-fullscreen-heading, .live-scene-heading) { min-height: 56px; padding-block: 12px; gap: 10px; }
   :is(dialog, #project-form-panel) > :is(.dialog-heading, .panel-heading, .source-sync-heading, .live-scene-heading) :is(h2, h3), dialog > .message-fullscreen-heading > strong { font-size: 18px; }
   :is(dialog, #project-form-panel) :is(.form-grid, .native-session-form), :is(#role-form, #supervisor-form) { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   :is(#role-dialog, #supervisor-settings) .role-history-tabs > button { min-height: 56px; font-size: 16px; }
   :is(#role-dialog, #supervisor-settings) .dialog-heading > .role-history-tabs { gap: 18px; }
+  :is(#role-dialog, #supervisor-settings) { width: calc(100vw - 20px); height: calc(var(--app-height, 100dvh) - 24px); }
+  :is(#role-form, #supervisor-form) :is(.role-basic-row, .role-runtime-row) { grid-template-columns: minmax(0, 1fr); }
   :is(dialog, #project-form-panel) :is(button.primary, button.secondary) { min-height: 40px; }
   dialog .native-workspace-row { flex-wrap: wrap; }
   dialog .native-workspace-row input { flex-basis: 100%; }
   dialog .live-scene-heading { flex-wrap: wrap; }
 }
 
-/* 独立设置页沿用弹窗的视觉规范；限定页面控件，不覆盖嵌套弹窗或图表数据配色。 */
+/* 设置页沿同一内容轴等宽排列；保留各分区的保存入口，不生成新表单或第二套交互。 */
 #settings-page {
-  --page-blue: #3f6bff; --page-line: #e6e8eb;
-  color: #262626; background: #f7f8fa;
+  --page-blue: var(--accent); --page-line: #e7e9ee;
+  color: var(--ink); background: #f1f2f4;
   scrollbar-width: thin; scrollbar-color: #c7cbd1 transparent;
 }
-#settings-page > .settings-page-heading { min-height: 64px; padding-block: 8px; gap: 24px; border-bottom-color: var(--page-line); background: #fff; }
+#settings-page > .settings-page-heading { min-height: 56px; padding-block: 4px; gap: 24px; border-bottom-color: var(--page-line); background: #fff; }
 #settings-page > .settings-page-heading > div { flex: 0 0 auto; }
 #settings-page > .settings-page-heading > #close-settings-page { flex-shrink: 0; margin-left: auto; }
-#settings-page > .settings-page-heading h2 { color: #262626; font-size: 20px; line-height: 1.4; font-weight: 600; }
+#settings-page > .settings-page-heading h2 { color: var(--ink); font-size: 18px; line-height: 1.4; font-weight: 600; }
 #settings-page > .settings-page-heading :is(.icon-button, .action-icon-button) { display: inline-flex; align-items: center; justify-content: center; width: 32px; min-width: 32px; height: 32px; min-height: 32px; padding: 6px; border: 0; border-radius: 3px; color: #70757d; background: transparent; box-shadow: none; }
 #settings-page > .settings-page-heading :is(.icon-button, .action-icon-button):hover { color: #262626; background: #f2f3f5; }
 #settings-page > .settings-page-heading :is(.icon-button, .action-icon-button) svg { width: 20px; height: 20px; }
 #settings-page > .settings-page-heading > .settings-tabs { position: static; flex: 1 1 0; min-width: 0; max-width: none; width: auto; margin: 0; gap: 20px; padding: 0; border: 0; border-radius: 0; background: #fff; box-shadow: none; scrollbar-width: thin; scrollbar-color: #c7cbd1 transparent; }
-#settings-page .settings-tabs button { min-height: 48px; padding: 0 4px; border: 0; border-radius: 0; color: #737b87; background: transparent; font-size: 14px; font-weight: 500; }
+#settings-page .settings-tabs button { min-height: 48px; padding: 0 4px; border: 0; border-radius: 0; color: #7b8191; background: transparent; font-size: 14px; font-weight: 500; }
 #settings-page .settings-tabs button:hover { color: var(--page-blue); }
 #settings-page .settings-tabs button[aria-selected="true"] { color: var(--page-blue); background: transparent; box-shadow: inset 0 -2px var(--page-blue); }
-#settings-page .settings-panel-heading { margin-bottom: 18px; }
-#settings-page .settings-panel-heading h3 { color: #30353d; font-size: 17px; font-weight: 600; }
-#settings-page .settings-panel-heading p { color: #858c96; font-size: 13px; line-height: 1.6; }
+#settings-page .settings-page-body { max-width: 1120px; margin-top: 20px; padding: 24px 28px; border-radius: 12px; background: #fff; }
+#settings-page .settings-panel { padding: 0; background: transparent; }
+#settings-page .settings-panel-heading { margin-bottom: 16px; }
+#settings-page .settings-panel-heading h3 { color: var(--ink); font-size: 15px; font-weight: 600; }
+#settings-page .settings-panel-heading p { color: #7b8191; font-size: 12px; line-height: 1.6; }
 #settings-page :is(.settings-overview-card, .hosting-provider-card, .device-card, .settings-block, .usage-total, .usage-device-card, .timer-overview, .timer-job-card, .assistant-runtime-card, .assistant-composer-card):not(dialog *) {
-  min-width: 0; padding: 20px; border: 1px solid var(--page-line); border-radius: 4px; background: #fff; box-shadow: none;
+  min-width: 0; padding: 16px 0; border: 0; border-bottom: 1px solid var(--page-line); border-radius: 0; background: #fff; box-shadow: none;
 }
-#settings-page .settings-overview-card { min-height: 176px; gap: 0; }
-#settings-page .settings-overview-card h4 { margin: 7px 0 12px; color: #30353d; font-size: 16px; font-weight: 600; }
-#settings-page .settings-overview-preview { min-height: 0; margin-bottom: 16px; color: #737b87; font-size: 13px; }
-#settings-page .settings-kicker { color: #959ba4; font-size: 10px; font-weight: 500; letter-spacing: .08em; }
-#settings-page .hosting-provider-mark { width: 36px; height: 36px; flex-basis: 36px; border: 1px solid var(--page-line); border-radius: 4px; color: var(--page-blue); background: #f4f6ff; }
-#settings-page .hosting-provider-head { border-bottom-color: var(--page-line); }
-#settings-page .hosting-provider-title h4 { color: #30353d; font-size: 16px; font-weight: 600; }
-#settings-page :is(.workspace-note, .settings-value, .settings-overview-subline):not(dialog *) { color: #858c96; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
-#settings-page :is(.form-grid, .supervisor-defaults):not(dialog *) { gap: 18px 20px; }
-#settings-page label:not(dialog *) { color: #42464d; font-size: 13px; font-weight: 400; }
-#settings-page :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea):not(dialog *) { min-width: 0; max-width: 100%; border: 1px solid #d9dce1; border-radius: 3px; color: #262626; background: #fff; font-size: 14px; font-weight: 400; box-shadow: none; }
+#settings-page :is(.settings-overview-grid, .connection-settings-grid, .hosting-provider-grid, .device-list, .usage-pies) { grid-template-columns: minmax(0, 1fr); gap: 0; margin-top: 0; }
+#settings-page .settings-overview-card { display: grid; grid-template-columns: minmax(0, 1fr) auto; min-height: 0; gap: 6px 24px; align-items: center; }
+#settings-page .settings-overview-card > :not(button):not(select) { grid-column: 1; }
+#settings-page .settings-overview-card > :is(button, select) { grid-column: 2; grid-row: 1 / 6; align-self: center; margin-top: 0; }
+#settings-page .settings-overview-card > select { width: 220px; }
+#settings-page .settings-overview-card h4 { margin: 0; color: var(--ink); font-size: 15px; font-weight: 600; }
+#settings-page .settings-overview-preview { min-height: 0; margin: 0; color: #687080; font-size: 12px; }
+#settings-page .settings-overview-card .workspace-note { margin: 0; }
+#settings-page .settings-kicker { display: none; }
+#settings-page .hosting-provider-mark { width: 28px; height: 28px; flex-basis: 28px; border: 0; border-radius: 6px; color: var(--page-blue); background: var(--accent-soft); font-size: 12px; }
+#settings-page .hosting-provider-head { padding-bottom: 12px; border: 0; }
+#settings-page .hosting-provider-title h4 { margin: 0; color: var(--ink); font-size: 15px; font-weight: 600; }
+#settings-page .hosting-provider-empty { min-height: 0; margin: 8px 0 12px; }
+#settings-page .hosting-account-row { padding-block: 12px; }
+#settings-page :is(.workspace-note, .settings-value, .settings-overview-subline):not(dialog *) { color: #7b8191; font-size: 12px; line-height: 1.6; overflow-wrap: anywhere; }
+#settings-page .settings-overview-subline { margin: 0; }
+#settings-page :is(.form-grid, .supervisor-defaults):not(dialog *) { gap: 16px 20px; }
+#settings-page #project-settings-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+#settings-page label:not(dialog *) { color: #687080; font-size: 12px; font-weight: 400; }
+#settings-page :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select, textarea):not(dialog *) { min-width: 0; max-width: 100%; border: 1px solid #e7e9ee; border-radius: 6px; color: var(--ink); background: #f6f7f9; font-size: 14px; font-weight: 400; box-shadow: none; }
 #settings-page :is(input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), select):not(dialog *) { height: 36px; padding-inline: 10px; }
-#settings-page :is(input, select, textarea):not(dialog *):focus { outline: 0; border-color: var(--page-blue); box-shadow: 0 0 0 2px rgb(63 107 255 / 10%); }
+#settings-page :is(input, select, textarea):not(dialog *):focus { outline: 0; border-color: var(--page-blue); box-shadow: 0 0 0 2px rgb(79 91 206 / 12%); }
 #settings-page :is(input, select, textarea):not(dialog *):disabled { background: #f6f7f8; color: #9298a1; }
 #settings-page input:is([type="checkbox"], [type="radio"]):not(dialog *) { width: 16px; height: 16px; accent-color: var(--page-blue); }
-#settings-page :is(button.primary, button.secondary, button.danger):not(dialog *) { min-height: 36px; padding: 7px 16px; border-radius: 3px; font-size: 14px; font-weight: 400; line-height: 20px; box-shadow: none; }
+#settings-page :is(button.primary, button.secondary, button.danger):not(dialog *) { min-height: 36px; padding: 7px 14px; border-radius: 6px; font-size: 14px; font-weight: 400; line-height: 20px; box-shadow: none; }
 #settings-page button.primary:not(dialog *) { color: #fff; background: var(--page-blue); border-color: var(--page-blue); }
-#settings-page button.primary:not(dialog *):hover { background: #315de8; border-color: #315de8; }
-#settings-page button.secondary:not(dialog *) { color: #444a53; background: #fff; border-color: #d9dce1; }
+#settings-page button.primary:not(dialog *):hover { background: var(--accent-dark); border-color: var(--accent-dark); }
+#settings-page button.secondary:not(dialog *) { color: #444a53; background: #fff; border-color: #e7e9ee; }
 #settings-page button.secondary:not(dialog *):hover { color: var(--page-blue); border-color: var(--page-blue); }
 #settings-page button:not(dialog *):focus-visible { outline: 2px solid var(--page-blue); outline-offset: 2px; }
-#settings-page .settings-panel :is(.icon-button, .action-icon-button):not(dialog *) { border-radius: 3px; }
+#settings-page .settings-panel :is(.icon-button, .action-icon-button):not(dialog *) { border-radius: 6px; }
 #settings-page .timer-overview-number { color: #30353d; font-weight: 600; }
-#settings-page #token-usage-form { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 20px; border: 1px solid var(--page-line); border-radius: 4px; background: #fff; }
+#settings-page #token-usage-form { grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0 0 16px; border: 0; border-bottom: 1px solid var(--page-line); border-radius: 0; background: #fff; }
 #settings-page .usage-device-info { min-width: 0; overflow-wrap: anywhere; }
 #settings-page .usage-device-info > strong { color: #30353d; font-size: 16px; font-weight: 600; }
 #settings-page :is(.usage-legend, .usage-total-label, .usage-total-unit, .usage-total small) { color: #858c96; }
@@ -1845,18 +1880,45 @@ dialog.role-switch-dialog { width: min(640px, calc(100vw - 32px)); }
 #settings-page .timer-job-head > div { min-width: 0; overflow-wrap: anywhere; }
 #settings-page .timer-empty { border: 1px dashed #d9dce1; border-radius: 4px; color: #858c96; background: #fff; }
 #settings-page .timer-overview { flex-wrap: wrap; gap: 8px 16px; }
+#settings-page .timer-job-list { gap: 0; }
+#settings-page .timer-job-head { font-size: 14px; }
+#settings-page .usage-total strong { color: var(--accent); font-size: 24px; font-weight: 600; }
+#settings-page .settings-panel > h3 { color: var(--ink); font-size: 18px; font-weight: 600; }
+#settings-page .settings-block > :is(h3, h4) { margin: 0 0 8px; padding: 0; border: 0; color: var(--ink); background: transparent; font-size: 15px; font-weight: 600; }
+#settings-page .settings-block .form-actions { margin-top: 8px; }
+#settings-page .project-danger-zone { align-items: center; margin-top: 16px; }
+#settings-page .project-danger-zone h3 { margin: 0 0 6px; font-size: 15px; }
+#settings-page .project-danger-zone p { margin: 0; }
+#settings-page .project-danger-zone .danger { color: var(--danger); border-color: #edc7cc; background: #fff; }
+#settings-page .repository-card { margin: 8px 0 0; padding: 12px 14px; border-color: var(--page-line); border-radius: 6px; background: #f6f7f9; }
+#settings-page .repository-card .workspace-note { margin-block: 6px; }
+#settings-page .assistant-workspace { max-width: none; margin-top: 0; gap: 0; }
+#settings-page .assistant-composer-card { padding-top: 0; }
+#settings-page .assistant-runtime-card { padding: 0 0 14px; }
+#settings-page .assistant-runtime-card strong { margin: 0 0 6px; color: var(--ink); font-size: 15px; font-weight: 600; }
+#settings-page .assistant-thread { padding: 18px 0; border: 0; border-radius: 0; background: #fff; }
+#settings-page .assistant-thread > h4 { color: var(--ink); font-size: 15px; }
+#settings-page .assistant-thread :is(#assistant-conversation, #assistant-proposals) > .settings-block { padding: 12px 0; border: 0; border-bottom: 1px solid var(--page-line); background: #fff; }
+#settings-page .assistant-thread .settings-block :is(h3, h4, strong) { font-size: 14px; }
+#settings-page .assistant-message { margin-block: 8px; font-size: 14px; line-height: 1.65; }
 @media (max-width: 760px) {
   #settings-page > .settings-page-heading { min-height: 56px; padding-block: 6px; gap: 12px; }
   #settings-page > .settings-page-heading h2 { font-size: 18px; }
   #settings-page > .settings-page-heading > .settings-tabs { gap: 18px; }
   #settings-page .settings-tabs button { min-height: 44px; }
-  #settings-page :is(.settings-overview-grid, .connection-settings-grid, .hosting-provider-grid, .device-list) { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  #settings-page :is(.settings-overview-card, .hosting-provider-card, .device-card, .settings-block, .usage-total, .usage-device-card, .timer-overview, .timer-job-card):not(dialog *) { padding: 16px; }
+  #settings-page .settings-page-body { width: calc(100% - 24px); margin-top: 12px; padding: 16px; border-radius: 8px; }
+  #settings-page :is(.settings-overview-grid, .connection-settings-grid, .hosting-provider-grid, .device-list) { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  #settings-page :is(.settings-overview-card, .hosting-provider-card, .device-card, .settings-block, .usage-total, .usage-device-card, .timer-overview, .timer-job-card):not(dialog *) { padding: 14px 0; }
   #settings-page .settings-overview-card { min-height: 0; }
-  #settings-page .settings-overview-card button { margin-top: 12px; }
-  #settings-page #token-usage-form { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 16px; }
+  #settings-page .settings-overview-card { grid-template-columns: minmax(0, 1fr); }
+  #settings-page .settings-overview-card > :is(button, select) { grid-column: 1; grid-row: auto; justify-self: start; width: auto; max-width: 100%; margin-top: 6px; }
+  #settings-page :is(.form-grid, #project-settings-form, .supervisor-defaults):not(dialog *) { grid-template-columns: minmax(0, 1fr); }
+  #settings-page #token-usage-form { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 0 0 14px; }
   #settings-page .form-actions:not(dialog *) { flex-wrap: wrap; }
   #settings-page .device-panel-heading { flex-wrap: wrap; gap: 12px; }
+}
+@media (min-width: 601px) and (max-width: 960px) {
+  :is(#role-form, #supervisor-form) .role-runtime-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 480px) {
   #settings-page #token-usage-form { grid-template-columns: minmax(0, 1fr); }
