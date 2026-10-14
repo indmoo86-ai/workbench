@@ -165,7 +165,7 @@ function createMessageQueue({api,refreshState,create,setError}) {
       info.append(title,create('span','',task.steering?(task.waitingReason||'Continuing with the new instruction first'):(task.waitingReason||'Waiting to run')));row.append(info);
       // Supervisor plans/consultations are not messages the user just sent and must not pose as a manual steering entry.
       if(!task.planId&&!task.scheduledJobId&&!task.continuationRunId&&!task.requiresCoordination) {
-        const steer=create('button','secondary compact',task.steering?'Steering':'Steer now');steer.type='button';
+        const steer=create('button','icon-button message-queue-steer');steer.type='button';steer.setAttribute('aria-label',t(task.steering?'Steering':'Steer now'));steer.innerHTML='<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>';
         steer.title='Stop this role\'s current run and continue with this message after confirmation; actions already performed are not rolled back';
         steer.disabled=Boolean(task.steering)||pending.has(task.id)||data.settings?.paused||!data.capabilities?.roleSteering;
         if(!data.capabilities?.roleSteering)steer.title='Steer now becomes available after the service is upgraded';
