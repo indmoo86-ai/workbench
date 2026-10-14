@@ -1,5 +1,5 @@
 import { tr } from './i18n.mjs';
-/** Responsibility-only presets for new roles; execution prompts remain empty and no project seats are created automatically. */
+/** Optional presets never create seats automatically; only the explicit local-work presets include execution prompts. */
 export function defaultRoleTemplates() {
   return Object.freeze([
     {
@@ -65,6 +65,22 @@ export function defaultRoleTemplates() {
       mode: 'workspace-write',
       modelHint: tr('defaultRoles.fastModelRecommendedForRoutine'),
       instructions: ''
+    },
+    {
+      key: 'local-developer',
+      responsibility: tr('roleTemplates.localDeveloperResponsibility'),
+      name: tr('roleTemplates.localDeveloper'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.midTierModelRecommendedFor'),
+      instructions: tr('roleTemplates.localDeveloperInstructions')
+    },
+    {
+      key: 'local-tester',
+      responsibility: tr('roleTemplates.localTesterResponsibility'),
+      name: tr('roleTemplates.localTester'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.fastModelRecommendedForRoutine'),
+      instructions: tr('roleTemplates.localTesterInstructions')
     }
   ]);
 }

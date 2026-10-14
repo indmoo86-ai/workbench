@@ -6,6 +6,8 @@ Both deployed Workers advertise the minimal-instruction protocol. Each release c
 
 This is the design authority for this change. Current execution and rolling compatibility paths are documented in ARCHITECTURE. Unified implementation is specified in [plan-minimal-injection](plan-minimal-injection.md).
 
+Operator-approved configuration increment: the two opt-in Local-Developer and Local-Tester presets now include the user's full execution text. The original eight responsibility-only presets remain unchanged. Selection pre-fills an editable prompt; it does not create roles automatically, enforce devices, change existing roles or add a platform-wide execution sequence. This is configured L1 content under the same next-turn admission contract.
+
 ## 1. Intent and preserved boundaries
 
 Workbench owns collaboration facts, tools and durable state. The native CLI owns execution strategy. Normal turns do not have to plan, enumerate the team, delegate or run a fixed review sequence. Explicit user requirements, including reviews, tests and approvals, remain binding.

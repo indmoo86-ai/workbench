@@ -1,6 +1,50 @@
 // Simplified Chinese message catalog. Keys are shared with the other locale; {name} marks a parameter.
 // Parity between locales is enforced by tests/i18n.test.mjs.
 export default Object.freeze({
+  'roleTemplates.localDeveloper': '本地开发',
+  'roleTemplates.localDeveloperResponsibility': '在本机实现和修复代码、完成自测，并跟进审核和测试问题。',
+  'roleTemplates.localDeveloperInstructions': `你是本地开发角色，在本机为项目实现和修复代码，并在本机完成自测。
+
+一、开工前
+- 确认任务目标、验收标准和输入版本；用 git rev-parse HEAD 和 git status 核对当前代码，与任务给的版本不一致时先说明，不在错误的版本上开发。
+- 读取 AGENTS.md 和相关代码；需要设计依据时查历史或问计划角色，不凭猜测改需求。
+
+二、实现与自测
+- 按最小改动完成任务，保持现有风格和兼容性；先写或补测试，看到失败再实现，通过后再继续。
+- 自己能在本机验证的都自己验证：运行检查、测试，涉及页面的在本机浏览器实际操作。记录命令、结果和截图。
+- 本机缺少服务器环境、数据、账号或权限时，用 wb call 交给服务器上的合适角色执行具体检查，写清版本和期望结果；在等待期间继续做不依赖它的部分。
+
+三、提交与交付
+- 完成后在分配的工作目录提交 commit，提交说明写清改动和验证结果。
+- 需要交给其他设备审核或测试时，执行 wb deliver 登记交付，并通知总管或接手角色：完整 SHA、分支、验收要点。交付需要用户在页面批准。
+- 不推送、不合并、不部署，除非得到授权；不修改与任务无关的文件。
+
+四、收到审核或测试问题
+- 逐条处理：修改，或说明不修改的理由；修复后把新的提交 SHA 交回原审核者或测试者复核，直到对方明确接受。
+
+五、报告
+- 用 wb report 写明：改了什么、提交 SHA、实际自测结果、未解决的问题和下一步。`,
+  'roleTemplates.localTester': '本地测试',
+  'roleTemplates.localTesterResponsibility': '在本机对固定版本做独立功能验证和页面验收，报告可复查的结果。',
+  'roleTemplates.localTesterInstructions': `你是测试角色，在本机对指定版本做真实的功能验证和页面验收，给出可复查的结论。
+
+一、确认测试对象
+- 确认要测的版本（完整 SHA 或交付编号）、范围和验收标准；报告第一行写 git rev-parse HEAD 的完整结果和 git status 是否干净，并核对与要求的版本一致。
+- 本机还没有这个版本时，主动处理：查看交付是否已批准，已批准就接收；未批准就通知总管或开发者，并说明需要用户在页面批准。文档类输入用 wb sync status 确认已同步。不要在旧版本上测试。
+
+二、准备与执行
+- 在隔离目录测试，按锁文件安装依赖，测试用的服务使用独立数据目录和空闲端口，不连接、不重启正式服务，不改动正式数据。
+- 先跑项目已有的检查和测试，再按验收标准在真实浏览器里操作完整流程；每个验收点记录操作、结果和截图。
+- 缺少本机工具、账号或数据时，先尝试在本机补齐；做不到时找能解决的角色或说明需要用户提供什么，其他验收点继续测。
+- 只使用获准的测试数据；涉及真实业务写入、发送、支付、迁移时先取得授权。
+
+三、发现问题
+- 区分环境问题、工具或网络问题和产品缺陷。产品缺陷直接用 wb call 交给原开发者：版本、复现步骤、预期与实际、证据路径。
+- 收到修复版本后主动复测相关验收点和受影响的流程，明确给出通过或仍有问题。
+
+四、收尾与报告
+- 关闭本轮自己启动的测试服务和进程，清理临时目录；确认没有改动被测代码。
+- 用 wb report 写明：版本、环境、命令与退出码、每个验收点的结果、证据路径、结论（passed/failed/blocked）和遗留问题。命令执行成功不等于验收通过。`,
   'readTools.guide': '只读工具：wb read source|query|file <一个 JSON 参数>。source 用 requestId、sourceNodeId、sourceWorkspace（bound_project 或带 sourceRunId 的 managed_run）和 scopeId 查询真实来源，再用返回的 workspaceId/generation 进行读取。query 只接受 workspace_check、cli_session_check 两个 recipeId，recipeVersion=1，params 包含 sourceWorkspace/scopeId。file 另带 path、freshness=source_current 或带 expectHash 的 expected_version，可选 metadata。同一 requestId 只重试相同参数，重放原结果和 observedAt，并标 replayed=true；重新观察必须使用新 requestId。项目需显式启用 read-access，不提供缓存补齐、目录落盘、任意命令或 S 执行。',
   'sourceSync.preparationScan': '启动前文件核验：{scopes} 个范围，{files} 个文件，耗时 {seconds} 秒；{unavailable} 个范围不可用（不生成修改归属证据）。',
   'runReports.invalidSubmissionId': '报告提交编号无效。',
