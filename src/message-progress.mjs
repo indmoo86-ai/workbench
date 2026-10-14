@@ -31,7 +31,7 @@ export function messageProgress(db,request,online,launch,launches) {
 /** Only repairs missed wrap-up for runs already in a final state; it creates no replacement run and does not retry business work with an unknown outcome. */
 export function reconcileCallResults(db,calls) {
   let changed=false;
-  for(const request of db.list('coordinationRequests')) {
+  for(const request of db.pendingCallResults()) {
     if(!['running','queued'].includes(request.status)||!request.currentRunId)continue;
     const run=db.get('runs',request.currentRunId);
     if(!run||!terminal.has(run.status)||run.discussionDeliveryId||run.discussionWaiting)continue;

@@ -26,6 +26,7 @@ const pendingSourceCommand = "COALESCE(json_extract(data,'$.result'),0) IN (0,''
 const activeRun = "COALESCE(json_extract(data,'$.status'),'') NOT IN ('succeeded','failed','interrupted')";
 const chatTask = "json_extract(data,'$.origin')='chat' AND json_extract(data,'$.status') IN ('ready','in_progress')";
 const schedulableRequest = "json_extract(data,'$.status') IN ('queued','waiting_call','waiting_delivery')";
+const pendingCallResult = "json_extract(data,'$.status') IN ('running','queued')";
 const unresolvedRecovery = "COALESCE(json_extract(data,'$.state'),'')!='resolved'";
 
 /** SQLite is the persistent record kept separately by Home and each Worker; files are not shared across machines. */
@@ -45,6 +46,7 @@ export class Store {
       CREATE INDEX IF NOT EXISTS records_active_runs ON records(json_extract(data,'$.nodeId')) WHERE kind='runs' AND ${activeRun};
       CREATE INDEX IF NOT EXISTS records_chat_tasks ON records(id) WHERE kind='tasks' AND ${chatTask};
       CREATE INDEX IF NOT EXISTS records_schedulable_requests ON records(id) WHERE kind='coordinationRequests' AND ${schedulableRequest};
+      CREATE INDEX IF NOT EXISTS records_pending_call_results ON records(id) WHERE kind='coordinationRequests' AND ${pendingCallResult};
       CREATE INDEX IF NOT EXISTS records_conflict_runs ON records(json_extract(data,'$.sourceConflictId')) WHERE kind='runs' AND json_extract(data,'$.sourceConflictId') IS NOT NULL;
       CREATE INDEX IF NOT EXISTS records_unresolved_recoveries ON records(id) WHERE kind='cliRecoveries' AND ${unresolvedRecovery};`);
   }
@@ -59,6 +61,10 @@ export class Store {
   }
   schedulableRequests() {
     return this.db.prepare(`SELECT data FROM records INDEXED BY records_schedulable_requests WHERE kind='coordinationRequests' AND ${schedulableRequest} ORDER BY rowid`).all().map(r=>JSON.parse(r.data));
+  }
+  /** Missed terminal receipts still settle queued/running requests, without polling completed history. */
+  pendingCallResults() {
+    return this.db.prepare(`SELECT data FROM records INDEXED BY records_pending_call_results WHERE kind='coordinationRequests' AND ${pendingCallResult} ORDER BY rowid`).all().map(r=>JSON.parse(r.data));
   }
   conflictRuns() {
     return this.db.prepare("SELECT data FROM records INDEXED BY records_conflict_runs WHERE kind='runs' AND json_extract(data,'$.sourceConflictId') IS NOT NULL ORDER BY rowid").all().map(r=>JSON.parse(r.data)).filter(r=>r.sourceConflictId);

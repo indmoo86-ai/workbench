@@ -207,7 +207,7 @@ export class RoleCalls {
   /** Persisted deadlines survive Home restart; expired waits never stop or replay the receiving CLI. */
   expireWaits(time=Date.now()) {
     let changed=false;
-    for(const request of this.db.list('coordinationRequests').filter(r=>r.status==='waiting_call'&&r.waitDeadlineAt)) {
+    for(const request of this.db.schedulableRequests().filter(r=>r.status==='waiting_call'&&r.waitDeadlineAt)) {
       const before=JSON.stringify(this.db.get('coordinationRequests',request.id));this.resume(request.id,time);
       changed=before!==JSON.stringify(this.db.get('coordinationRequests',request.id))||changed;
     }
