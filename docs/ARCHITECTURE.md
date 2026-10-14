@@ -42,8 +42,6 @@ Sent cards represent message acceptance, not receiver completion: the sender's c
 
 Message bodies retain the existing `16em` maximum height with internal scrolling instead of line clamping. Before rebuilding the feed, the browser snapshots per-preview scroll offsets keyed by project and message/Run identity and restores matching entries afterward; switching projects does not transfer offsets between messages. The full-screen reader and stored content are unchanged.
 
-### Source synchronization boundary
-
 ### Cross-device Q/F reads (feature branch)
 
 `cross-device-read.mjs` extends the existing Home/Worker query channel with three managed Agent endpoints: `read-source`, `node-query` and `file-read`. `GET/PUT /api/projects/:id/read-access` is authenticated operator configuration, version checked and disabled by default. Source identity comes from registered bound directories or a managed Run's actual repository/workspace mapping; discovery verifies canonical directory device/inode/birth identity before registering generations. Actual reads require the discovered workspace identity. No ordinary-directory fallback is provided for a missing managed source.
@@ -55,6 +53,8 @@ Worker Q dispatch uses fixed handlers: a bounded HEAD/root check and `CliSession
 `read-result-replay.mjs` keeps small owner-scoped operation metadata separate from original result bodies. A transactional 32-MiB Home budget reserves at most 512 KiB per new operation with a filesystem free-space check; no evidence eviction is automatic. Identical normalized requests join/replay the original result and observedAt, even offline; new observations require new IDs. Current Run/grant/review authorization is checked on replay. Missing original results are unavailable, not regenerated under the old ID.
 
 The managed wb wrappers require an immutable turn/file bridge and never use a direct-token fallback. New capabilities are negotiated with Home before tool discovery; old Workers fail explicitly unsupported. Cache fill/materialization, S input/execution, leases/services and the full shared-I/O resource subsystem remain designed, not implemented by P1. Production enablement, deployment and restart are not part of this feature-branch work.
+
+### Source synchronization boundary
 
 Pending-command and batch queries use dedicated SQLite partial indexes before materializing command bodies. Scheduling and write-busy checks read only matching pending commands; receipt and capture queries read the requested batch. Historical records and their manifests remain stored unchanged, with the existing receipt, retry, cancellation and conflict rules.
 

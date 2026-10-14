@@ -363,7 +363,7 @@ function workerQuery(run, action, path, timeout = 10000) {
   const id = randomUUID();
   return new Promise((resolveQuery, reject) => {
     const timer = setTimeout(() => { queries.delete(id); reject(new Error(tr('home.nodeQueryTimedOut'))); }, timeout);
-    queries.set(id, { nodeId: run.nodeId, resolve: value => { clearTimeout(timer); resolveQuery(value); }, reject: e => { clearTimeout(timer); reject(e); } });
+    queries.set(id, { nodeId: run.nodeId,readProtocol:['source_inspect','source_read','read_query'].includes(action),resolve: value => { clearTimeout(timer); resolveQuery(value); }, reject: e => { clearTimeout(timer); reject(e); } });
     send(sockets.get(run.nodeId), { type: 'query', id, runId: run.id, action, path, language: getLanguage() });
   });
 }
@@ -1188,7 +1188,11 @@ wss.on('connection', ws => {
         if(['message','tool','usage','context_usage'].includes(m.event.type))outputChanged();else change();
       }
       if (m.type === 'command_ack') { const c = db.get('commands', m.id); if (c?.nodeId === nodeId&&!c.acked) {db.put('commands', { ...c, acked: true,ackedAt:new Date().toISOString() });change();} }
-      if (m.type === 'reply') { const q = queries.get(m.id); if (q?.nodeId === nodeId) { queries.delete(m.id); m.error ? q.reject(new Error(m.error)) : q.resolve(m.result); } }
+      if (m.type === 'reply') { const q = queries.get(m.id); if (q?.nodeId === nodeId) {
+        queries.delete(m.id);
+        if(m.error){const error=new Error(m.error);if(q.readProtocol&&typeof m.error==='string'&&/^[a-z_]{1,64}$/.test(m.error))error.code=m.error;q.reject(error);}
+        else q.resolve(m.result);
+      } }
     } catch (e) { send(ws, { type: 'error', error: e.message }); }
   });
   ws.on('close', () => {

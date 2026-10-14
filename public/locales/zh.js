@@ -140,6 +140,7 @@ export default {
   'Local modified: {time}': '本机修改：{time}',
   'Write records and reply references are shown separately; contents come from the bound Mac.': '修改记录与回复引用分开标注，内容读取绑定 Mac 的实际文件。',
   'Local file exceeds the 600 KB text preview limit.': '本机文件超过 600 KB 的文本预览上限。',
+  'Text preview exceeds the serialized response size limit.': '文本预览超过序列化回包大小上限。',
   'Local display device': '本机显示设备',
   'Project files and shared documents': '项目文件与共享文档',
   'Automatic two-way sync continues while this page is closed.': '后台自动双向同步，关闭页面后仍继续。',

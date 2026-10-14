@@ -182,6 +182,14 @@ export class Store {
       for (const t of this.list('tasks').filter(t => t.projectId === id)) this.remove('tasks', t.id);
       for (const m of this.list('roomMessages').filter(m => m.projectId === id)) this.remove('roomMessages', m.id);
       this.remove('proactiveFollowups',id);
+      // Only explicit project deletion releases its private read evidence; there is no background eviction.
+      const readOperations=this.listProject('readOperations',id),readUsage=this.get('readStorageUsage','home');
+      if(readUsage)this.put('readStorageUsage',{...readUsage,
+        usedBytes:Math.max(0,readUsage.usedBytes-readOperations.reduce((sum,r)=>sum+(r.resultBytes||0),0)),
+        reservedBytes:Math.max(0,readUsage.reservedBytes-readOperations.reduce((sum,r)=>sum+(r.reservedBytes||0),0))});
+      for(const operation of readOperations){this.remove('readOperations',operation.id);this.remove('readResults',operation.id);}
+      this.remove('projectReadAccess',id);
+      for(const binding of this.listProject('readWorkspaceBindings',id))this.remove('readWorkspaceBindings',binding.id);
       for(const kind of ['cliRecoveries','cliRecoveryDecisions'])for(const record of this.list(kind).filter(r=>r.projectId===id))this.remove(kind,record.id);
       this.db.prepare('DELETE FROM room_message_receipts WHERE project_id=?').run(id);
       for (const r of this.list('roles').filter(r => r.projectId === id)) this.remove('roles', r.id);

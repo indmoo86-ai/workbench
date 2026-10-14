@@ -23,7 +23,7 @@ async function openDocument(){
   const result=await response.json();
   if(!response.ok)throw new Error(result.error||t('Read failed (HTTP {status})', { status: response.status }));
   if(result.shared){const location=document.createElement('p');location.setAttribute('translate','no');location.textContent=result.path||t('Waiting for local synchronization');status.after(location);}
-  if(result.shared&&result.content===null){status.textContent=t(result.preview==='binary'?'Binary file; preview unavailable.':result.preview==='too_large'?'File synchronized; text preview exceeds 600 KB.':result.syncState==='missing'?'Local file not found.':'Waiting for local synchronization');return;}
+  if(result.shared&&result.content===null){status.textContent=t(result.preview==='binary'?'Binary file; preview unavailable.':result.preview==='too_large'?(result.reason==='serialized_response_limit'?'Text preview exceeds the serialized response size limit.':'File synchronized; text preview exceeds 600 KB.'):result.syncState==='missing'?'Local file not found.':'Waiting for local synchronization');return;}
   const text=String(result.content||'');
   content.replaceChildren(/\.(?:md|markdown)$/i.test(name)?renderMarkdown(simplifiedCliOutput(text)):Object.assign(document.createElement('pre'),{textContent:text}));
   status.textContent=t('Full text loaded · {v} characters', { v: text.length.toLocaleString(dateLocale()) });

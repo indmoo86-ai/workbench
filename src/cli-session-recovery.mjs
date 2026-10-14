@@ -136,7 +136,7 @@ export class CliSessionRecovery {
   async observe(binding){
     const {records,partial}=this.db.readNativeDriverRecords(binding,{limit:100});
     const facts=this.identity===terminalProcessIdentity?await this.processFacts(records):{identity:this.identity,rows:this.rows,partial:false};
-    const result=this.inspect(binding,{records,readOnly:true,identity:facts.identity,rows:facts.rows}),incomplete=partial||facts.partial;
+    const result=this.inspect(binding,{records,readOnly:true,identity:facts.identity,rows:facts.rows}),incomplete=partial||facts.partial||records.some(r=>!terminal.has(r.status)&&!r.pid);
     return {state:incomplete?'unknown':result.state,processes:result.processes,partial:incomplete,readOnly:true};
   }
   async check(binding){

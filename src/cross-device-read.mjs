@@ -38,7 +38,8 @@ export class CrossDeviceRead{
   }
   authorize(caller,input,operation){
     const run=this.db.get('runs',caller?.id);
-    if(!run||run.projectId!==caller.projectId||!['starting','running'].includes(run.status)||run.switchOperationId||this.db.get('tasks',run.taskId)?.currentRunId!==run.id)throw readError('denied');
+    const task=run&&this.db.get('tasks',run.taskId);
+    if(!run||run.projectId!==caller.projectId||!['starting','running'].includes(run.status)||run.switchOperationId||run.stopRequested||task?.currentRunId!==run.id||task.projectId!==run.projectId||['failed','succeeded','interrupted','cancelled','done'].includes(task.status))throw readError('denied');
     if(this.db.listProject('terminalSessions',run.projectId).some(s=>s.nodeId===run.nodeId&&!['released','cancelled'].includes(s.status)))throw readError('denied');
     const selected=selector(input),config=this.configuration(run.projectId);
     if(!config.enabled||!config.nodeIds.includes(selected.sourceNodeId)||!config.scopeIds.includes(selected.scopeId)||operation==='query'&&!config.recipeIds.includes(input.recipeId))throw readError('denied');
