@@ -1987,7 +1987,8 @@ dialog.role-switch-dialog { width: min(640px, calc(100vw - 32px)); }
 .native-turn-files { margin-top: 8px; }
 .native-turn-extra:empty { display: none; }
 .native-turn-process { margin: 8px 0 0; border: 1px solid var(--line); border-radius: 10px; background: #fafbfd; font-size: 12px; }
-.native-history > .native-turn-process { margin: -6px 0 14px 44px; max-width: min(820px, 88%); }
+.native-history > .native-turn-anchored { margin: -6px 0 14px 44px; max-width: min(820px, 88%); display: grid; gap: 6px; justify-items: start; }
+.native-history > .native-turn-anchored > .native-turn-process { margin: 0; width: 100%; }
 .native-turn-process > summary { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; color: var(--muted); list-style: none; }
 .native-turn-process > summary::before { content: '▸'; transition: transform .15s; }
 .native-turn-process[open] > summary::before { transform: rotate(90deg); }

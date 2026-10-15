@@ -51,7 +51,7 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
  async function read(item,{quiet=false}={}){const ticket=++detailVersion;selected=item;renderList();if(!quiet){onPreview?.();takeover.detach();scroll.replaceChildren(el('p','workspace-note',t('Loading…')));content.replaceChildren(scroll);detailSignature='';}
   try{const id=nativeId(item),readable=id&&item.hasHistory!==false,value=readable?{...item,...await api(`${endpoint(item.nodeId)}?${new URLSearchParams({runtime:item.runtime,sessionId:id})}`),id:item.id,entryId:item.entryId,nodeId:item.nodeId,sessionId:id,title:item.title}:item;if(ticket!==detailVersion||!active()||key(selected)!==key(item))return;selected=value;const signature=JSON.stringify(value);if(quiet&&signature===detailSignature)return;detailSignature=signature;const top=scroll.scrollTop,atBottom=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<40;
    const history=el('div','native-history');history.append(el('h2','native-title',value.title||value.id));
-   for(const m of value.messages||[]){const row=chatRow(m.role,m.text,value.runtime,m.timestamp);row.dataset.role=m.role;if(m.role==='user')row.dataset.text=m.text.trim();history.append(row);}
+   for(const m of value.messages||[]){const text=m.role==='user'?cleanUserText(m.text):m.text;const row=chatRow(m.role,text,value.runtime,m.timestamp);row.dataset.role=m.role;if(m.role==='user')row.dataset.text=text.trim();history.append(row);}
    if(value.notice||!value.messages?.length)history.append(el('p','workspace-note',t(value.notice||(value.canReopen?'This session has not started. Open it to begin chatting.':!readable?'Native session ID has not been linked yet. Existing history is unchanged.':'No text preview is available for this session.'))));
    if(value.partial)history.append(el('p','workspace-note',t('Only recent readable content is shown. Full history is available in the CLI.')));
    const historyAt=Date.now();scroll.replaceChildren(history,takeover.feed);if(!content.contains(scroll))content.replaceChildren(scroll);
@@ -79,7 +79,11 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
  const takeover=createTakeover();
  const IMAGE_CLIS=new Set(['codex','claude']),openTools=new Set();
  const phaseLabel=turn=>turn.status==='queued'?'Waiting for the device…':turn.status==='stopping'?'Stopping…':turn.phase==='starting'||turn.status==='starting'?'Starting the CLI…':turn.phase==='tool'?'Running a tool':turn.phase==='waiting'||turn.status==='waiting_user'?'Waiting':turn.phase==='replying'?'Replying…':turn.phase==='working'?'Working…':'Thinking…';
- const valueText=value=>typeof value==='string'?value:value==null?'':JSON.stringify(value,null,2);
+ /** Codex records an attached image as markup with a Worker-local path; show a short placeholder instead. */
+const cleanUserText=text=>String(text||'').replace(/<image\b[^>]*>[\s\S]*?<\/image>/gi,'').replace(/\n*Attached files for this message \(local paths\):[\s\S]*$/,'').trim();
+/** A turn shows its process only when it holds more than the final reply: tools, runtime notes or intermediate messages. */
+const hasProcess=turn=>{const rows=liveSceneRows(turn.events||[],{status:turn.status}).rows;return rows.some(r=>r.kind==='tool'||r.kind==='log'||r.kind==='error')||rows.filter(r=>r.kind==='message'||r.kind==='text').length>2;};
+const valueText=value=>typeof value==='string'?value:value==null?'':JSON.stringify(value,null,2);
  /** The group-chat live-scene projection orders text, messages, logs and merged tool states for one turn. */
  function processBlock(turn,{open=false}={}){
   const model=liveSceneRows(turn.events||[],{status:turn.status}),tools=model.rows.filter(r=>r.kind==='tool').length,live=['queued','starting','running','waiting_user','stopping'].includes(turn.status);
@@ -120,13 +124,18 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
    content.append(shell);render();void refresh();
   }
   /** Turns already in native history keep their process next to the matching reply; others render as their own rows. */
-  function renderFeed(){feed.replaceChildren();for(const old of historyEl?.querySelectorAll('.native-turn-process')||[])old.remove();
+  function renderFeed(){feed.replaceChildren();for(const old of historyEl?.querySelectorAll('.native-turn-anchored')||[])old.remove();
    const rows=[...(historyEl?.querySelectorAll('.native-chat-row')||[])],used=new Set();
    for(const turn of turns){
     const live=['queued','starting','running','waiting_user','stopping'].includes(turn.status);
-    if(turn.status==='succeeded'&&Date.parse(turn.endedAt||0)<=historyAt&&turn.prompt.trim()){
-     const index=rows.findIndex((row,i)=>!used.has(i)&&row.dataset.role==='user'&&row.dataset.text===turn.prompt.trim());
-     if(index>=0){used.add(index);let anchor=rows[index];for(let i=index+1;i<rows.length&&rows[i].dataset.role!=='user';i++)anchor=rows[i];const block=processBlock(turn,{open:openProcesses.has(turn.id)});block.addEventListener('toggle',()=>block.open?openProcesses.add(turn.id):openProcesses.delete(turn.id));anchor.after(block);continue;}
+    if(!live&&turn.endedAt&&Date.parse(turn.endedAt)<=historyAt&&turn.prompt.trim()){
+     const prompt=turn.prompt.trim(),index=rows.findIndex((row,i)=>!used.has(i)&&row.dataset.role==='user'&&row.dataset.text===prompt);
+     if(index>=0){used.add(index);let anchor=rows[index];for(let i=index+1;i<rows.length&&rows[i].dataset.role!=='user';i++)anchor=rows[i];
+      if(turn.attachments?.length){const files=el('div','chat-attachments native-turn-files native-turn-anchored');for(const item of turn.attachments)files.append(attachmentCard(item));rows[index].querySelector('.chat-col')?.append(files);}
+      const extra=el('div','native-turn-anchored');
+      if(hasProcess(turn)){const block=processBlock(turn,{open:openProcesses.has(turn.id)});block.addEventListener('toggle',()=>block.open?openProcesses.add(turn.id):openProcesses.delete(turn.id));extra.append(block);}
+      if(turn.status!=='succeeded')extra.append(el('span','native-turn-error',`${t(turn.status==='interrupted'?'Interrupted':'Failed')}${turn.error?` \u00b7 ${t(turn.error)}`:''}`));
+      if(extra.childElementCount)anchor.after(extra);continue;}
     }
     let files=null;if(turn.attachments?.length){files=el('div','chat-attachments native-turn-files');for(const item of turn.attachments)files.append(attachmentCard(item));}
     feed.append(chatRow('user',turn.prompt,current.runtime,turn.createdAt,files));
@@ -134,7 +143,7 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
     if(live){const dots=el('span','native-turn-live');dots.setAttribute('aria-hidden','true');meta.append(dots,el('span','',`${t(phaseLabel(turn))}${turn.phase==='tool'&&turn.toolName?` · ${turn.toolName}`:''}`),button('Stop',()=>stop(turn),'secondary compact'));}
     else if(turn.status!=='succeeded')meta.append(el('span','native-turn-error',`${t(turn.status==='interrupted'?'Interrupted':'Failed')}${turn.error?` · ${t(turn.error)}`:''}`));
     const extra=el('div','native-turn-extra');const block=processBlock(turn,{open:live||openProcesses.has(turn.id)});block.addEventListener('toggle',()=>{if(!live)block.open?openProcesses.add(turn.id):openProcesses.delete(turn.id);});
-    if(turn.events?.length||live)extra.append(block);if(meta.childElementCount)extra.append(meta);
+    if(live||hasProcess(turn))extra.append(block);if(meta.childElementCount)extra.append(meta);
     feed.append(chatRow('assistant',turn.text||'',current.runtime,null,extra));
    }}
   function render(){
