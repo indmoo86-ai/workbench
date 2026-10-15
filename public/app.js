@@ -891,6 +891,14 @@ function renderRoles() {
     sceneButton.title=t('Live execution (read-only)');sceneButton.setAttribute('aria-label',t('Live execution for {name}',{name:displayName}));
     const candidates=(app.data.runs||[]).filter(r=>r.roleId===role.id&&!r.switchOperationId).sort((a,b)=>Number(!['succeeded','failed','interrupted'].includes(b.status))-Number(!['succeeded','failed','interrupted'].includes(a.status))||Date.parse(b.createdAt)-Date.parse(a.createdAt));
     sceneButton.addEventListener('click',event=>{event.stopPropagation();void liveScene.open(candidates[0]?.id,{projectId:role.projectId,name:displayName,role});});head.append(sceneButton);
+    if(activity.lastFailure){
+      const failure=activity.lastFailure,dot=create('button','role-failure-dot');dot.type='button';
+      dot.title=[t('Last execution failed'),failure.at?new Date(failure.at).toLocaleString(dateLocale()):'',failure.reason].filter(Boolean).join('\n');
+      dot.setAttribute('aria-label',t('Last execution failed · View record'));
+      dot.addEventListener('click',event=>{event.stopPropagation();openTask(failure.taskId,failure.runId);});
+      dot.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' ')event.stopPropagation();});
+      head.append(dot);
+    }
     if (activity.label !== 'Idle') head.append(create('span', `role-badge is-${activity.tone}`, activity.label));
     const ids = create('div', 'role-id-row');
     if (configured) {
@@ -911,11 +919,6 @@ function renderRoles() {
       if (quota.childElementCount) activityRow.append(quota);
     }
     card.append(head, ids, activityRow);
-    if(activity.lastFailure){
-      const failure=activity.lastFailure,history=create('button','role-last-failure',t('Last execution failed · View record'));history.type='button';
-      history.title=[t('Last execution failed'),failure.at?new Date(failure.at).toLocaleString(dateLocale()):'',failure.reason].filter(Boolean).join('\n');
-      history.addEventListener('click',event=>{event.stopPropagation();openTask(failure.taskId,failure.runId);});card.append(history);
-    }
     const open = () => {
       if(!isSupervisor){room.openRoleEditor(role.id);return;}
       supervisorsUI.open();
