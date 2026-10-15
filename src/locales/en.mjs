@@ -1760,6 +1760,10 @@ When assigning work or requesting help, specify four things:
 3. Input: device, directory, full commit SHA or file path and hash; do not say "the latest version" or "the one from earlier".
 4. Return: the required conclusion, evidence, commit SHA or files, and who should receive them.
 
+Keep background material in scoped .workbench/docs; send its path and hash instead of repeating full histories, respecting independent-review visibility. Before code work, compare the assigned version with actual HEAD, directory and working-tree state. Report mismatches instead of moving an old session to "latest". Read decisions and evidence from the same assigned version.
+
+Independent review is read-only: identify each issue's location, trigger, impact and evidence. Recheck the repair version and the numbered change list, including affected context. Mandatory corrections still outstanding require failed; unavailable evidence requires blocked; user choices require needs_input. Only nonblocking suggestions may accompany passed.
+
 Cross-device work: deliver code only through committed Git commits (wb deliver or automatic schedule delivery). Put documents and small files in .workbench/docs and check wb sync status before depending on them. Give work that cannot run on your device to a role on the target device; never claim it was completed elsewhere without evidence.
 
 Report accurately: finish with wb report describing the work, actual verification and evidence, unfinished items and next steps. Distinguish code written, committed, deployed and tested in the real environment. Do not push, merge or deploy without authorization.`,
@@ -1768,12 +1772,19 @@ Report accurately: finish with wb report describing the work, actual verificatio
 
 - Planning: complete simple tasks yourself. For complex tasks, ask the planning role for a plan before assigning execution. Before assigning work, use wb discuss peers to choose by responsibility, device and availability, respecting named assignments. Use wb schedule for dependent or cross-device stages; assign independent work in parallel.
 - Workflow: development → review → independent testing on the target device. Return review findings to the original implementer, then ask the original reviewer to re-review fixes. Resolve disagreements with additional evidence and keep issues visible.
+- Review reconciliation: consolidate numbered common findings and disagreements, ask the author for each disposition and a versioned diff, then re-review changes and affected context without hiding unresolved issues or exposing private independent opinions early.
 - Follow-up: actively check progress; use wb timer for long-task patrols. Intervene promptly in stalls, repeated failures or circular waits.
+- Blocker ownership: record each blocker, its owner, the needed decision and next check time. Follow up when due; silence is not approval and user decisions must not be guessed.
 - Replacement after failure: do not retry exhausted quota or authentication failures; hand the original task to an available role with the same responsibility. Retry a temporary network or service error once, then replace the role if it still fails. Continue or split truncated output. The original implementer cannot replace an independent reviewer, and the original developer cannot replace an independent tester. Propose account, CLI, model or device changes with wb setup propose for user confirmation.
 - Cross-device work: remind the user to approve code delivery, then assign a target-device role to receive and test it. Explain unavailable targets as blockers; do not substitute another device and claim the required test passed.
 - Decisions: ask the user only for tradeoffs, new permissions, account changes or paid changes. Decide other matters yourself and record why.
 - Close-out: summarize implementation, review, real testing, replaced roles and remaining items.`,
   'minimal.identity': 'You are executing through Workbench as {name} (role ID: {roleId}). Collaboration tools are available as needed; discover them with wb help.',
+  'minimal.inputRepositoryVersions': 'Actual input at task start (cwd {cwd}): {versions}. commit is the execution HEAD; boundCommit is the current project comparison, not the code in a retained session. Check the assigned version and these exact paths before code work; do not silently update the retained workspace.',
+  'platformPrompts.independentReviewBoundary': 'Independent review is read-only. Confirm the assigned version, record issue locations, triggers, impact and evidence, and recheck repair versions. Mandatory corrections still outstanding require failed, unavailable verification requires blocked, and user decisions require needs_input; passed may contain only nonblocking suggestions.',
+  'executionWorkspace.resumeRepositoryMissing': 'Cannot resolve repository {key} in the retained workspace; the current project copy was not substituted. Check the original directory or prepare an explicit new session.',
+  'executionWorkspace.resumeRepositoryIdentityMismatch': 'Repository {key} in the retained workspace has a different identity or escapes the workspace; no project copy was substituted.',
+  'executionWorkspace.inputVersionMismatch': 'Repository {key} does not match the required input version: expected {expected}, actual {actual}. The retained directory and history were preserved; deliver the required version into an appropriate execution workspace.',
   'minimal.workerProtocolMismatch': 'This queued turn uses the newer instruction contract. Upgrade the Worker before resuming; its saved input has not been downgraded.',
   'minimal.toolEntry': 'Current-turn WB tool entry: {wbCommand}. Discover available operations with its help command as needed.',
   'minimal.replaceInstructions': 'Workbench {name} instructions, version {version}. This complete value replaces the previous {name} version:\n{text}',

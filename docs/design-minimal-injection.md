@@ -14,6 +14,10 @@ Workbench owns collaboration facts, tools and durable state. The native CLI owns
 
 Only identity, saved execution instructions, the current assignment and necessary task-scoped new events enter normal execution. Team facts and operating methods move to queries and on-demand tools/skills only after those entries work. Responsibilities select collaborators; they are not instructions for the role that owns them.
 
+Necessary current-task facts include actual repository startup paths/versions and short maintained stage boundaries. Minimal input must not drop an audit's read-only/report obligations or confuse the current project binding with a retained native worktree. Startup version checks do not update that worktree or add background polling. Keep the existing send-only prose conversion; a proposed verbatim-user-prose policy was deferred. Exact legacy built-in collaboration defaults may upgrade, while custom/empty components and already admitted configurations stay unchanged.
+
+This admission-safeguard extension is verified locally with isolated Worker rejection, Codex and real-browser checks; it is not a new multi-adapter deployment or business-project acceptance claim. Historical acceptance below belongs to the earlier minimal-instruction rollout.
+
 Keep existing roles, platform history, user-authored prompts and native sessions. Ordinary prompt updates must not create a new native session, add a handoff or call the model to confirm configuration. Do not bulk-edit custom prompts, infer responsibilities from names, weaken directory/authorization gates or equate process completion with business acceptance.
 
 ## 2. Four layers and one authority per item

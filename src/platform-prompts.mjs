@@ -23,12 +23,15 @@ export function executionRules(run,{minimal=false}={}) {
   const passRule=run.collaborationBatchId||run.continuationBatchId?tr('sessionQueue.passRule'):'';
   if(minimal)return [passRule,purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):'',
     ['deploy','migration','production'].includes(purpose)?tr('platformPrompts.exclusiveStageOnlyTargetsOperations'):'',
-    run.planId&&run.reportRequired?tr('platformPrompts.beforeBusinessDeliveryRunWb',{p1:''}):''].filter(Boolean).join('\n');
+    ['audit','review'].includes(purpose)?tr('platformPrompts.independentReviewBoundary'):'',
+    run.reportRequired?tr('platformPrompts.beforeBusinessDeliveryRunWb',{p1:''}):''].filter(Boolean).join('\n');
   return tr('platformPrompts.handleOnlyAssignmentDoNot', { discussion, p2: run.discussionProtocol===2?tr('platformPrompts.useWbDiscussForShort'):tr('platformPrompts.useWbCallForRole'), p3: run.roleSnapshot?.systemSupervisor?tr('platformPrompts.workingRolesMayConsultDiscuss'):'', p4: purpose==='merge'?tr('platformPrompts.scheduledMergeStageYouMay'):tr('platformPrompts.unlessMergeStageScheduledDo'), p5: ['deploy','migration','production'].includes(purpose)?tr('platformPrompts.exclusiveStageOnlyTargetsOperations'):tr('platformPrompts.doNotReleaseOperateProduction'), p6: run.reportRequired?tr('platformPrompts.beforeBusinessDeliveryRunWb', { p1: run.discussionProtocol===2?tr('platformPrompts.wbDiscussAsk'):'' }):''  })+(passRule?`\n${passRule}`:'');
 }
 const DEFAULT_FIELD_LIMIT = 128;
 // Match only exact previous EN/ZH defaults; custom edits must survive prompt upgrades.
 const LEGACY_SUPERVISOR_DEFAULTS = new Set([
+  'd9aa330ed0fb40ce9ae07c94125427c03a92da70248d7c8e952f15d93ea754b1',
+  '8698bb5f135b63bd01bc77efb6a6067903875831f20c76c1f8520cf30ecb896a',
   '68986281a3826c62394241e4e51068168a575bd615a65c415009538a625a93f7',
   'b9c53a1fc442a02fdf46bb50169105a1c8c012c3a5593d1270588e7ca1e40c1f',
   'bc1b43525dbdd2642f780776d9f7974f62eb41691d80fb3671a56fb6cecc6118',
@@ -36,13 +39,17 @@ const LEGACY_SUPERVISOR_DEFAULTS = new Set([
   'be0c5fc6adbdc4bd7ace76de8489a94d2b944ee6b577e346b18730c195c3eba1',
   'f4fdcbae86b204daad8506f4f8a431c48fa73052980abafdd6cd55434f2414fe'
 ]);
+const LEGACY_PLATFORM_DEFAULTS = new Set([
+  '45204542deb0ef8dc50cf0793405c91417f586d7b8af901158c658667a2b82fe',
+  '3be86c9e60917e7f697d6a17f50efd7a36793a69ee8551b49f7df5436aad7671'
+]);
 
 /** Text saved while a built-in default was shown in another language still counts as "the default" and follows the current language; customised text is kept verbatim. */
 function promptOrDefault(value, key, fallback) {
   if (typeof value !== 'string') return fallback();
   const text = value.trim();
-  const legacyDefault = key === 'platformPrompts.youFixedProjectSupervisorYou'
-    && LEGACY_SUPERVISOR_DEFAULTS.has(createHash('sha256').update(text).digest('hex'));
+  const legacyDefault = (key === 'platformPrompts.youFixedProjectSupervisorYou' ? LEGACY_SUPERVISOR_DEFAULTS : LEGACY_PLATFORM_DEFAULTS)
+    .has(createHash('sha256').update(text).digest('hex'));
   const currentKey = key === 'platformPrompts.youFixedProjectSupervisorYou' ? 'collaboration.supervisor' : 'collaboration.platform';
   const templateKey = key === 'platformPrompts.youFixedProjectSupervisorYou' ? 'minimal.supervisorTemplate' : 'minimal.platformTemplate';
   return isMessage(text, templateKey) || isMessage(text, key) || isMessage(text, currentKey) || isMessage(text,key==='platformPrompts.youFixedProjectSupervisorYou'?'minimal.supervisorDefault':'minimal.platformDefault') || (key!=='platformPrompts.youFixedProjectSupervisorYou'&&isMessage(text,'minimal.platformDefaultLegacy1')) || legacyDefault ? fallback() : value;

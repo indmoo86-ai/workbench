@@ -552,6 +552,8 @@ export default {
   'Execution Result': '执行结果',
   'Runtime output': 'Runtime 输出',
   'Git baseline': 'Git 基线',
+  'Actual input version': '实际输入版本',
+  'Uncommitted changes': '未提交修改',
   'Plain folder / not registered yet': '普通目录 / 尚未登记',
   'Workspace': '工作区',
   'Not registered': '未登记',

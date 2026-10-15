@@ -43,7 +43,7 @@ import { publishProjectDelivery, receiveProjectDelivery, fetchExecutionDeliverie
 import { collectCcusageReport } from './token-usage.mjs';
 import { nativeEnvironment, findSessionHistory, projectTerminalLock, processAlive, releaseTerminalSession, checkTerminalSession, stopTerminalSession, resumeEnvironment, freshTerminalArgs } from './terminal-resume.mjs';
 import { receiveAttachments } from './attachments.mjs';
-import { inspectExecutionRepositories, prepareExecutionWorkspace, executionConflict, verifyExecutionVersions } from './execution-workspace.mjs';
+import { inspectExecutionRepositories, prepareExecutionWorkspace, executionConflict, verifyExecutionVersions,resolveExecutionRepositories,inspectExecutionInput,assertExecutionInputVersions,executionInputBaselines } from './execution-workspace.mjs';
 import { createRunInput, instructionDelivery,executionInstructionComponents,executionEnvironmentHint } from './run-input.mjs';
 import { inspectGitRepositoryVersion } from './git-version.mjs';
 import { prepareProjectBaseline, advanceProjectBaseline } from './project-baseline.mjs';
@@ -284,6 +284,20 @@ async function command(m) {
       const { folder, baseCommit } = prepared;
       if(m.run.resumeNativeSessionId && folder!==m.run.resumeWorkspace)throw new Error(tr('worker.nativeSessionWorkingDirectoryDiffers'));
       executionRepositories = prepared.repositories || continued?.repositories || executionRepositories;
+      const nativeHistory=m.run.resumeNativeSessionId&&m.run.roleId?db.readNativeDriverRecords(recoveryBinding(m)).records:[];
+      const priorWorkspace=m.run.resumeWorkspace?nativeHistory.findLast(r=>r.id!==c.runId&&r.projectId===m.run.projectId&&r.roleSessionId===m.run.roleSessionId
+        &&r.workspace===folder&&r.nativeSession?.id===m.run.resumeNativeSessionId):null;
+      executionRepositories=await resolveExecutionRepositories({workspace:folder,projectRoot:m.run.projectRoot??m.project.root,repositories:executionRepositories,
+        previousRepositories:continued?.repositories||(source&&m.task.mode==='read-only'?source.repositories:null)||priorWorkspace?.repositories||[],
+        resuming:Boolean(continued||m.run.resumeWorkspace&&!m.run.deliveryId||source&&m.task.mode==='read-only')});
+      for(const repository of executionRepositories)if(repository.localRoot)await projectRoot(repository.localRoot);
+      const inputBaselines=executionInputBaselines(m.run,continued);
+      let inputRepositoryVersions=await inspectExecutionInput(executionRepositories,m.run.repositories||[],inputBaselines);
+      const workspaceRunId = continued ? continued.workspaceRunId || continued.id : c.runId;
+      emit(c.runId, 'status', { status: 'starting', workspace: folder, baseCommit, workspaceRunId, repositories:executionRepositories, projectScope:m.run.projectScope, ...(source ? { sourceWorkspace: source.workspace } : {}) });
+      emit(c.runId,'status',{inputRepositoryVersions,inputVersionsObservedAt:new Date().toISOString()});
+      // Check before applying overlays or claiming an old workspace, not merely before the model starts.
+      assertExecutionInputVersions(inputRepositoryVersions,inputBaselines);
       let sourceInputReceipts=[],sourceInputAccess;
       if(m.run.sourceInputs?.length){
         const get=async(input,hash)=>{const response=await fetch(`${homeUrl.replace(/^ws/i,'http').replace(/\/worker\/?$/,'')}/api/agent/source-inputs/${c.runId}/${input.manifestId}${hash?'/blobs/'+hash:''}`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(60000)});if(!response.ok)throw syncError('source_input_not_ready');return hash?Buffer.from(await response.arrayBuffer()):response.json();};
@@ -291,11 +305,12 @@ async function command(m) {
         const inherited=continued?.sourceInputReceipts;
         if(inherited?.length===m.run.sourceInputs.length&&m.run.sourceInputs.every(i=>inherited.some(v=>v.repositoryId===i.repositoryId&&v.manifestHash===i.manifestHash&&v.generation===i.generation)))sourceInputReceipts=inherited.map(i=>({...i,inheritedFrom:continued.id}));
         else sourceInputReceipts=await prepareSourceInputs({...sourceInputAccess,freshIsolated:Boolean(m.run.execution?.isolated&&!continued&&!m.run.resumeWorkspace)});
+        inputRepositoryVersions=await inspectExecutionInput(executionRepositories,m.run.repositories||[],inputBaselines);
+        emit(c.runId,'status',{inputRepositoryVersions,inputVersionsObservedAt:new Date().toISOString()});
+        assertExecutionInputVersions(inputRepositoryVersions,inputBaselines);
       }
       const repositoryRoots = executionRepositories.filter(r=>r.localRoot).map(r=>r.localRoot);
-      const workspaceRunId = continued ? continued.workspaceRunId || continued.id : c.runId;
       if (!source || m.task.mode !== 'read-only') db.put('workspaceOwners', { id: folder, runId: c.runId });
-      emit(c.runId, 'status', { status: 'starting', workspace: folder, baseCommit, workspaceRunId, repositories:executionRepositories, projectScope:m.run.projectScope, ...(source ? { sourceWorkspace: source.workspace } : {}) });
       if(m.run.sourceInputs?.length||m.run.sourceConflictId)emit(c.runId,'status',{sourceInputs:m.run.sourceInputs||[],sourceInputReceipts,sourceConflictId:m.run.sourceConflictId||null,sourceConflictGeneration:m.run.sourceConflictGeneration,sourceConflictAssignmentId:m.run.sourceConflictAssignmentId});
       if (reservation.stopRequested || paused || ws?.readyState !== 1) { emit(c.runId, 'status', { status: 'interrupted', error: tr('worker.interruptedByStopDisconnectBefore') }); return; }
       const runtimeType = m.run.roleSnapshot?.runtime || 'codex';
@@ -373,7 +388,7 @@ async function command(m) {
       if(reservation.stopRequested||paused||quitting||ws?.readyState!==1)throw new Error(tr('worker.interruptedByStopDisconnectBefore'));
       const components=executionConfiguration?executionInstructionComponents({run:m.run,configuration:executionConfiguration}):undefined;
       const roleInstructions = components?Object.values(components).filter(Boolean).join('\n\n'):traditionalInput(executionText('worker.projectDescriptionRepositoriesForRun', { p1: runWithLanguage('en',()=>composeAgentInstructions(m.platformPrompt,m.run.roleSnapshot?.instructions??'')), p2: String(m.project.description||'').slice(0,4000), p3: executionRepositories.filter(r=>r.localRoot).map(r=>`${r.key}: ${r.localRoot}`).join('\n'), p4: runtimeGuidance(runtimeType), p5: m.task.runtimeInstructions||'' }));
-      const priorInput=db.list('runs').filter(r=>r.id!==c.runId && r.projectId===m.run.projectId && r.roleSessionId===m.run.roleSessionId && r.nativeSession?.id===m.run.resumeNativeSessionId).at(-1);
+      const priorInput=nativeHistory.findLast(r=>r.id!==c.runId && r.projectId===m.run.projectId && r.roleSessionId===m.run.roleSessionId && r.nativeSession?.id===m.run.resumeNativeSessionId);
       let instructions=instructionDelivery({runtime:runtimeType,run:m.run,prior:priorInput,instructions:roleInstructions,roleName:m.run.roleSnapshot?.name,components});
       const fingerprint=warmSessionFingerprint({folder,runtimeType,model:m.task.model,effort,roleName:m.run.roleSnapshot?.name,roleInstructions,env:{...resumeEnvironment(wbEnv),WB_REQUIRE_TURN:wbEnv.WB_REQUIRE_TURN}});
       let session;
@@ -438,9 +453,9 @@ async function command(m) {
       const attachmentHint = inputFiles.length ? executionText('worker.userAttachmentsForTurnUntrusted', { p1: inputFiles.map(a => JSON.stringify({name:a.name,path:a.path,mime:a.mime})).join('\n') }) : '';
       const toolGuide=executionConfiguration?executionText('minimal.toolEntry',{wbCommand}):[executionText('worker.wbCommandPrefixForTurn', { wbCommand }),(m.run.sourceSyncTracking||m.run.sourceConflictId||m.run.sourceConflictPeerId||m.run.sourceConflictAssignmentRequestId)?executionText('sourceSync.toolGuide'):''].filter(Boolean).join('\n\n');
       const taskPrompt=[m.task.prompt,executionConfiguration?.dependencyEvents?.length?executionText('minimal.dependencyEvent',{events:JSON.stringify(executionConfiguration.dependencyEvents)}):''].filter(Boolean).join('\n\n');
-      const environmentHint=executionConfiguration?executionEnvironmentHint({cwd:folder,projectRoot:root,boundary,repositories:executionRepositories}):'';
+      const environmentHint=executionEnvironmentHint({cwd:folder,projectRoot:root,boundary,repositories:executionRepositories,inputRepositoryVersions});
       const input = createRunInput({ minimal:Boolean(executionConfiguration),environmentHint,configurationUpdate:instructions.configurationUpdate,taskPrompt, boundary, context, runtimeGuidance:toolGuide, setupHint, attachmentHint,
-        executionInstructions:m.run.switchOperationId?'Read-only CLI handoff maintenance. Return the requested final answer; do not execute business work or write handoff files.':englishExecutionRules(m.run),roleInstructions:instructions.instructions,sourceInputs:sourceInputReceipts });
+        executionInstructions:m.run.switchOperationId?'Read-only CLI handoff maintenance. Return the requested final answer; do not execute business work or write handoff files.':englishExecutionRules(m.run,{minimal:Boolean(executionConfiguration)}),roleInstructions:instructions.instructions,sourceInputs:sourceInputReceipts });
       if(instructions.inheritedFrom)input.instructionsInheritedFrom=instructions.inheritedFrom;
       await checkNativeDriver(m);
       if(db.get('runs',c.runId)?.stopRequested||session.stopping||paused||quitting||ws?.readyState!==1){session.shutdown();await afterProcessExit(session.proc,()=>{});await provenance?.finish();sessions.delete(c.runId);emit(c.runId,'status',{status:'interrupted',cliRecoveryWait:false,processSettled:true,error:tr('worker.interruptedByStopDisconnectBefore2')});return;}

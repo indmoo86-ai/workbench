@@ -1618,6 +1618,7 @@ function renderRunSummary(run) {
   const usage = formatUsage(run.usage);
   const items = [
     ['Git baseline', run.baseCommit || 'Plain folder / not registered yet'],
+    ...(run.inputRepositoryVersions?.length?[['Actual input version',run.inputRepositoryVersions.map(item=>`${item.key}: ${item.commit||t('Plain folder / not registered yet')}${item.dirty?` (${t('Uncommitted changes')})`:''}`).join('\n')]]:[]),
     ['Workspace', run.workspace || 'Not registered'],
     ['Session', run.threadId || 'Not registered'],
     ['Token', usage || 'Not available']
