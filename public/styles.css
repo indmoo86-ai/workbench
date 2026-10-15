@@ -1437,6 +1437,8 @@ body:has(#platform-prompts-dialog[open]) .settings-page { overflow: hidden; }
 .run-dialog-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin-top: 7px; color: #718398; font-size: 11px; }
 .run-dialog-meta:empty { display: none; }
 .run-dialog-meta .status-chip { font-size: 10px; }
+#run-dialog-status { display: inline-flex; align-items: center; gap: 8px; }
+#run-dialog .run-dialog-meta .run-stop-button { min-height: 26px; padding: 0 9px; font-size: 12px; line-height: 1.4; }
 #run-dialog .detail-column { flex: 1 1 auto; min-height: 0; border: 0; border-radius: 0; overflow-y: auto; overscroll-behavior: contain; }
 #run-dialog .detail-body { padding: 12px 20px 20px; }
 #run-dialog .run-toolbar { padding: 9px 20px; }
@@ -2007,7 +2009,8 @@ dialog.role-switch-dialog { width: min(640px, calc(100vw - 32px)); }
 .navigation-mode { border:1px solid #d7dfeb; border-radius:7px; overflow:hidden; }
 .navigation-mode button + button { border-left:1px solid #d7dfeb; }
 .navigation-mode button[aria-pressed="true"] { background:#e5efff; color:#0866ff; }
-.sidebar-heading .new-conversation-button { border:1px solid #d7dfeb; }
+.sidebar-heading .new-conversation-button { color:#0866ff; background:transparent; border:0; box-shadow:none; }
+.sidebar-heading .new-conversation-button:focus-visible { outline:2px solid #0866ff; outline-offset:2px; }
 .sidebar-heading { border-bottom:1px solid rgba(0,0,0,.08); box-shadow:0 1px 0 #fff; margin-bottom:10px; }
 /* Native fields retain values, validation and form bindings; only their popup is replaced. */
 body select:not([multiple]):not([size]), body select[size="1"] {

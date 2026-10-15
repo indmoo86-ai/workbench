@@ -1552,15 +1552,13 @@ function renderTaskDetail() {
 }
 
 function renderRunToolbar(task, run) {
-  const toolbar = create('div', 'run-toolbar');
-  if (task.origin === 'chat') {
-    if (run && ['queued', 'starting', 'running', 'waiting_user'].includes(run.status)) {
-      const stop = create('button', 'secondary', 'Stop'); stop.type = 'button';
-      stop.addEventListener('click', () => stopRun(run, stop)); toolbar.append(stop);
-      dom.taskDetail.append(toolbar);
-    }
-    return;
+  if (run && ['queued', 'starting', 'running', 'waiting_user'].includes(run.status)) {
+    const stop = create('button', 'secondary run-stop-button', 'Stop'); stop.type = 'button';
+    stop.addEventListener('click', () => stopRun(run, stop));
+    dom.runStatus.append(stop);
   }
+  if (task.origin === 'chat') return;
+  const toolbar = create('div', 'run-toolbar');
   const onlineWorkers = app.data.workers.filter(worker => worker.online
     && worker.runtimes?.some(r => r.supported && r.available)
     && (app.data.workspaces || []).some(w => w.projectId === task.projectId && w.nodeId === worker.id));
@@ -1602,11 +1600,6 @@ function renderRunToolbar(task, run) {
     waiting.type = 'button';
     waiting.disabled = true;
     toolbar.append(waiting);
-  } else {
-    const stop = create('button', 'secondary', 'Stop');
-    stop.type = 'button';
-    stop.addEventListener('click', () => stopRun(run, stop));
-    toolbar.append(stop);
   }
   dom.taskDetail.append(toolbar);
 }
