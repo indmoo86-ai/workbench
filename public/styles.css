@@ -1274,6 +1274,18 @@ body[data-workspace-view="settings"] #settings-usage-panel .settings-panel-headi
 #api-token-dialog > label { display: block; margin: 20px 0 7px; color: #4e657b; font-size: 12px; font-weight: 700; }
 #api-token-dialog > .form-actions { margin-top: 20px; }
 .prompt-edit-dialog { width: min(760px, calc(100vw - 32px)); }
+.role-templates-browser { display: grid; gap: 14px; }
+.role-templates-list { display: grid; gap: 10px; }
+.role-templates-hidden h4 { margin: 4px 0 10px; color: #263f5a; font-size: 14px; }
+.role-template-item { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid var(--accent-line); border-radius: 8px; background: #fff; }
+.role-template-head { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.role-template-name { min-width: 0; overflow: hidden; color: #263f5a; text-overflow: ellipsis; white-space: nowrap; }
+.role-template-badge { flex-shrink: 0; padding: 1px 8px; border-radius: 99px; color: var(--accent-dark); background: var(--accent-soft); font-size: 11px; }
+.role-template-badge.is-custom { color: #12684a; background: #e7f5ee; }
+.role-template-text { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.role-template-meta { margin: 0; color: var(--muted); font-size: 11px; }
+.role-template-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.form-feedback.is-error { color: #962d2d; }
 .prompt-edit-dialog .prompt-settings-grid { margin-top: 6px; }
 .prompt-edit-dialog .settings-block { padding: 0; border: 0; background: transparent; }
 .prompt-edit-dialog .settings-block textarea { min-height: 240px; }

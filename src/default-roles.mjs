@@ -1,5 +1,5 @@
 import { tr } from './i18n.mjs';
-/** Optional presets never create seats automatically; only the explicit local-work presets include execution prompts. */
+/** Shipped presets may be edited or hidden; only opt-in cross-device/local-work presets include prompts, and no seats are created automatically. */
 export function defaultRoleTemplates() {
   return Object.freeze([
     {
@@ -33,6 +33,14 @@ export function defaultRoleTemplates() {
       mode: 'workspace-write',
       modelHint: tr('defaultRoles.fastModelRecommendedForRoutine'),
       instructions: ''
+    },
+    {
+      key: 'crossDevice',
+      responsibility: tr('roleTemplates.crossDeviceResponsibility'),
+      name: tr('roleTemplates.crossDevice'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.midTierModelRecommendedFor'),
+      instructions: tr('roleTemplates.crossDeviceInstructions')
     },
     {
       key: 'architect',

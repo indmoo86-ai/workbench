@@ -6,7 +6,8 @@ import { randomUUID } from 'node:crypto';
 import { terminal } from './store.mjs';
 import {reservedTerminalSlots} from './device-capacity.mjs';
 import { runtimeIssue } from './runtime-probe.mjs';
-import { defaultRoleTemplates, isRoleConfigured, isSupervisorName, isBroadcastName } from './default-roles.mjs';
+import { listRoleTemplates } from './role-templates.mjs';
+import { isRoleConfigured, isSupervisorName, isBroadcastName } from './default-roles.mjs';
 import { roleWorkspace } from './project-repositories.mjs';
 import { executionConflict } from './execution-workspace.mjs';
 import { steeringWaitReason } from './role-steering.mjs';
@@ -129,7 +130,7 @@ export class Rooms {
       effort = String(input.effort).trim();
       if (!effort || effort.length > 32) throw new Error(tr('rooms.invalidReasoningEffort'));
     }
-    const templateKey = old ? old.templateKey : defaultRoleTemplates().find(t => t.key === input.templateKey)?.key;
+    const templateKey = old ? old.templateKey : listRoleTemplates(this.db).find(t => t.key === input.templateKey)?.key;
     return { ...old, id: old?.id || randomUUID(), projectId, templateKey, revision: old ? (old.revision || 1) + 1 : 1,
       name, repositoryId, nodeId: configured ? input.nodeId : '', runtime: configured ? runtime : '', model: configured ? input.model : '',
       mode: 'workspace-write', effort, autoApprove, instructions: input.instructions.trim(), responsibility: normalizeResponsibility(input.responsibility, old?.responsibility || ''), configured, enabled: configured && input.enabled, updatedAt: now() };

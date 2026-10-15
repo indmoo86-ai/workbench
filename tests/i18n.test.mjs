@@ -127,10 +127,10 @@ test('language switch changes platform prompts and default roles', async () => {
     assert.ok(hasCjk(b[k]), `${k} (zh) has no CJK`);
   }
   assert.deepEqual(a.templates.map(t => t.key), b.templates.map(t => t.key));
-  assert.deepEqual(a.templates.map(t => t.key), ['planner', 'developer', 'reviewer', 'tester', 'architect', 'debugger', 'deployer', 'documenter', 'local-developer', 'local-tester']);
+  assert.deepEqual(a.templates.map(t => t.key), ['planner', 'developer', 'reviewer', 'tester', 'crossDevice', 'architect', 'debugger', 'deployer', 'documenter', 'local-developer', 'local-tester']);
   a.templates.forEach((t, i) => {
     assert.notEqual(t.name, b.templates[i].name);
-    if (t.key === 'local-developer' || t.key === 'local-tester') {
+    if (['crossDevice', 'local-developer', 'local-tester'].includes(t.key)) {
       assert.ok(t.instructions && !hasCjk(t.instructions));
       assert.ok(hasCjk(b.templates[i].instructions));
     } else {
