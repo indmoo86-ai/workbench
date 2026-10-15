@@ -48,5 +48,7 @@ export default {
  "Invalid takeover attachments": "接管附件无效",
  "Invalid takeover attachment": "接管附件无效",
  "Attachment verification failed": "附件校验失败",
- "Invalid session action": "无效的会话操作"
+ "Invalid session action": "无效的会话操作",
+ "{count} CLI notices hidden": "已隐藏 {count} 条 CLI 提示",
+ "Timestamped CLI stderr lines (configuration and sandbox notices) are not shown here": "带时间戳的 CLI 标准错误日志（配置、沙箱提示）不在此展示"
 };

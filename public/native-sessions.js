@@ -78,7 +78,7 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
  }
  const takeover=createTakeover();
  const IMAGE_CLIS=new Set(['codex','claude']),openTools=new Set();
- const phaseLabel=turn=>turn.status==='queued'?'Waiting for the device…':turn.status==='stopping'?'Stopping…':turn.phase==='starting'||turn.status==='starting'?'Starting the CLI…':turn.phase==='tool'?'Running a tool':turn.phase==='waiting'||turn.status==='waiting_user'?'Waiting':turn.phase==='replying'?'Replying…':turn.phase==='working'?'Working…':'Thinking…';
+ const phaseLabel=turn=>turn.status==='queued'?'Waiting for the device…':turn.status==='stopping'?'Stopping…':turn.phase==='starting'||(!turn.phase||turn.phase==='queued')&&turn.status==='starting'?'Starting the CLI…':turn.phase==='tool'?'Running a tool':turn.phase==='waiting'||turn.status==='waiting_user'?'Waiting':turn.phase==='replying'?'Replying…':turn.phase==='working'?'Working…':'Thinking…';
  /** Codex records an attached image as markup with a Worker-local path; show a short placeholder instead. */
 /** CLI titles can start with injected context markup (e.g. <environment_context>); show readable text or the short ID. */
 const displayTitle=item=>{const text=String(item.title||'').replace(/<([a-z_-]+)\b[^>]*>[\s\S]*?(<\/\1>|$)/gi,' ').replace(/\s+/g,' ').trim();return text||`${String(item.id||'').slice(0,8)}\u2026`;};
@@ -87,14 +87,21 @@ const sizeText=n=>!Number.isFinite(n)?'':n<1024?`${n} B`:n<1048576?`${(n/1024).t
 const cliNoise=text=>/^\s*\d{4}-\d\d-\d\dT\S+\s+(TRACE|DEBUG|INFO|WARN|ERROR)\b/m.test(stripAnsi(String(text||'')));
 const cleanUserText=text=>String(text||'').replace(/<image\b[^>]*>[\s\S]*?<\/image>/gi,'').replace(/\n*Attached files for this message \(local paths\):[\s\S]*$/,'').trim();
 /** A turn shows its process only when it holds more than the final reply: tools, runtime notes or intermediate messages. */
-const processRows=turn=>liveSceneRows(turn.events||[],{status:turn.status}).rows.filter(r=>!(r.kind==='log'&&cliNoise(r.text)));
-const hasProcess=turn=>{const rows=processRows(turn);return rows.some(r=>r.kind==='tool'||r.kind==='log'||r.kind==='error')||rows.filter(r=>r.kind==='message'||r.kind==='text').length>2;};
+const norm=text=>stripAnsi(String(text||'')).replace(/\s+/g,' ').trim();
+const allRows=turn=>liveSceneRows(turn.events||[],{status:turn.status}).rows.filter(r=>!(r.kind==='log'&&cliNoise(r.text)));
+/** The reply bubble shows the final message; the process keeps intermediate messages once each (streamed text that equals a message is dropped). */
+const finalReply=turn=>{const rows=allRows(turn),last=[...rows].reverse().find(r=>r.kind==='message'||r.kind==='text');return last||null;};
+const processRows=turn=>{const rows=allRows(turn),messages=new Set(rows.filter(r=>r.kind==='message').map(r=>norm(r.text))),final=finalReply(turn),seen=new Set();
+ return rows.filter(r=>{if(r===final)return false;if(r.kind!=='message'&&r.kind!=='text')return true;const n=norm(r.text);if(!n||(r.kind==='text'&&messages.has(n))||seen.has(n)||(final&&n===norm(final.text)))return false;seen.add(n);return true;});};
+const replyText=turn=>{const f=finalReply(turn);return f?f.text:turn.text||'';};
+const hasProcess=turn=>{const rows=processRows(turn);return rows.some(r=>r.kind==='tool'||r.kind==='log'||r.kind==='error')||rows.some(r=>r.kind==='message'||r.kind==='text');};
 const valueText=value=>typeof value==='string'?value:value==null?'':JSON.stringify(value,null,2);
  /** The group-chat live-scene projection orders text, messages, logs and merged tool states for one turn. */
  function processBlock(turn,{open=false}={}){
   const model={rows:processRows(turn)},tools=model.rows.filter(r=>r.kind==='tool').length,live=['queued','starting','running','waiting_user','stopping'].includes(turn.status);
   const box=el('details','native-turn-process');box.open=open;box.dataset.turn=turn.id;
   const summary=el('summary','');summary.append(el('span','native-process-title',t('Run process')),el('span','native-process-count',t('{count} tool calls',{count:tools})));
+  const hidden=liveSceneRows(turn.events||[],{status:turn.status}).rows.filter(r=>r.kind==='log'&&cliNoise(r.text)).length;if(hidden){const note=el('span','native-process-hidden',t('{count} CLI notices hidden',{count:hidden}));note.title=t('Timestamped CLI stderr lines (configuration and sandbox notices) are not shown here');summary.append(note);}
   if(live)summary.append(el('span','native-process-phase',`${t(phaseLabel(turn))}${turn.phase==='tool'&&turn.toolName?` · ${turn.toolName}`:''}`));
   box.append(summary);const body=el('div','native-process-body');
   for(const row of model.rows){
@@ -151,7 +158,7 @@ const valueText=value=>typeof value==='string'?value:value==null?'':JSON.stringi
     else if(turn.status!=='succeeded')meta.append(el('span','native-turn-error',`${t(turn.status==='interrupted'?'Interrupted':'Failed')}${turn.error?` · ${t(turn.error)}`:''}`));
     const extra=el('div','native-turn-extra');const block=processBlock(turn,{open:live||openProcesses.has(turn.id)});block.addEventListener('toggle',()=>{if(!live)block.open?openProcesses.add(turn.id):openProcesses.delete(turn.id);});
     if(live||hasProcess(turn))extra.append(block);if(meta.childElementCount)extra.append(meta);
-    feed.append(chatRow('assistant',turn.text||'',current.runtime,null,extra));
+    feed.append(chatRow('assistant',replyText(turn),current.runtime,null,extra));
    }}
   function render(){
    if(!current)return;const value=current,taken=isOn(value);shell.replaceChildren();renderFeed();

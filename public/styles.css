@@ -2018,3 +2018,4 @@ dialog.role-switch-dialog { width: min(640px, calc(100vw - 32px)); }
 .native-turn-files .attachment-file-card { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid #d3deeb; background: #f7faff; }
 .native-turn-error { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; background: #fdf0ed; color: #b4442f; font-size: 12px; font-weight: 500; }
 .native-turn-state { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.native-process-hidden { font-size: 11px; color: #98a2b3; }
