@@ -30,5 +30,6 @@
 | [plan-source-sync](plan-source-sync.md) | Source synchronization implementation and verification gates | Archived implementation plan; current contract is design-source-sync |
 | [design-shared-documents](design-shared-documents.md) | Actual Mac-local file reading, document links and Resources integration; consumes unified project-file sync | Implemented; physical Mac/Linux and browser verification, no separate synchronizer |
 | [plan-project-file-sync](plan-project-file-sync.md) | Unified directory scopes, background synchronization and actual Mac file reading | Completed; local/remote release and selective project activation verified |
+| [plan-source-sync-outputs](plan-source-sync-outputs.md) | Opt-in source/output policy, preview privacy, limit evidence and device-specific handoffs | Implemented locally with isolated verification; not deployed or enabled on business projects |
 
 Start with the README, then ARCHITECTURE. Read the PRD when you need the full product scope. ARCHITECTURE describes the actual code only and never treats a plan as a feature. Design documents may describe intended behavior; where they disagree with the code, the code is the fact.

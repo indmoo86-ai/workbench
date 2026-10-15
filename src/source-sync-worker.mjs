@@ -130,7 +130,7 @@ export class SourceSyncWorker {
       let result;
       if(command.action==='capture'&&this.db.get('sourceSyncCancellations',command.id))result={status:'cancelled',files:[]};
       else if(command.action==='capture'){
-        const options={root:binding.root,repositoryId:command.repositoryId,generation:command.generation,blobRoot:this.blobRoot,expectedHead:command.baseCommit,scopePolicy:command.scopePolicy||{},baselineEntries:command.baselineEntries};
+        const options={root:binding.root,repositoryId:command.repositoryId,generation:command.generation,blobRoot:this.blobRoot,preview:command.preview,expectedHead:command.baseCommit,scopePolicy:command.scopePolicy||{},baselineEntries:command.baselineEntries};
         if(command.scopeKind==='directory'){
           const manifest=await captureDirectorySnapshot(options),base={...manifest,entries:{},digest:manifestDigest({},options.scopePolicy),excluded:[]};result={status:'completed',base,manifest};
         }else{const base=await captureGitBase(options),manifest=await captureSourceSnapshot({...options,base});result={status:'completed',base,manifest};}
@@ -144,7 +144,7 @@ export class SourceSyncWorker {
       });return result;
     }catch(error){
       const uncertain=this.db.list('sourceSyncJournals').some(j=>j.commandId===command.id&&j.status==='prepared');
-      const result={status:uncertain?'reconciling':'blocked',reason:error.code||'apply_failed'};
+      const result={status:uncertain?'reconciling':'blocked',reason:error.code||'apply_failed',...(error.limit?{limit:error.limit}:{})};
       this.db.transaction(()=>{
         this.db.put('sourceSyncCommands',{...this.db.get('sourceSyncCommands',command.id),status:result.status,...(!uncertain?{result}:{})});
         if(!uncertain){this.db.put('sourceSyncReceipts',{id:command.id,projectId:command.projectId,generation:command.generation,fingerprint,result,createdAt:now()});if(this.db.get('sourceSyncReservations',command.projectId)?.commandId===command.id)this.db.remove('sourceSyncReservations',command.projectId);}

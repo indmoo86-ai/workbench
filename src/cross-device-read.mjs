@@ -5,6 +5,8 @@ import {validateEntry,validateSourcePath,contentHash} from './source-sync-manife
 import {budgetReadReply,READ_REPLY_BYTES} from './read-query-response.mjs';
 import {beginReadOperation,saveReadResult,replayReadResult} from './read-result-replay.mjs';
 
+import {projectTerminalLock} from './terminal-resume.mjs';
+
 const safeCode=error=>typeof error?.code==='string'&&/^[a-z_]{1,64}$/.test(error.code)?error.code:'read_failed';
 const selector=input=>input.params?{...input.params,sourceNodeId:input.sourceNodeId}:input;
 const reviewPath=path=>path?.startsWith('.workbench/')?path.slice('.workbench/'.length):path;
@@ -40,7 +42,7 @@ export class CrossDeviceRead{
     const run=this.db.get('runs',caller?.id);
     const task=run&&this.db.get('tasks',run.taskId);
     if(!run||run.projectId!==caller.projectId||!['starting','running'].includes(run.status)||run.switchOperationId||run.stopRequested||task?.currentRunId!==run.id||task.projectId!==run.projectId||['failed','succeeded','interrupted','cancelled','done'].includes(task.status))throw readError('denied');
-    if(this.db.listProject('terminalSessions',run.projectId).some(s=>s.nodeId===run.nodeId&&!['released','cancelled'].includes(s.status)))throw readError('denied');
+    if(projectTerminalLock(this.db,run.projectId,run.nodeId))throw readError('denied');
     const selected=selector(input),config=this.configuration(run.projectId);
     if(!config.enabled||!config.nodeIds.includes(selected.sourceNodeId)||!config.scopeIds.includes(selected.scopeId)||operation==='query'&&!config.recipeIds.includes(input.recipeId))throw readError('denied');
     const view=reviewView(this.db,{projectId:run.projectId,roleId:run.roleId});

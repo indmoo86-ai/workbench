@@ -77,6 +77,8 @@ export class CodexSession {
   reuse(options) {
     if(!this.done || !this.proc || this.proc.killed || this.proc.exitCode!==null || this.proc.signalCode!==null)throw new Error(tr('codex.codexProcessCannotBeReused'));
     Object.assign(this,options);this.done=false;this.stopping=false;this.turnId=null;
+    // Logical review mode must not disable WB receipt writes on reuse; match fresh business admission and keep maintenance read-only.
+    this.mode=options.maintenance?'read-only':'workspace-write';
     this.items.clear();
     for(const state of this.toolOutputBuffers.values())clearTimeout(state.timer);
     this.toolOutputBuffers.clear();this.textBuffer='';

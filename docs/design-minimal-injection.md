@@ -6,11 +6,17 @@ Both deployed Workers advertise the minimal-instruction protocol. Each release c
 
 This is the design authority for this change. Current execution and rolling compatibility paths are documented in ARCHITECTURE. Unified implementation is specified in [plan-minimal-injection](plan-minimal-injection.md).
 
+Operator-approved configuration increment: the two opt-in Local-Developer and Local-Tester presets now include the user's full execution text. The original eight responsibility-only presets remain unchanged. Selection pre-fills an editable prompt; it does not create roles automatically, enforce devices, change existing roles or add a platform-wide execution sequence. This is configured L1 content under the same next-turn admission contract.
+
 ## 1. Intent and preserved boundaries
 
 Workbench owns collaboration facts, tools and durable state. The native CLI owns execution strategy. Normal turns do not have to plan, enumerate the team, delegate or run a fixed review sequence. Explicit user requirements, including reviews, tests and approvals, remain binding.
 
 Only identity, saved execution instructions, the current assignment and necessary task-scoped new events enter normal execution. Team facts and operating methods move to queries and on-demand tools/skills only after those entries work. Responsibilities select collaborators; they are not instructions for the role that owns them.
+
+Necessary current-task facts include actual repository startup paths/versions and short maintained stage boundaries. Minimal input must not drop an audit's read-only/report obligations or confuse the current project binding with a retained native worktree. Startup version checks do not update that worktree or add background polling. Keep the existing send-only prose conversion; a proposed verbatim-user-prose policy was deferred. Exact legacy built-in collaboration defaults may upgrade, while custom/empty components and already admitted configurations stay unchanged.
+
+This admission-safeguard extension is verified locally with isolated Worker rejection, Codex and real-browser checks; it is not a new multi-adapter deployment or business-project acceptance claim. Historical acceptance below belongs to the earlier minimal-instruction rollout.
 
 Keep existing roles, platform history, user-authored prompts and native sessions. Ordinary prompt updates must not create a new native session, add a handoff or call the model to confirm configuration. Do not bulk-edit custom prompts, infer responsibilities from names, weaken directory/authorization gates or equate process completion with business acceptance.
 

@@ -3,10 +3,11 @@ import { executionText as tr, traditionalInput } from './input-language.mjs';
 import {customExecutionPrompt} from './platform-prompts.mjs';
 import {relative,isAbsolute} from 'node:path';
 
-/** Only exceptional directory boundaries and repositories outside cwd need active disclosure; ordinary inventories stay queryable. */
-export function executionEnvironmentHint({cwd,projectRoot,boundary,repositories=[]}) {
+/** Disclose actual startup versions and exceptional directory boundaries; neither a retained cwd nor an external mapping means the project was updated. */
+export function executionEnvironmentHint({cwd,projectRoot,boundary,repositories=[],inputRepositoryVersions=[]}) {
   const external=repositories.filter(r=>{if(!r.localRoot)return false;const path=relative(cwd,r.localRoot);return path==='..'||path.startsWith('../')||path.startsWith('..\\')||isAbsolute(path);});
-  return [cwd!==projectRoot?boundary:'',external.length?tr('minimal.externalRepositories',{repositories:JSON.stringify(external.map(r=>({key:r.key,localRoot:r.localRoot})))}):''].filter(Boolean).join('\n');
+  return [cwd!==projectRoot?boundary:'',external.length?tr('minimal.externalRepositories',{repositories:JSON.stringify(external.map(r=>({key:r.key,localRoot:r.localRoot})))}):'',
+    inputRepositoryVersions.length?tr('minimal.inputRepositoryVersions',{cwd,versions:JSON.stringify(inputRepositoryVersions)}):''].filter(Boolean).join('\n');
 }
 
 /** Runtime instructions contain only trusted identity and configured execution text, not directory duties or live inventory. */
@@ -56,9 +57,9 @@ export function instructionDelivery({runtime,run,prior,instructions,roleName,pro
 export function createRunInput({ taskPrompt, boundary, context = '', runtimeGuidance = '', setupHint = '', attachmentHint = '', roleInstructions, executionInstructions = '',sourceInputs=[],minimal=false,environmentHint='',configurationUpdate='' }) {
   if(sourceInputs.length)context=[context,tr(sourceInputs.some(i=>i.inheritedFrom)?'sourceSync.continuedReceipt':'sourceSync.executionReceipt',{versions:JSON.stringify(sourceInputs)})].filter(Boolean).join('\n\n');
   // Components have already been converted before versioning; reprocessing them would rename trusted identities and disagree with native parameters.
-  if(minimal)return {instructions:roleInstructions,prompt:traditionalInput([taskPrompt,context,environmentHint,runtimeGuidance,attachmentHint].filter(Boolean).join('\n\n')),...(configurationUpdate?{configurationUpdate}:{})};
+  if(minimal)return {instructions:roleInstructions,prompt:traditionalInput([taskPrompt,context,environmentHint,executionInstructions,runtimeGuidance,attachmentHint].filter(Boolean).join('\n\n')),...(configurationUpdate?{configurationUpdate}:{})};
   return {
     instructions: roleInstructions,
-    prompt: traditionalInput(tr('runInput.currentWorkspaceHasBeenDesignated', { taskPrompt, boundary, context, executionInstructions, runtimeGuidance, setupHint, attachmentHint }))
+    prompt: traditionalInput(tr('runInput.currentWorkspaceHasBeenDesignated', { taskPrompt, boundary, context:[context,environmentHint].filter(Boolean).join('\n\n'), executionInstructions, runtimeGuidance, setupHint, attachmentHint }))
   };
 }

@@ -6,7 +6,7 @@ import {discussionHelp} from './discussion-policy.mjs';
 import { setupCatalog, setupPropose, updateRolePrompt } from './setup-tools.mjs';
 import {
   helpText, boot, docsList, docsRead,inspectReadSource,queryNodeReadOnly,readDeviceFile,
-  gitStatus, chatPost, askRole, callRole, waitForRole, requestDelivery, writeHandoff, handoffLast
+  gitStatus, chatPost, notifySupervisor, askRole, callRole, waitForRole, requestDelivery, writeHandoff, handoffLast
 } from './wb-tools.mjs';
 import { tr } from './i18n.mjs';
 
@@ -51,11 +51,15 @@ export async function main(argv = process.argv.slice(2)) {
       const text=process.env.WB_SYSTEM_SUPERVISOR==='1'?tr('wbCli.wbScheduleJsonSupervisorSubmits',{HELP:helpText()}):helpText();
       return out(process.env.WB_DISCUSSION_PROTOCOL==='2'?`${text}\n\n${discussionHelp()}`:text);
     }
-    if(!['read','collaboration','sync','discuss','capabilities','session','chat','setup','pass','report','history','result','schedule','timer','role','boot','status','docs','git','note','ask','wait','deliver','call','handoff'].includes(cmd))throw new Error(tr('wbCli.unknownCommand',{cmd,HELP:helpText()}));
+    if(!['notify','read','collaboration','sync','discuss','capabilities','session','chat','setup','pass','report','history','result','schedule','timer','role','boot','status','docs','git','note','ask','wait','deliver','call','handoff'].includes(cmd))throw new Error(tr('wbCli.unknownCommand',{cmd,HELP:helpText()}));
     loadTurnContext(process.env,{turnId});
     const supervisor = process.env.WB_SYSTEM_SUPERVISOR === '1';
     const roleSession=Boolean(process.env.WB_ROLE_SESSION_ID),discussion=roleSession&&process.env.WB_DISCUSSION_PROTOCOL==='2';
     const sourceSync=process.env.WB_SOURCE_SYNC==='1';
+    if (cmd === 'notify') {
+      if (!['send','status'].includes(sub) || rest.length !== 1) throw new Error(tr('wechatChannel.toolGuide'));
+      return out(await notifySupervisor(sub,sub==='status'?{id:rest[0]}:JSON.parse(rest[0])));
+    }
     if(cmd==='read'){
       if(!['source','query','file'].includes(sub)||rest.length!==1)throw new Error(tr('readTools.guide'));
       const input=JSON.parse(rest[0]),tool={source:inspectReadSource,query:queryNodeReadOnly,file:readDeviceFile}[sub];
@@ -75,7 +79,7 @@ export async function main(argv = process.argv.slice(2)) {
       if(!['peers','ask','reply','read','resolve','budget_extend'].includes(sub)||rest.length>1)throw new Error(discussionHelp());
       return out(await agentRequest('/api/agent/discussions',{runId:process.env.WB_RUN_ID,action:sub,input:rest.length?JSON.parse(rest[0]):sub==='peers'?{view:'summary'}:{}}));
     }
-    if (cmd === 'capabilities') return out({protocol:2,queryRecipes:process.env.WB_READ_TOOLS==='1'?1:0,fileReadFreshness:process.env.WB_READ_TOOLS==='1'?1:0,readSourceBindings:process.env.WB_READ_TOOLS==='1'?1:0,sourceSyncTools:sourceSync?1:0,discussionProtocol:discussion?2:0,sessionTools:1,timerTools:1,queueTools:process.env.WB_QUEUE_BATCH==='1'?2:0,tools:['setup catalog',...(process.env.WB_READ_TOOLS==='1'?['read source','read query','read file']:[]),...(sourceSync?['sync status','sync read','sync request','sync propose',...(supervisor?['sync assign']:[])]:[]),...(roleSession?['discuss peers']:[]),...(discussion?['discuss ask','discuss reply','discuss read','discuss resolve',...(supervisor?['discuss budget_extend']:[])]:[]),'call','wait',...(supervisor?['schedule','timer','role prompt','collaboration list','collaboration create','collaboration link','collaboration add-member','collaboration remove-member','collaboration release','collaboration close']:[]),...(process.env.WB_QUEUE_BATCH==='1'?['pass']:[]),'note','git status','report','history search','history read','result read','deliver','session current','session list','session summary','session read','chat summary']});
+    if (cmd === 'capabilities') return out({protocol:2,notifications:supervisor?1:0,queryRecipes:process.env.WB_READ_TOOLS==='1'?1:0,fileReadFreshness:process.env.WB_READ_TOOLS==='1'?1:0,readSourceBindings:process.env.WB_READ_TOOLS==='1'?1:0,sourceSyncTools:sourceSync?1:0,discussionProtocol:discussion?2:0,sessionTools:1,timerTools:1,queueTools:process.env.WB_QUEUE_BATCH==='1'?2:0,tools:['setup catalog',...(process.env.WB_READ_TOOLS==='1'?['read source','read query','read file']:[]),...(sourceSync?['sync status','sync read','sync request','sync propose',...(supervisor?['sync assign']:[])]:[]),...(roleSession?['discuss peers']:[]),...(discussion?['discuss ask','discuss reply','discuss read','discuss resolve',...(supervisor?['discuss budget_extend']:[])]:[]),'call','wait',...(supervisor?['notify send','notify status','schedule','timer','role prompt','collaboration list','collaboration create','collaboration link','collaboration add-member','collaboration remove-member','collaboration release','collaboration close']:[]),...(process.env.WB_QUEUE_BATCH==='1'?['pass']:[]),'note','git status','report','history search','history read','result read','deliver','session current','session list','session summary','session read','chat summary']});
     if (cmd === 'session' && sub === 'current') return out(await agentRequest('/api/agent/sessions/current',{runId:process.env.WB_RUN_ID}));
     if (cmd === 'session' && sub === 'list') return out(await agentRequest('/api/agent/sessions/list',{runId:process.env.WB_RUN_ID,...sessionOptions(rest)}));
     if (cmd === 'session' && sub === 'summary') return out(await agentRequest('/api/agent/sessions/summary',{runId:process.env.WB_RUN_ID,roleSessionId:rest[0]}));

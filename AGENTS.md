@@ -27,6 +27,15 @@ When documents conflict, the actual code is the source of truth for what exists,
 - A project can bind a different local directory per device. Code tasks run in separate Git worktrees.
 - Not done: other ACP runtimes, Feishu, multi-user identity, manual primary/standby Home switch-over, controlled cross-device session handoff (design only).
 
+## Current platform decisions
+
+- Distinguish deployed software, bound project baseline and the Run's actual input version. A resumed native session keeps its directory; never silently replace its code with a newer binding or claim directory synchronization updates old worktrees.
+- Code work must name and check its input version. Fixed-version admission blocks a mismatch before model input; authorized writing-stage continuations may keep their verified outputs. Do not add background polling to implement this check.
+- Independent review is read-only. Outstanding mandatory corrections are `failed`, unavailable evidence is `blocked`, and user choices are `needs_input`; `passed` permits only nonblocking suggestions. Preserve original reports and runtime failures.
+- Re-review a numbered change/disposition list and its exact version, reading affected context when needed. Keep material references scoped and versioned; do not expose unreleased independent opinions.
+- Role responsibilities and execution instructions are distinct. The original eight presets provide responsibilities only; the opt-in cross-device, local-developer and local-tester presets include execution instructions. Template edits affect future role creation, not existing roles. Do not overwrite custom or explicitly empty components, and do not assume old worktrees reload a newer AGENTS.md.
+- Keep the current send-only Traditional Chinese prose conversion; preserving all user prose verbatim was explicitly deferred. Stored originals, exact quoted strings, code and paths remain unchanged.
+
 ## Development constraints
 
 - Use JavaScript, ESM and Node.js 22. Do not introduce TypeScript or a front-end build step.

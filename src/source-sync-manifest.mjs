@@ -5,6 +5,8 @@ export const SOURCE_SYNC_LIMITS=Object.freeze({fileBytes:20*1024*1024,batchBytes
 // Earlier unshipped captures cannot prove the ignored-path scope used by deletion decisions.
 export const SOURCE_SYNC_CAPTURE_POLICY=2;
 export const DIRECTORY_SYNC_CAPTURE_POLICY=3;
+export const OUTPUT_SYNC_CAPTURE_POLICY=4;
+export const includesSyncOutputs=policy=>policy?.contentMode==='source-and-outputs';
 export const contentHash=bytes=>createHash('sha256').update(bytes).digest('hex');
 
 /** Codes are stable protocol values; localized detail does not participate in identity. */
@@ -12,11 +14,21 @@ export function syncError(code,detail='') {
   return Object.assign(new Error(tr('sourceSync.failure',{code,detail})),{code});
 }
 
+/** Keep bounded limit evidence separate from localized messages and file contents. */
+export function syncLimitError(code,kind,maximum,actual,path='') {
+  return Object.assign(syncError(code,path),{limit:{kind,path:String(path).slice(0,4096),maximum,actual}});
+}
+
 /** Mandatory exclusions apply even to tracked files and cannot be relaxed by a sender. */
 export function excludedSourcePath(path,policy={}) {
   const parts=String(path).split('/');
   const shared=policy.sharedDocs===true&&parts[0]==='.workbench'&&parts[1]==='docs'&&parts.length>2;
   if(!shared&&policy.onlySharedDocs||(policy.excludeRoots||[]).some(root=>root?(path===root||path.startsWith(root+'/')):!shared))return true;
+  if(includesSyncOutputs(policy))return parts.some(part=>/^(?:\.git|\.worktrees|\.data|node_modules|vendor|\.venv|venv|__pycache__|\.codex|\.claude|\.ssh|\.netrc|_netrc|\.npmrc|\.pypirc|\.agent-workbench-project\.json|worker-config\.json|auth(?:-profiles)?\.json|build|dist)$/i.test(part)
+    ||/^\.wb-(?:bridge|source-sync)-/i.test(part)||/^\.env(?:\..*)?$/i.test(part)
+    ||/^(?:credentials?|secrets?|tokens?)(?:.*)$/i.test(part)||/^(?:api|worker|access|refresh)[-_]token(?:\.|$)/i.test(part)
+    ||/^(?:home|worker)(?:[-_.].*)?\.(?:sqlite|db)(?:[-.].*)?$/i.test(part)||/^(?:id_rsa|id_ed25519|id_ecdsa)(?:\.|$)/i.test(part)
+    ||/\.(?:pem|key|p12|pfx)$/i.test(part));
   return parts.some((part,i)=>!(shared&&i===0)&&(/^(?:\.git|\.workbench|\.worktrees|\.data|\.local|\.migration|\.DS_Store|\.attachments|node_modules|vendor|dist|build|target|coverage|\.next|\.cache|__pycache__|\.venv|\.codex|\.claude|\.ssh|\.netrc|_netrc|\.npmrc)$/i.test(part)
     ||part.startsWith('.wb-bridge-')||part.startsWith('.wb-source-sync-')||/^\.env(?:\..*)?$/i.test(part)&&!/^\.env\.(?:example|sample|template)$/i.test(part)
     ||/^(?:credentials?|secrets?|tokens?)(?:\.|$)/i.test(part)||/^(?:id_rsa|id_ed25519|id_ecdsa)(?:\.|$)/i.test(part)
@@ -80,7 +92,9 @@ export function manifestDigest(entries,policy={}) {
 /** Protocol versions distinguish filesystem baselines from real Git commits; never invent a SHA for a directory. */
 export function validateSourceCapture(snapshot,command={}) {
   const directory=command.scopeKind==='directory',policy=directory?command.scopePolicy||{}:{};
-  if(snapshot?.capturePolicy!==(directory?DIRECTORY_SYNC_CAPTURE_POLICY:SOURCE_SYNC_CAPTURE_POLICY))throw syncError('snapshot_policy_unsupported');
+  const outputs=directory&&includesSyncOutputs(policy);
+  if(snapshot?.capturePolicy!==(outputs?OUTPUT_SYNC_CAPTURE_POLICY:directory?DIRECTORY_SYNC_CAPTURE_POLICY:SOURCE_SYNC_CAPTURE_POLICY)
+    ||Boolean(snapshot.metadataOnly)!==Boolean(outputs&&command.preview))throw syncError('snapshot_policy_unsupported');
   if(directory?(snapshot.scopeKind!=='directory'||snapshot.baseCommit!==null||JSON.stringify(snapshot.scopePolicy)!==JSON.stringify(policy)):!/^[a-f0-9]{40,64}$/.test(snapshot.baseCommit||''))throw syncError('invalid_manifest');
   if(manifestDigest(snapshot.entries,policy)!==snapshot.digest)throw syncError('invalid_manifest');
   return snapshot;

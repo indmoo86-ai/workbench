@@ -23,12 +23,14 @@ export function recordSourceBinding(db,command,root){
 }
 
 /** Partition container/repository layouts so each physical file has exactly one receiving scope. */
-export function buildSourceBindings(db,projectId,repositoryIds,nodeIds,{scopeKind}={}){
+export function buildSourceBindings(db,projectId,repositoryIds,nodeIds,{scopeKind,contentMode}={}){
   const directory=scopeKind==='directory',withProject=repositoryIds.includes(projectFileScopeId(projectId));
+  if(contentMode!==undefined&&!['source-only','source-and-outputs'].includes(contentMode)||contentMode==='source-and-outputs'&&!directory)throw syncError('invalid_scope');
   const bindings=repositoryIds.flatMap(repositoryId=>nodeIds.map(nodeId=>{
     const projectScope=isProjectFileScope(projectId,repositoryId),binding=sourceScopeBinding(db,projectId,repositoryId,nodeId),worker=db.get('workers',nodeId),repo=db.get('repositories',repositoryId);
     if(projectScope&&!directory)throw syncError('invalid_scope');
     if(worker?.capabilities?.sourceSync!==1||directory&&worker.capabilities.sourceSyncDirectory!==1)throw syncError('worker_unsupported',nodeId);
+    if(contentMode==='source-and-outputs'&&worker.capabilities.sourceSyncOutputs!==1)throw syncError('worker_unsupported',nodeId);
     if(binding?.projectId!==projectId||!binding.localRoot)throw syncError('binding_missing');
     if(binding.readOnly||repo?.readOnly)throw syncError('scope_read_only');
     const root=resolve(binding.localRoot);
@@ -38,8 +40,10 @@ export function buildSourceBindings(db,projectId,repositoryIds,nodeIds,{scopeKin
     const projectRoot=db.get('workspaces',`${projectId}:${nodeId}`)?.localRoot;
     const others=db.list('repositoryWorkspaces').filter(b=>b.projectId===projectId&&b.nodeId===nodeId&&b.repositoryId!==repositoryId&&b.localRoot);
     const excludeRoots=others.map(b=>beneath(root,resolve(b.localRoot))).filter(p=>p!==null);
+    // The project scope already owns shared documents when both bindings name the same root.
+    if(contentMode==='source-and-outputs'&&!projectScope&&withProject&&projectRoot&&resolve(projectRoot)===root)excludeRoots.push('.workbench/docs');
     if(!projectScope&&withProject&&projectRoot&&resolve(projectRoot)!==root){const rel=beneath(root,resolve(projectRoot));if(rel!==null)excludeRoots.push(rel);}
-    const scopePolicy={sharedDocs:projectScope,excludeRoots:[...new Set(excludeRoots)].sort()};
+    const scopePolicy={sharedDocs:projectScope,excludeRoots:[...new Set(excludeRoots)].sort(),...(contentMode==='source-and-outputs'?{contentMode}:{})};
     if(!projectScope&&scopePolicy.excludeRoots.includes(''))throw syncError('overlapping_scope');
     return {repositoryId,nodeId,root,repoUrl:repo?.repoUrl||null,scopeKind:'directory',scopePolicy};
   }));

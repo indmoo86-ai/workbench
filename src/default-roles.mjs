@@ -1,5 +1,5 @@
 import { tr } from './i18n.mjs';
-/** Responsibility-only presets for new roles; execution prompts remain empty and no project seats are created automatically. */
+/** Shipped presets may be edited or hidden; only opt-in cross-device/local-work presets include prompts, and no seats are created automatically. */
 export function defaultRoleTemplates() {
   return Object.freeze([
     {
@@ -35,6 +35,14 @@ export function defaultRoleTemplates() {
       instructions: ''
     },
     {
+      key: 'crossDevice',
+      responsibility: tr('roleTemplates.crossDeviceResponsibility'),
+      name: tr('roleTemplates.crossDevice'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.midTierModelRecommendedFor'),
+      instructions: tr('roleTemplates.crossDeviceInstructions')
+    },
+    {
       key: 'architect',
       responsibility: tr('roleTemplates.architectResponsibility'),
       name: tr('roleTemplates.architect'),
@@ -65,6 +73,22 @@ export function defaultRoleTemplates() {
       mode: 'workspace-write',
       modelHint: tr('defaultRoles.fastModelRecommendedForRoutine'),
       instructions: ''
+    },
+    {
+      key: 'local-developer',
+      responsibility: tr('roleTemplates.localDeveloperResponsibility'),
+      name: tr('roleTemplates.localDeveloper'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.midTierModelRecommendedFor'),
+      instructions: tr('roleTemplates.localDeveloperInstructions')
+    },
+    {
+      key: 'local-tester',
+      responsibility: tr('roleTemplates.localTesterResponsibility'),
+      name: tr('roleTemplates.localTester'),
+      mode: 'workspace-write',
+      modelHint: tr('defaultRoles.fastModelRecommendedForRoutine'),
+      instructions: tr('roleTemplates.localTesterInstructions')
     }
   ]);
 }

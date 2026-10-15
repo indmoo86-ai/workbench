@@ -6,7 +6,7 @@ import {execFile} from 'node:child_process';
 import {promisify} from 'node:util';
 import {switchHash} from './role-switches.mjs';
 import {runtimeIssue} from './runtime-probe.mjs';
-import {processAlive} from './terminal-resume.mjs';
+import {managedRunProcessState} from './terminal-resume.mjs';
 
 const exec=promisify(execFile),terminal=new Set(['succeeded','failed','interrupted']);
 const inside=(root,path)=>{const rel=relative(root,path);return !rel||(!isAbsolute(rel)&&rel!=='..'&&!rel.startsWith('../'));};
@@ -86,11 +86,11 @@ export class RoleSwitchWorker {
     return {directories,workspaceHash:switchHash(directories)};
   }
 
-  /** Drop only this role's source/candidate warm drivers, then inspect all recorded PIDs. */
+  /** Drop only this role's warm drivers; historical PID reuse cannot block another CLI transition. */
   async settle(input) {
     for(const sessionId of [input.sourceSessionId,input.candidateSessionId].filter(Boolean))await this.warmSessions.drop(sessionId);
     const runs=this.db.list('runs').filter(r=>r.projectId===input.projectId&&r.roleId===input.roleId);
-    if(runs.some(r=>this.activeSessions.has(r.id)||!terminal.has(r.status)||(!r.processSettled&&r.pid&&processAlive(r.pid))))return false;
+    if(runs.some(r=>this.activeSessions.has(r.id)||!terminal.has(r.status)||managedRunProcessState(r)!=='exited'))return false;
     return true;
   }
   inspect(input) {

@@ -4,6 +4,8 @@ import {setActionIcon} from './role-icons.js';
 const el=(tag,cls,text)=>Object.assign(document.createElement(tag),{className:cls||'',...(text===undefined?{}:{textContent:text})});
 const labels={queued:'Queued',capturing:'Scanning files',applying:'Applying files',completed:'Synchronized',partial_conflict:'Conflicts detected',blocked:'Blocked',cancelling:'Cancelling',cancelled:'Cancelled',preview_ready:'Scope ready',evidence_ready:'Evidence ready',open:'Conflict open',resolving:'Repair in progress',verifying:'Verifying',resolved_pending_sync:'Waiting for device receipts',resolved:'Resolved',needs_input:'Needs attention'};
 const terminal=new Set(['completed','partial_conflict','blocked','cancelled','preview_ready','evidence_ready']);
+const limitCodes=new Set(['file_too_large','batch_too_large','manifest_too_large','storage_full']);
+const issue=(reason,limit)=>limitCodes.has(reason)?`${t('Over sync limit')}${limit?.path?' · '+limit.path:''}${limit?' · '+limit.actual.toLocaleString()+' / '+limit.maximum.toLocaleString()+' '+t(['files','scan_entries'].includes(limit.kind)?'entries':'bytes'):''}`:reason||'';
 const button=(text,fn,cls='secondary')=>{const b=el('button',cls,t(text));b.type='button';b.addEventListener('click',()=>void fn(b));return b;};
 
 /** Source bodies are loaded on demand. Project/dialog epochs fence all delayed responses. */
@@ -25,9 +27,9 @@ export function sourceSyncPanel({api:request,getData,getProject,refreshState=()=
   function draw(){
     panel.replaceChildren();if(!state)return;
     const h=el('div','source-sync-heading');h.append(el('h3','',t('Project file sync')),button('Configure project file sync',configure));panel.append(h,el('p','workspace-note',t(state.config.enabled?'Enabled':'Disabled')));
-    panel.append(el('p','workspace-note',t('Saved code, documents and resources; Git delivery remains separate.')));
+    panel.append(el('p','workspace-note',t('Saved code, documents and resources; Git delivery remains separate.')),el('p','workspace-note',t(state.config.contentMode==='source-and-outputs'?'Source and outputs':'Source only')));
     if(state.config.mode==='continuous')panel.append(el('p','workspace-note',t('Automatic two-way sync continues while this page is closed.')),el('p','workspace-note',`${t('Local display device')}: ${name(state.config.displayNodeId)}`));
-    for(const watcher of state.watchers||[])if(watcher.generation===state.config.generation&&watcher.status!=='watching')panel.append(el('p','workspace-note',`${name(watcher.nodeId)} · ${status(watcher.status)}${watcher.error?' · '+watcher.error:''}`));
+    for(const watcher of state.watchers||[])if(watcher.generation===state.config.generation&&watcher.status!=='watching')panel.append(el('p','workspace-note',`${name(watcher.nodeId)} · ${status(watcher.status)}${watcher.error?' · '+issue(watcher.error,watcher.limit):''}`));
     if(state.config.enabled){
       const field=el('label','',t('Source device')),select=el('select');select.setAttribute('aria-label',t('Source device'));
       for(const id of state.config.nodeIds||[]){const w=device(id),o=el('option','',`${name(id)} · ${t(!w?.online?'Offline':w.capabilities?.sourceSync!==1?'Worker update required':'Online')}`);o.value=id;select.append(o);}
@@ -36,7 +38,7 @@ export function sourceSyncPanel({api:request,getData,getProject,refreshState=()=
       if(getData().settings?.paused)panel.append(el('p','workspace-note',t('Execution is paused')));
     }
     for(const b of state.batches.slice(-4).reverse()){
-      const row=el('div','source-sync-row');row.append(el('span','',status(b.status)));const meta=el('small','workspace-note',`${b.id.slice(0,8)}${b.reason?' · '+b.reason:''}`);meta.setAttribute('translate','no');row.append(meta);
+      const row=el('div','source-sync-row');row.append(el('span','',status(b.status)));const meta=el('small','workspace-note',`${b.id.slice(0,8)}${b.reason?' · '+issue(b.reason,b.limit):''}`);meta.setAttribute('translate','no');row.append(meta);
       if(!terminal.has(b.status)){const offline=b.nodeIds.filter(id=>!device(id)?.online);if(offline.length)row.append(el('small','workspace-note',t('Waiting for devices: {names}',{names:offline.map(name).join(', ')})));row.append(button('Cancel sync',btn=>act(()=>api(endpoint()+'/batches/'+b.id+'/cancel',{revision:b.revision}),btn)));}
       panel.append(row);
     }
@@ -46,23 +48,29 @@ export function sourceSyncPanel({api:request,getData,getProject,refreshState=()=
     await load(true);if(!state)return;const ctx=modal('Configure project file sync'),{body,note,id,v}=ctx,config=state.config;let preview=null,pending=false;
     body.append(el('p','workspace-note',t('Choose bound repositories and at least two devices. Preview scans without changing files. Disable sync before changing its scope.')));
     if(config.enabled){body.append(button('Disable project file sync',async b=>{b.disabled=true;try{await api(endpoint(id)+'/config',{enabled:false,revision:config.revision},'PUT');if(valid(id,v)){dialog.close();await load(true);}}catch(e){if(valid(id,v)){note.textContent=e.message;b.disabled=false;}}}));return;}
+    const contentLabel=el('label','',t('Sync content')),content=el('select');content.setAttribute('aria-label',t('Sync content'));
+    for(const [value,label] of [['source-only','Source only'],['source-and-outputs','Source and outputs']]){const option=el('option','',t(label));option.value=value;content.append(option);}content.value=config.contentMode||'source-only';contentLabel.append(content);body.append(contentLabel);
+    const warning=el('p','workspace-note',t('Outputs include Git-ignored reports, logs, .local and .workbench files. Filename rules cannot detect embedded tokens or hostnames. Review every newly included path before enabling. build/ and dist/ remain excluded.'));
+    warning.hidden=content.value!=='source-and-outputs';body.append(warning);
     const nodes=el('fieldset'),repos=el('fieldset');nodes.append(el('legend','',t('Devices')));repos.append(el('legend','',t('Repositories')));body.append(nodes,repos);
     const displayLabel=el('label','',t('Local display device')),display=el('select');display.setAttribute('aria-label',t('Local display device'));
     for(const w of getData().workers||[])if(w.platform==='darwin'&&w.capabilities?.sourceSyncDirectory===1){const option=el('option','',w.name||w.id);option.value=w.id;display.append(option);}displayLabel.append(display);body.append(displayLabel,el('p','workspace-note',t('Source, documents and resources share one background sync. Git commits are not synchronized.')));
     const selected=(set)=>[...set.querySelectorAll('input:checked')].map(i=>i.value);
-    const checkbox=(parent,text,value,disabled=false)=>{const label=el('label','source-sync-choice'),input=el('input');input.type='checkbox';input.value=value;input.disabled=disabled;label.append(input,el('span','',text));parent.append(label);input.addEventListener('change',()=>{preview=null;enable.disabled=true;previewBody.replaceChildren();});};
+    const checkbox=(parent,text,value,disabled=false)=>{const label=el('label','source-sync-choice'),input=el('input');input.type='checkbox';input.value=value;input.disabled=disabled;input.checked=(parent===nodes?config.nodeIds:config.repositoryIds)?.includes(value)||false;label.append(input,el('span','',text));parent.append(label);input.addEventListener('change',()=>{preview=null;enable.disabled=true;previewBody.replaceChildren();});};
     for(const w of getData().workers||[]){const supported=w.capabilities?.sourceSyncDirectory===1;checkbox(nodes,`${w.name||w.id} · ${t(!supported?'Worker update required':w.online?'Online':'Offline')}`,w.id,!supported);}
     checkbox(repos,t('Project files and shared documents'),`project-files:${id}`);repos.querySelector('input').checked=true;
     for(const r of (getData().repositories||[]).filter(r=>r.projectId===id))checkbox(repos,r.name||r.key,r.id);
     const previewBody=el('div','source-sync-preview');let enable;
+    content.addEventListener('change',()=>{preview=null;enable.disabled=true;previewBody.replaceChildren();warning.hidden=content.value!=='source-and-outputs';});
     display.addEventListener('change',()=>{preview=null;enable.disabled=true;previewBody.replaceChildren();});
     const scan=button('Preview scope',async b=>{if(pending)return;pending=true;b.disabled=true;enable.disabled=true;const nodeIds=selected(nodes),repositoryIds=selected(repos);for(const i of body.querySelectorAll('input'))i.disabled=true;
-      try{display.disabled=true;let batch=await api(endpoint(id)+'/preview',{requestId:crypto.randomUUID(),nodeIds,repositoryIds,scopeKind:'directory',mode:'continuous',displayNodeId:display.value});
+      try{display.disabled=true;content.disabled=true;let batch=await api(endpoint(id)+'/preview',{requestId:crypto.randomUUID(),nodeIds,repositoryIds,scopeKind:'directory',mode:'continuous',contentMode:content.value,displayNodeId:display.value});
         while(valid(id,v)&&!terminal.has(batch.status)){note.textContent=status(batch.status);await new Promise(r=>setTimeout(r,1000));const result=await api(endpoint(id)+'/batches/'+batch.id);batch=result.batch;}
-        if(!valid(id,v))return;if(batch.status!=='preview_ready')throw Error(batch.reason||status(batch.status));
-        const result=await api(endpoint(id)+'/batches/'+batch.id);if(!valid(id,v))return;preview=batch;previewBody.replaceChildren();
-        for(const c of result.captures){const section=el('details'),summary=el('summary','',`${name(c.nodeId)} · ${c.repositoryId} · ${Object.keys(c.entries||{}).length}`);section.append(summary);const pre=el('pre','artifact-code',JSON.stringify({root:c.root,files:Object.keys(c.entries||{}),excluded:c.excluded},null,2));pre.setAttribute('translate','no');section.append(pre);previewBody.append(section);}note.textContent=t('Scope ready');enable.disabled=false;
-      }catch(e){if(valid(id,v))note.textContent=e.message;}finally{pending=false;if(valid(id,v)){display.disabled=false;b.disabled=false;for(const i of repos.querySelectorAll('input'))i.disabled=false;for(const i of nodes.querySelectorAll('input'))i.disabled=device(i.value)?.capabilities?.sourceSyncDirectory!==1;}}
+        if(!valid(id,v))return;
+        const result=await api(endpoint(id)+'/batches/'+batch.id);if(!valid(id,v))return;previewBody.replaceChildren();
+        for(const c of result.captures){const section=el('details'),summary=el('summary','',`${name(c.nodeId)} · ${c.repositoryId} · ${Object.keys(c.entries||{}).length}`);section.append(summary);if(c.reason)section.append(el('p','workspace-note',issue(c.reason,c.limit)));const pre=el('pre','artifact-code',JSON.stringify({root:c.root,newlyIncluded:c.newlyIncluded,files:Object.keys(c.entries||{}),excluded:c.excluded},null,2));pre.setAttribute('translate','no');section.append(pre);previewBody.append(section);}
+        if(batch.status!=='preview_ready')throw Error(issue(batch.reason,batch.limit)||status(batch.status));preview=batch;note.textContent=t('Scope ready');enable.disabled=false;
+      }catch(e){if(valid(id,v))note.textContent=e.message;}finally{pending=false;if(valid(id,v)){display.disabled=false;content.disabled=false;b.disabled=false;for(const i of repos.querySelectorAll('input'))i.disabled=false;for(const i of nodes.querySelectorAll('input'))i.disabled=device(i.value)?.capabilities?.sourceSyncDirectory!==1;}}
     });
     enable=button('Enable reviewed scope',async b=>{if(!preview||pending)return;pending=true;b.disabled=true;try{await api(endpoint(id)+'/config',{enabled:true,revision:config.revision,previewBatchId:preview.id},'PUT');if(valid(id,v)){dialog.close();await load(true);}}catch(e){if(valid(id,v)){note.textContent=e.message;b.disabled=false;}}finally{pending=false;}});enable.disabled=true;body.append(scan,previewBody,enable);
   }

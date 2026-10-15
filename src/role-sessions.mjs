@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { tr } from './i18n.mjs';
 import {activeRoleSwitch} from './role-switch-policy.mjs';
+import {terminalOwnsProject} from './terminal-resume.mjs';
 
 const now = () => new Date().toISOString();
 
@@ -92,7 +93,7 @@ export class RoleSessions {
         || this.db.list('coordinationRequests').some(r=>r.projectId===projectId && r.targetRoleId===roleId && !['succeeded','failed','cancelled'].includes(r.status))
         || this.db.list('discussionDeliveries').some(d=>d.projectId===projectId && (d.recipientRoleId===roleId || ids.has(d.recipientSessionId)) && ['queued','dispatched','runtime_accepted','reconciling'].includes(d.status)))throw new Error(tr('roleSessions.historyBusy'));
       const runIds=new Set(runs.map(run=>run.id));
-      if(this.db.list('terminalSessions').some(s=>s.projectId===projectId && (s.nodeId===role.nodeId || runIds.has(s.runId)) && !['released','cancelled'].includes(s.status)))throw new Error(tr('roleSessions.historyTerminalBusy'));
+      if(this.db.list('terminalSessions').some(s=>terminalOwnsProject(this.db,s,projectId)&&(s.nodeId===role.nodeId||runIds.has(s.runId))))throw new Error(tr('roleSessions.historyTerminalBusy'));
       const clearedAt=now();
       for(const session of sessions)this.db.put('roleSessions',{...session,status:'archived',historyClearedAt:clearedAt,nativeSessionId:null,nativeSession:null,workspace:null,lastRunId:null,updatedAt:clearedAt});
       const visibleRuns=runs.filter(r=>!r.historyClearedAt);

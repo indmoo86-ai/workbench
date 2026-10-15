@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rename, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -10,6 +10,7 @@ export class CredentialStore {
   constructor(directory) { this.directory = directory; }
   path(id) { if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id)) throw new Error(tr('hosting.invalidCredentialId')); return join(this.directory, `${id}.json`); }
   async get(id) { try { return JSON.parse(await readFile(this.path(id), 'utf8')); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } }
+  async remove(id) { try { await unlink(this.path(id)); } catch (e) { if (e.code !== 'ENOENT') throw e; } }
   async set(id, value) {
     await mkdir(this.directory, { recursive: true, mode: 0o700 });
     const file = this.path(id), tmp = `${file}.${randomUUID()}`;

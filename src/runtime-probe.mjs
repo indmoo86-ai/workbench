@@ -501,8 +501,8 @@ export function runtimeIssue(worker, type, model) {
 }
 
 /** Compatible with old Worker caches; the workbench no longer shows the removed Gemini CLI. */
-export function visibleRuntimes(reports) {
-  return (Array.isArray(reports) ? reports : []).filter(r => r && r.type !== 'gemini');
+export function visibleRuntimes(reports, hiddenRuntimes = []) {
+  return (Array.isArray(reports) ? reports : []).filter(r => r && r.type !== 'gemini' && (r.available || !hiddenRuntimes.includes(r.type)));
 }
 
 /** Other installed CLIs only report the fact of installation; adapters that are not integrated cannot take part in scheduling. */

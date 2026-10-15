@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { connect } from 'node:net';
 import { desktopTunnelSpec, normalizeDesktopConfig, probeExistingDesktopTunnel } from './remote-desktop.mjs';
 import { tr } from './i18n.mjs';
+import { switchSettled } from './role-switch-policy.mjs';
 
 /** Probes only the local loopback listener and never touches the public desktop port. */
 function localPortOpen(port) {
@@ -20,8 +21,8 @@ function localPortOpen(port) {
 
 /** Fixed commands run over SSH; the password is passed through the askpass environment and never enters arguments or public records. */
 export class DeviceAdmin {
-  constructor({ db, credentials, base, data, workerToken, change, homePort, spawnProcess = spawn, tunnelRestartMs = 5000, hostPlatform = process.platform, probePort = localPortOpen, probeExistingTunnel = probeExistingDesktopTunnel }) {
-    Object.assign(this, { db, credentials, base, data, workerToken, change, spawnProcess, tunnelRestartMs, hostPlatform, probePort, probeExistingTunnel });
+  constructor({ db, credentials, base, data, workerToken, change, homePort, online = () => false, spawnProcess = spawn, tunnelRestartMs = 5000, hostPlatform = process.platform, probePort = localPortOpen, probeExistingTunnel = probeExistingDesktopTunnel }) {
+    Object.assign(this, { db, credentials, base, data, workerToken, change, online, spawnProcess, tunnelRestartMs, hostPlatform, probePort, probeExistingTunnel });
     this.homePort = Number(homePort || process.env.PORT || 4317);
     this.running = new Set();
     this.tunnels = new Map();
@@ -55,7 +56,7 @@ export class DeviceAdmin {
     const device = this.db.get('devices', id);
     if (!device) return false;
     const spec = this.tunnelSpec(device, await this.credentials.get(id));
-    if (!spec) return false;
+    if (!spec || this.stoppingTunnels || !this.db.get('devices',id)) return false;
     const timer = this.tunnelTimers.get(id);
     if (timer) { clearTimeout(timer); this.tunnelTimers.delete(id); }
     const child = this.spawnProcess(spec.command, spec.args, { env: process.env, stdio: 'ignore' });
@@ -79,6 +80,53 @@ export class DeviceAdmin {
   async startTunnels() {
     this.stoppingTunnels = false;
     await Promise.all(this.db.list('devices').map(device => this.ensureTunnel(device.id)));
+  }
+
+  /** Forget only a disconnected, settled device. A tombstone prevents its old Worker from silently registering again. */
+  async remove({deviceId, nodeId}) {
+    const device=deviceId?this.db.get('devices',deviceId):this.db.list('devices').find(d=>d.nodeId===nodeId);
+    const prior=this.db.list('removedDevices').find(d=>deviceId?d.device?.id===deviceId:d.id===nodeId);
+    nodeId=device?.nodeId||nodeId||prior?.id;
+    const worker=nodeId?this.db.get('workers',nodeId):null;
+    if(!device&&!worker){
+      if(!prior)throw new Error(tr('deviceAdmin.deviceNotFound'));
+      if(prior.device)await this.credentials.remove(prior.device.id);
+      return {deleted:true,nodeId:prior.id};
+    }
+    if(this.online(nodeId))throw new Error(tr('deviceAdmin.disconnectBeforeDelete'));
+    const taskNode=t=>t.executionBinding?.role?.nodeId||t.roleSnapshot?.nodeId||this.db.get('roles',t.assignedRoleId||t.roleId)?.nodeId;
+    const busy=(device&&this.running.has(device.id))||this.db.activeRuns(nodeId).length
+      ||this.db.chatTasks().some(t=>taskNode(t)===nodeId)
+      ||this.db.list('terminalSessions').some(s=>s.nodeId===nodeId&&!['released','cancelled'].includes(s.status))
+      ||this.db.list('roleSwitches').some(s=>s.nodeId===nodeId&&(!switchSettled(s)||!s.steps?.released))
+      ||this.db.listSourceSyncCommands({nodeId,pending:true}).length
+      ||(worker?.warmSessions||[]).length||Number(worker?.organizerBusy)>0
+      ||Object.values(worker?.cliUsage||{}).some(v=>typeof v==='number'&&v>0);
+    if(busy)throw new Error(tr('deviceAdmin.unfinishedWorkBeforeDelete'));
+    if(device&&this.desktopTunnels.has(device.id))throw new Error(tr('deviceAdmin.desktopBeforeDelete'));
+    this.db.transaction(()=>{
+      this.db.put('removedDevices',{id:nodeId,deletedAt:new Date().toISOString(),device:device||null,worker:worker||null,config:this.db.get('workerConfigs',nodeId)||null});
+      if(device)this.db.remove('devices',device.id);
+      this.db.remove('workers',nodeId);this.db.remove('workerConfigs',nodeId);
+    });
+    if(device){
+      const timer=this.tunnelTimers.get(device.id);if(timer)clearTimeout(timer);this.tunnelTimers.delete(device.id);
+      const tunnel=this.tunnels.get(device.id);this.tunnels.delete(device.id);try{tunnel?.kill('SIGTERM');}catch{}
+    }
+    this.change();
+    if(device)await this.credentials.remove(device.id);
+    return {deleted:true,nodeId};
+  }
+
+  /** Keep the reported runtime and native history for diagnosis; suppress only this unavailable catalog entry. */
+  removeRuntime(nodeId,runtimeType) {
+    const worker=this.db.get('workers',nodeId),runtime=worker?.runtimes?.find(r=>r.type===runtimeType);
+    if(!worker||!runtime)throw new Error(tr('deviceAdmin.runtimeNotFound'));
+    if(runtime.available)throw new Error(tr('deviceAdmin.onlyUnavailableRuntime'));
+    const config=this.db.get('workerConfigs',nodeId)||{id:nodeId};
+    const hiddenRuntimes=[...new Set([...(config.hiddenRuntimes||[]),runtimeType])];
+    this.db.put('workerConfigs',{...config,hiddenRuntimes});this.change();
+    return {deleted:true,nodeId,runtime:runtimeType};
   }
 
   restartTunnel(id) {
@@ -129,11 +177,13 @@ socket.setTimeout(3000);socket.once('connect',()=>finish(true));socket.once('err
       if (await this.probePort(config.desktopLocalPort)) {
         const existing = await this.probeExistingTunnel(device);
         if (!existing) throw new Error(tr('deviceAdmin.localPortInUseBy', { desktopLocalPort: config.desktopLocalPort }));
+        if(!this.db.get('devices',id))throw new Error(tr('deviceAdmin.deviceNotFound'));
         // The operator's existing forward may also carry other services; reuse it but never stop it on Home exit or device edits.
         this.desktopTunnels.set(id, {...existing, external:true, exitCode:null});
         return {localPort:config.desktopLocalPort, deviceName:device.name};
       }
       const spec = desktopTunnelSpec(device, credential.keyPath);
+      if(!this.db.get('devices',id))throw new Error(tr('deviceAdmin.deviceNotFound'));
       tunnel = this.spawnProcess(spec.command, spec.args, { stdio: 'ignore' });
       this.desktopTunnels.set(id, tunnel);
       let exited = false;
@@ -162,6 +212,7 @@ socket.setTimeout(3000);socket.once('connect',()=>finish(true));socket.once('err
     const tunnel = this.desktopTunnels.get(id);
     if (!config || !tunnel || tunnel.exitCode !== null || !(await this.probePort(config.desktopLocalPort))) throw new Error(tr('deviceAdmin.sshDesktopTunnelNotReady'));
     if (tunnel.external && (await this.probeExistingTunnel(device))?.pid !== tunnel.pid) throw new Error(tr('deviceAdmin.sshDesktopTunnelNotReady'));
+    if(!this.db.get('devices',id))throw new Error(tr('deviceAdmin.deviceNotFound'));
     await new Promise((resolve, reject) => {
       // A new connection would not reuse the desktop credentials saved in Windows App; only launch the client and let the user click an existing connection.
       const child = this.spawnProcess('open', ['-a', 'Windows App'], { stdio: 'ignore' });
@@ -189,6 +240,7 @@ socket.setTimeout(3000);socket.once('connect',()=>finish(true));socket.once('err
     const id = old?.id || randomUUID();
     const priorSecret = await this.credentials.get(id);
     await this.credentials.set(id, { password: input.password || priorSecret?.password || '', keyPath: input.keyPath || priorSecret?.keyPath || '' });
+    if(old&&!this.db.get('devices',id)){await this.credentials.remove(id);throw new Error(tr('deviceAdmin.deviceNotFound'));}
     const value = { id, name: String(input.name || input.host).slice(0,80), host: input.host, user: input.user, port: Number(input.port || 22), workspaceRoot: input.workspaceRoot,
       homeUrl: url.href, nodeId: old?.nodeId || `device-${id}`, status: old?.status || 'saved',
       desktopUser: desktop?.desktopUser || '', desktopPort: desktop?.desktopPort || null, desktopLocalPort: desktop?.desktopLocalPort || null };
@@ -229,7 +281,8 @@ socket.setTimeout(3000);socket.once('connect',()=>finish(true));socket.once('err
   async check(id) {
     const d = this.db.get('devices', id); if (!d) throw new Error(tr('deviceAdmin.deviceNotFound4'));
     const r = await this.ssh(d, tr('deviceAdmin.importHostnamePlatformFromNode', { p1: JSON.stringify(d.workspaceRoot) }));
-    this.db.put('devices', { ...d, status:'checked', check:r, checkedAt:new Date().toISOString(), error:null }); this.change(); return r;
+    const current=this.db.get('devices',id);if(!current)throw new Error(tr('deviceAdmin.deviceNotFound'));
+    this.db.put('devices', { ...current, status:'checked', check:r, checkedAt:new Date().toISOString(), error:null }); this.change(); return r;
   }
   async provision(id) {
     const d = this.db.get('devices', id); if (!d) throw new Error(tr('deviceAdmin.deviceNotFound5'));
