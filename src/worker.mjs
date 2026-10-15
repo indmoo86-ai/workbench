@@ -22,6 +22,7 @@ import {executeReadQuery,normalizeFileRead,normalizeReadQuery,readError} from '.
 import { CodexSession } from './codex.mjs';
 import { CliPrintSession } from './cli-print-session.mjs';
 import { browseFolders } from './folders.mjs';
+import {createWorkerNativeTurns} from './native-turns-worker.mjs';
 import {listNativeSessions,readNativeSession,nativeTuiArgs,assertNativeSessionIdle} from './native-sessions.mjs';
 import { giteeRepository } from './repository.mjs';
 import { inspectRuntimes, runtimeIssue } from './runtime-probe.mjs';
@@ -129,7 +130,11 @@ const recoveryBinding=m=>({taskId:m.run.taskId||m.task.id,projectId:m.run.projec
   nativeSessionId:m.run.resumeNativeSessionId||db.get('runs',m.run.continuationRunId||'')?.nativeSession?.id||null,priorRunId:m.run.continuationRunId||null,runId:m.run.id});
 async function checkNativeDriver(m){const binding=recoveryBinding(m);if(!binding.nativeSessionId&&!binding.priorRunId)return;if(!cliRecoveryEnabled){const owned=sessions.get(binding.runId),pid=(owned?.preparing?owned.session:owned)?.proc?.pid;if(cliRecovery.records(binding).some(r=>r.pid!==pid&&!warmSessions.owns(r.pid)&&managedRunProcessState(r)!=='exited'))throw Error(tr('worker.nativeSessionStillHasProcess'));return;}const result=await cliRecovery.check(binding);if(result.state!=='ready'){const error=Error(result.reason||tr('cliRecovery.waiting'));error.code='CLI_RECOVERY_WAIT';error.recovery=result;throw error;}}
 /** Slot reservations count before asynchronous preparation; retained processes are reclaimed, never active work. */
+let nativeTurns=null;
 function occupiedSlots(){return sessions.size+organizerRunning+reservedTerminalSlots(db,identity.nodeId);}
+/** Session-page takeover hook (src/native-turns-worker.mjs); idle unless a native session is taken over. */
+nativeTurns=createWorkerNativeTurns({db,send:m=>send(m),data,homeHttp:homeUrl.replace(/^ws/i,'http').replace(/\/worker\/?$/,''),token,projectRoot:path=>projectRoot(path),
+  isPaused:()=>paused||quitting,runtimes:()=>runtimes,capacity:()=>capacity,occupiedSlots:()=>occupiedSlots(),nodeId:identity.nodeId,changed:()=>reportCapacity(),trim:()=>warmSessions.trim(occupiedSlots())});
 function reportCapacity(){send({type:'capacity_state',capacity,usage:{active:sessions.size,retained:warmSessions.snapshot().length,organizer:organizerRunning,terminal:reservedTerminalSlots(db,identity.nodeId)}});}
 const terminalStops=new Map();
 async function applyCapacity(value) {
@@ -645,6 +650,7 @@ async function query(m) {
     if(['role_switch_inspect','role_switch_prepare','role_switch_release','role_switch_status'].includes(m.action)) {
       if(m.path?.nodeId!==identity.nodeId)throw new Error('CLI switch addressed to another Worker.');
       const method=m.action.slice('role_switch_'.length);
+      if(method!=='status'&&projectTerminalLock(db,m.path.projectId,identity.nodeId))throw new Error('Project is under terminal takeover');
       const result=method==='status'?roleSwitchWorker.status(m.path.operationId):await roleSwitchWorker[method](m.path);
       send({type:'reply',id:m.id,result});return;
     }
@@ -729,7 +735,7 @@ async function query(m) {
     if(m.action==='terminal_check') {
       const input=m.path;
       if(!Array.isArray(input?.claims)||input.nodeId!==identity.nodeId)throw new Error(tr('worker.invalidTakeoverId'));
-      const results=input.claims.map(binding=>{if(binding.projectId!==input.projectId||binding.nodeId!==identity.nodeId||typeof binding.id!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(binding.id))throw new Error(tr('worker.invalidTakeoverId'));return checkTerminalSession(db,binding,join(data,'worker.sqlite'),{automatic:input.automatic===true});});
+      const results=input.claims.map(binding=>{if(binding.projectId!==input.projectId||binding.nodeId!==identity.nodeId||typeof binding.id!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(binding.id))throw new Error(tr('worker.invalidTakeoverId'));return db.get('terminalSessions',binding.id)?.kind==='native-turn'?nativeTurns.check(binding):checkTerminalSession(db,binding,join(data,'worker.sqlite'),{automatic:input.automatic===true});});
       reportCapacity();send({type:'reply',id:m.id,result:{results}});return;
     }
     if(m.action==='terminal_stop') {
@@ -975,7 +981,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { queryRecipes:1,fileReadFreshness:1,readSourceBindings:1,fileReadModes:['source_current','expected_version'],nativeSessions:2,nativeTakeover:1,cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncOutputs:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { queryRecipes:1,fileReadFreshness:1,readSourceBindings:1,fileReadModes:['source_current','expected_version'],nativeSessions:2,nativeTakeover:1,nativeTurns:3,cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncOutputs:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {
@@ -1015,6 +1021,9 @@ function connect() {
       }
       if (m.type === 'queue_cancel') {queueSlots.cancel(m.key,{id:m.reservationId});return;}
       if (m.type === 'query') void runWithLanguage(m.language, () => query(m));
+      if (m.type === 'native_turn') void runWithLanguage(m.language, () => nativeTurns.start(m));
+      if (m.type === 'native_turn_stop') void nativeTurns.stop(m.id);
+      if (m.type === 'native_takeover_release') void nativeTurns.releaseLease(m.runtime,m.sessionId,m.leaseId).catch(e=>console.error('Native takeover release:',e.message));
       if (m.type === 'error') console.error(tr('worker.rejectedByHome'), m.error);
     } catch (e) { console.error(tr('worker.protocolError'), e.message); }
   });
@@ -1022,6 +1031,7 @@ function connect() {
   ws.on('close', () => {
     for(const query of configurationQueries.values()){clearTimeout(query.timer);query.reject(new Error('Home disconnected during execution configuration query.'));}configurationQueries.clear();
     paused=true;registered=false;readySent=false;eventSent.clear();
+    void nativeTurns.stopAll();
     // A brief network blip keeps idle processes, still subject to the original identity fingerprint and idle deadline; an explicit pause/quit closes them immediately.
     clearTimeout(reconnectCleanup);reconnectCleanup=setTimeout(()=>{void warmSessions.closeAll();},30000);reconnectCleanup.unref();
     for(const controller of organizerControllers)controller.abort();if(!quitting)setTimeout(connect,5000);
@@ -1031,12 +1041,15 @@ const outboxTimer=setInterval(flushOutbox,1000);outboxTimer.unref();
 const sourceSyncTimer=setInterval(()=>{if(registered)sourceSync.flush();void sourceSync.watch.tick().catch(e=>console.error('Source sync observation failed:',e.code||e.message));},500);sourceSyncTimer.unref();
 const heartbeat = setInterval(() => send({ type: 'heartbeat' }), 15000);
 const runtimeTimer = setInterval(() => { if (ws?.readyState === 1) void refreshRuntimes(); }, 300000);
+await nativeTurns.recover();
 connect();
-for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, async () => {
+  if(quitting)return;
   quitting = true; clearInterval(heartbeat); clearInterval(runtimeTimer);clearInterval(outboxTimer);clearTimeout(reconnectCleanup);
   clearInterval(sourceSyncTimer);sourceSync.watch.close();
   void warmSessions.closeAll();
   for(const controller of organizerControllers)controller.abort();
   for (const s of sessions.values()) { if (typeof s.stop === 'function' && !s.preparing) void s.stop(); else s.stopRequested = true; }
+  await nativeTurns.stopAll();
   setTimeout(() => { ws?.close(); db.close(); process.exit(0); }, 1500);
 });

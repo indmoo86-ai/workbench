@@ -373,16 +373,57 @@ body[data-navigation-mode="sessions"] #node-sidebar > :not(#native-session-sideb
   body[data-project-sidebar="collapsed"] .native-session-filters,
   body[data-project-sidebar="collapsed"] .native-session-note { display: none; }
 }
-.native-session-content { min-height: 0; flex: 1; overflow: auto; padding: 24px; }
+.native-session-content { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.native-session-content > .native-empty, .native-session-content > p { padding: 30px 24px; }
+.native-session-scroll { flex: 1; min-height: 0; overflow: auto; padding: 24px; scrollbar-width: thin; scrollbar-color: #b2c4dc transparent; }
+.native-history .native-title { margin: 0 0 16px; }
+.native-chat-row .chat-col { min-width: 0; max-width: min(820px, 88%); display: grid; gap: 4px; }
+.native-chat-row .chat-name { font-size: 12px; color: var(--muted); }
+.native-chat-row .chat-bubble .chat-message-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.native-chat-row .chat-bubble .markdown-body { white-space: normal; }
+.native-session-content .chat-row.human .chat-bubble { background: #e7f1ff; }
+.native-takeover-feed:empty { display: none; }
+.native-session-footer { border-top: 1px solid var(--line); background: #f8fafd; }
+.native-takeover-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 18px; }
+.native-takeover-copy { display: grid; gap: 2px; min-width: 0; font-size: 13px; }
+.native-takeover-copy span { color: var(--muted); font-size: 12px; }
+.native-takeover-button { flex: none; padding: 9px 18px; border-radius: 8px; }
+.native-takeover-form.chat-composer { border-top: 0; background: transparent; }
+.native-takeover-form .chat-input-field { grid-template-columns: minmax(0, 1fr); }
+.native-takeover-status { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.native-takeover-status .native-release { margin-left: auto; padding: 4px 10px; min-height: 28px; font-size: 12px; border-radius: 7px; }
+.native-takeover-dot { width: 7px; height: 7px; border-radius: 50%; background: #2fb36b; box-shadow: 0 0 0 3px rgb(47 179 107 / 15%); }
+.native-takeover-note { margin: 0 0 8px; font-size: 12px; }
+.native-turn-state { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.native-turn-state button { padding: 3px 10px; min-height: 26px; font-size: 12px; }
+.native-turn-tool { padding: 2px 8px; border-radius: 6px; background: #f1f4f9; font-family: ui-monospace, monospace; font-size: 11px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.native-turn-error { color: #b4442f; }
+.native-turn-live { width: 18px; height: 6px; background: radial-gradient(circle, currentColor 2px, transparent 2.5px) 0 0 / 6px 6px repeat-x; animation: native-live 1s steps(3) infinite; }
+@keyframes native-live { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 .native-empty { color: var(--muted); padding: 30px 0; }
 .native-title { font-size: 18px; overflow-wrap: anywhere; }
 .native-history-message { padding: 16px; border: 1px solid var(--line); background: white; border-radius: 14px; margin: 14px 0; }
 .native-history-message.user { background: #e7f1ff; }
 .native-history-message pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.65; margin: 10px 0 0; }
-.native-session-sidebar { padding: 24px; overflow: auto; min-height: 0; }
-.native-session-sidebar h2 { margin-top: 0; font-size: 18px; }
-.native-session-meta dt { color: var(--muted); margin-top: 20px; font-size: 12px; }
-.native-session-meta dd { margin: 6px 0; overflow-wrap: anywhere; }
+.native-session-sidebar { display: grid; align-content: start; gap: 12px; padding: 20px 18px; overflow: auto; min-height: 0; background: #f8fafd; }
+.native-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.native-session-sidebar h2.native-side-title { margin: 0; font-size: 17px; }
+.native-side-badge { padding: 2px 9px; border-radius: 999px; background: #eef1f6; color: var(--muted); font-size: 11px; font-weight: 600; }
+.native-side-badge.is-live { background: #e5f6ec; color: #23824f; }
+.native-side-card { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.native-side-card h3 { margin: 0 0 4px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.native-session-meta { margin: 0; }
+.native-session-meta dt { color: var(--muted); margin-top: 12px; font-size: 12px; }
+.native-session-meta dd { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; color: var(--ink); }
+.native-meta-value { flex: 1; min-width: 0; }
+.native-session-meta dd.has-copy .native-meta-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 6px 8px; border-radius: 7px; background: #f4f6fa; }
+.native-agent-line { display: inline-flex; align-items: center; gap: 6px; }
+.native-agent-line .role-icon, .native-agent-line svg, .native-agent-line img { width: 18px; height: 18px; border-radius: 5px; }
+.native-copy { flex: none; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 7px; color: var(--muted); }
+.native-copy svg { width: 15px; height: 15px; }
+.native-copy.is-copied { color: #23824f; background: #e5f6ec; }
+.native-side-hint { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.native-side-actions button { width: 100%; padding: 9px 14px; border-radius: 8px; }
 .settings-edit-dialog.native-session-dialog, .settings-edit-dialog.native-file-picker { width: min(680px,calc(100vw - 32px)); height: fit-content; min-height: 0; margin: auto; box-sizing: border-box; }
 .native-session-dialog .native-session-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin-top: 4px; }
 .native-session-form .native-field { display: grid; min-width: 0; gap: 7px; color: #425a73; font-size: 13px; font-weight: 600; }
@@ -1996,3 +2037,49 @@ body select:not([multiple]):disabled { background-color:#f5f6fa; color:#929bac; 
 .wb-select-check { margin-left:auto; flex:none; font-size:17px; color:#5559df; }
 .wb-select-group, .wb-select-empty { padding:9px 12px; color:#8590a3; font-size:12px; }
 @media (max-width:720px) { .wb-select-menu .wb-select-search { font-size:16px; } }
+/* Native takeover: attachments and the per-turn run process reuse the group-chat attachment and live-scene styles. */
+.native-takeover-form .chat-input-field { grid-template-columns: 36px minmax(0, 1fr); }
+.native-takeover-tray { grid-column: 1 / -1; margin: 8px 8px 0; }
+.native-attach { grid-column: 1; display: grid; place-items: center; width: 32px; height: 32px; min-height: 32px; margin: 4px 0 4px 4px; padding: 0; border: 0; border-radius: 4px; color: var(--accent); background: transparent; }
+.native-attach:hover { background: var(--accent-soft); }
+.native-attach svg { width: 19px; height: 19px; }
+.native-takeover-form textarea { grid-column: 2; }
+.native-session-footer.is-dragging .chat-input-field { outline: 2px dashed #3f73a8; background: #edf4fb; }
+.native-takeover-dot.is-resident { background: #4f5bce; box-shadow: 0 0 0 3px rgb(79 91 206 / 15%); }
+.native-takeover-limit { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+.native-takeover-status { flex-wrap: wrap; }
+.native-turn-files { margin-top: 8px; }
+.native-turn-extra:empty { display: none; }
+.native-turn-process { margin: 8px 0 0; border: 1px solid var(--line); border-radius: 10px; background: #fafbfd; font-size: 12px; }
+.native-history > .native-turn-anchored { margin: -6px 0 14px 44px; max-width: min(820px, 88%); display: grid; gap: 6px; justify-items: start; }
+.native-history > .native-turn-anchored > .native-turn-process { margin: 0; width: 100%; }
+.native-turn-process > summary { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; color: var(--muted); list-style: none; }
+.native-turn-process > summary::before { content: '▸'; transition: transform .15s; }
+.native-turn-process[open] > summary::before { transform: rotate(90deg); }
+.native-process-title { font-weight: 600; color: var(--ink); }
+.native-process-phase { margin-left: auto; color: var(--accent); }
+.native-process-body { display: grid; gap: 6px; padding: 0 10px 10px; max-height: 420px; overflow: auto; }
+.native-process-body .live-scene-event { margin: 0; padding: 8px 10px; border: 1px solid #eceff4; border-radius: 8px; background: #fff; }
+.native-process-body .live-scene-event header { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+.native-process-body pre { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 240px; overflow: auto; }
+.native-process-tool > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.native-process-tool .live-scene-tool-name { flex: 1; min-width: 0; font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.native-process-tool .live-scene-tool-state { flex: none; padding: 1px 7px; border-radius: 6px; background: #eef1f6; color: var(--muted); font-size: 11px; }
+.native-process-tool.is-completed .live-scene-tool-state { background: #e5f6ec; color: #23824f; }
+.native-process-tool.is-failed .live-scene-tool-state { background: #fdecea; color: #b4442f; }
+.native-process-tool h4 { margin: 8px 0 0; font-size: 11px; color: var(--muted); }
+/* Native takeover polish: composer preview cards, sent thumbnails and quiet status pills. */
+.native-takeover-tray { gap: 8px; margin: 8px 8px 2px; max-height: 150px; overflow-y: auto; }
+.native-takeover-tray .attachment-card { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: 8px; width: 220px; max-width: 100%; padding: 6px 32px 6px 6px; }
+.native-takeover-tray .attachment-card img, .native-takeover-tray .native-file-icon { width: 44px; height: 44px; border-radius: 6px; object-fit: cover; background: #eef3f9; display: grid; place-items: center; font-size: 20px; }
+.native-file-info { display: grid; gap: 2px; min-width: 0; }
+.native-file-info small { color: var(--muted); font-size: 11px; }
+.native-takeover-tray .attachment-remove { top: 4px; right: 4px; width: 22px; height: 22px; display: grid; place-items: center; padding: 0; font-size: 16px; line-height: 1; color: var(--muted); background: transparent; }
+.native-takeover-tray .attachment-remove:hover { background: #e3edf7; color: var(--ink); }
+.native-turn-files { justify-content: flex-end; }
+.native-turn-files .attachment-card { border: 0; background: transparent; }
+.native-turn-files .attachment-card img { display: block; width: 96px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid #d3deeb; }
+.native-turn-files .attachment-file-card { display: grid; grid-template-columns: 28px minmax(0, 1fr); align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid #d3deeb; background: #f7faff; }
+.native-turn-error { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; background: #fdf0ed; color: #b4442f; font-size: 12px; font-weight: 500; }
+.native-turn-state { display: flex; align-items: center; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.native-process-hidden { font-size: 11px; color: #98a2b3; }
