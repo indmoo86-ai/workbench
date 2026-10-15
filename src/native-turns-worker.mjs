@@ -1,4 +1,4 @@
-import { mkdir, open, rename, unlink, readFile, realpath } from 'node:fs/promises';
+import { mkdir, open, rename, unlink, readFile, realpath, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { NativeTurnRunner } from './native-turns.mjs';
@@ -45,6 +45,7 @@ export function createWorkerNativeTurns({db,send,data,homeHttp,token,projectRoot
       const history=await readNativeSession(runtime,sessionId);if(!history.workspace)return {workspace:null};
       const workspace=await projectRoot(history.workspace);assertNativeSessionIdle(db,{runtime,sessionId,workspace,projectId:null});return {workspace};
     },
+    cleanup:id=>uuid.test(id)?rm(join(data,'native-turn-files',id),{recursive:true,force:true}):null,
     createSession:options=>createNativeSession(options)
   });
 }

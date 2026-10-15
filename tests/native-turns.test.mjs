@@ -293,3 +293,18 @@ test('managed adapters keep their default behaviour: the shared Codex and print 
   assert.equal(Object.prototype.hasOwnProperty.call(CodexSession.prototype, 'close'), false);
   assert.ok(new NativeCodexSession({ cwd: '/tmp', emit() {}, resumeSessionId: SID }) instanceof CodexSession);
 });
+
+test('Worker refuses a second concurrent turn for one session and cleans files after a turn', async () => {
+  const sent = [], cleaned = [];
+  let release;
+  const gate = new Promise(r => { release = r; });
+  const runner = new NativeTurnRunner({ send: m => sent.push(m), canStart() {}, cleanup: id => cleaned.push(id),
+    resolveSession: async () => { await gate; return { workspace: '/tmp' }; },
+    createSession: ({ emit }) => ({ proc: null, async start() { emit('status', { status: 'succeeded' }); }, async stop() {}, shutdown() {} }) });
+  const a = runner.start({ id: 'a', runtime: 'grok', sessionId: SID, prompt: 'x' });
+  await runner.start({ id: 'b', runtime: 'grok', sessionId: SID, prompt: 'y' });
+  assert.ok(sent.some(m => m.id === 'b' && m.event?.status === 'failed' && /still replying/.test(m.event.error)));
+  release(); await a; await new Promise(r => setTimeout(r, 0));
+  assert.ok(sent.some(m => m.id === 'a' && m.event?.status === 'succeeded'));
+  assert.deepEqual(cleaned.sort(), ['a', 'b']);
+});

@@ -119,7 +119,7 @@ const alive=session=>Boolean(session?.proc&&session.proc.exitCode===null&&sessio
 
 /** Worker side: one resident CLI per taken-over session (where supported), exact resume in the history's original folder. */
 export class NativeTurnRunner{
- constructor({send,createSession,resolveSession,canStart,prepareInputs=async()=>({files:[],images:[]}),idleMs=NATIVE_IDLE_MS}){Object.assign(this,{send,createSession,resolveSession,canStart,prepareInputs,idleMs});this.turns=new Map();this.resident=new Map();}
+ constructor({send,createSession,resolveSession,canStart,prepareInputs=async()=>({files:[],images:[]}),cleanup=null,idleMs=NATIVE_IDLE_MS}){Object.assign(this,{send,createSession,resolveSession,canStart,prepareInputs,cleanup,idleMs});this.turns=new Map();this.resident=new Map();}
  /** CLI slots: each resident process counts once, plus per-turn processes that are not resident. */
  get size(){return this.resident.size+[...this.turns.values()].filter(t=>!t.resident).length;}
  holds(runtime,sessionId){return this.resident.has(`${runtime}/${sessionId}`)||[...this.turns.values()].some(t=>t.key===`${runtime}/${sessionId}`);}
@@ -130,20 +130,21 @@ export class NativeTurnRunner{
   if(this.turns.has(m.id))return;
   const key=`${m.runtime}/${m.sessionId}`,existing=this.resident.get(key),state={stopRequested:false,session:null,key,resident:Boolean(existing)};this.turns.set(m.id,state);
   let ended=false;
-  const end=(status,error)=>{if(ended)return;ended=true;this.turns.delete(m.id);
+  const end=(status,error)=>{if(ended)return;ended=true;this.turns.delete(m.id);void Promise.resolve().then(()=>this.cleanup?.(m.id)).catch(()=>{});
    const entry=this.resident.get(key);
    if(entry&&entry.session===state.session){if(alive(entry.session)&&status!=='mismatch'){entry.busy=null;this.idle(key);}else this.close(key,status==='mismatch'?'mismatch':'exited');}
    else if(state.session&&!state.resident)state.session.shutdown?.();
    this.event(m.id,{kind:'status',status:status==='mismatch'?'failed':status,...(error?{error}:{}),resident:this.resident.has(key)});};
   try{
    if(!NATIVE_TURN_RUNTIMES.includes(m.runtime)||!idPattern.test(m.sessionId||''))throw Error('Invalid native session');
-   if(existing?.busy)throw Error('This session is still replying; wait or stop it first');
+   if(existing?.busy||[...this.turns.entries()].some(([id,t])=>id!==m.id&&t.key===key))throw Error('This session is still replying; wait or stop it first');
    this.canStart?.(m,{reusing:Boolean(existing)});
    const {workspace}=await this.resolveSession(m.runtime,m.sessionId,{reusing:Boolean(existing)});
    if(!workspace)throw Error('The original working folder of this session is unknown; continue it in iTerm');
    if(state.stopRequested)return end('interrupted');
    this.event(m.id,{kind:'status',status:'starting'});
    const {files=[],images=[]}=await this.prepareInputs(m,workspace);
+   if(state.stopRequested)return end('interrupted');
    if(images.length&&!NATIVE_IMAGE_RUNTIMES.has(m.runtime))throw Error('This CLI cannot receive images in a takeover; send files or use iTerm');
    const others=files.filter(f=>!(m.runtime==='codex'&&f.mime?.startsWith('image/'))&&!(m.runtime==='claude'&&f.mime?.startsWith('image/')));
    const prompt=[m.prompt,others.length?`Attached files for this message (local paths):\n${others.map(f=>`- ${f.name}: ${f.path}`).join('\n')}`:''].filter(Boolean).join('\n\n');
