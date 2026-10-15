@@ -1,5 +1,4 @@
-import {NativeTurnsHome} from './native-turns.mjs';
-import {assertNativeSessionIdle} from './native-sessions.mjs';
+import {createHomeNativeTurns} from './native-turns-home.mjs';
 import http from 'node:http';
 import { sendBufferedResponse } from './http-response.mjs';
 import { readFile, mkdir, writeFile, chmod } from 'node:fs/promises';
@@ -144,8 +143,8 @@ db.transaction(()=>{
 });
 for (const run of db.list('runs').filter(r => !terminal.has(r.status))) db.put('runs', { ...run, status: run.status === 'stopping' ? 'stopping' : 'reconciling' });
 const sockets = new Map();
-const nativeTurns=new NativeTurnsHome({db,send:(nodeId,payload)=>send(sockets.get(nodeId),{...payload,language:getLanguage()}),online:id=>sockets.get(id)?.readyState===1,change:()=>change(),assertIdle:input=>assertNativeSessionIdle(db,{...input,workspace:null,projectId:null})});
-nativeTurns.recover();
+/** Sessions-page takeover hook (src/native-turns-home.mjs). */
+const nativeTurns=createHomeNativeTurns({db,dataDir:data,send:(nodeId,payload)=>send(sockets.get(nodeId),{...payload,language:getLanguage()}),online:id=>sockets.get(id)?.readyState===1,change:()=>change()});
 const viewers = new Set();
 const queries = new Map();
 const cliRecovery=new CliRecoveryHome({db,query:workerQuery,online:id=>online(id),change:()=>change()});
@@ -498,15 +497,7 @@ const server = http.createServer(async (req, res) => {
       if (wechatProject && req.method === 'POST') {
         const link = wechat.openProject(wechatProject[1]); void wechat.tick().catch(() => {}); return json(res, { id: link.id }, 201);
       }
-      const nativeTurnMatch=pathname.match(/^\/api\/native-sessions\/([^/]+)\/turns(?:\/([^/]+)\/(stop))?$/);
-      if(nativeTurnMatch){
-        const nodeId=decodeURIComponent(nativeTurnMatch[1]),worker=db.get('workers',nodeId);
-        if(!worker)throw Error('Device is unavailable');
-        if(req.method==='GET'&&!nativeTurnMatch[2]){const q=url.searchParams;return json(res,{items:nativeTurns.list(nodeId,q.get('runtime'),q.get('sessionId')),supported:worker.capabilities?.nativeTurns===1});}
-        if(req.method==='POST'&&nativeTurnMatch[3]==='stop')return json(res,nativeTurns.stop(nodeId,decodeURIComponent(nativeTurnMatch[2])));
-        if(req.method==='POST'&&!nativeTurnMatch[2])return json(res,nativeTurns.create(nodeId,worker,await body(req)),201);
-        throw Error('Invalid session action');
-      }
+      if(pathname.includes('native-')&&await nativeTurns.http(req,res,{pathname,url,json,body}))return;
       const nativeMatch=pathname.match(/^\/api\/native-sessions\/([^/]+)(?:\/(terminal|folders))?$/);
       if(nativeMatch){
         const nodeId=decodeURIComponent(nativeMatch[1]),worker=db.get('workers',nodeId);
@@ -1107,6 +1098,7 @@ const server = http.createServer(async (req, res) => {
     files['/context-usage.js']='context-usage.js';
     files['/vendor/opencc-t2cn.js']='vendor/opencc-t2cn.js';
     files['/locales/zh.js']='locales/zh.js';
+    files['/locales/native-takeover-zh.js']='locales/native-takeover-zh.js';
     const file = files[pathname]; if (!file) return json(res, { error: tr('home.pageNotFound') }, 404);
     const bytes = await readFile(join(base, 'public', file));
     await sendBufferedResponse(req,res,bytes,{ 'Content-Type': { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.png': 'image/png', '.webmanifest': 'application/manifest+json; charset=utf-8' }[extname(file)], 'Cache-Control': 'no-cache' });
@@ -1200,7 +1192,7 @@ wss.on('connection', ws => {
         send(ws, { type: 'ack', id: m.event.id });
         if(['message','tool','usage','context_usage'].includes(m.event.type))outputChanged();else change();
       }
-      if (m.type === 'native_turn_event') { nativeTurns.receive(nodeId,m); return; }
+      if (nativeTurns.message(nodeId,m)) return;
       if (m.type === 'command_ack') { const c = db.get('commands', m.id); if (c?.nodeId === nodeId&&!c.acked) {db.put('commands', { ...c, acked: true,ackedAt:new Date().toISOString() });change();} }
       if (m.type === 'reply') { const q = queries.get(m.id); if (q?.nodeId === nodeId) {
         queries.delete(m.id);

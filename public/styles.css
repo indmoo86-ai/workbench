@@ -1972,3 +1972,34 @@ dialog.role-switch-dialog { width: min(640px, calc(100vw - 32px)); }
 .navigation-mode button[aria-pressed="true"] { background:#e5efff; color:#0866ff; }
 .sidebar-heading .new-conversation-button { border:1px solid #d7dfeb; }
 .sidebar-heading { border-bottom:1px solid rgba(0,0,0,.08); box-shadow:0 1px 0 #fff; margin-bottom:10px; }
+
+/* Native takeover: attachments and the per-turn run process reuse the group-chat attachment and live-scene styles. */
+.native-takeover-form .chat-input-field { grid-template-columns: 36px minmax(0, 1fr); }
+.native-takeover-tray { grid-column: 1 / -1; margin: 8px 8px 0; }
+.native-attach { grid-column: 1; display: grid; place-items: center; width: 32px; height: 32px; min-height: 32px; margin: 4px 0 4px 4px; padding: 0; border: 0; border-radius: 4px; color: var(--accent); background: transparent; }
+.native-attach:hover { background: var(--accent-soft); }
+.native-attach svg { width: 19px; height: 19px; }
+.native-takeover-form textarea { grid-column: 2; }
+.native-session-footer.is-dragging .chat-input-field { outline: 2px dashed #3f73a8; background: #edf4fb; }
+.native-takeover-dot.is-resident { background: #4f5bce; box-shadow: 0 0 0 3px rgb(79 91 206 / 15%); }
+.native-takeover-limit { flex-basis: 100%; font-size: 11px; color: var(--muted); }
+.native-takeover-status { flex-wrap: wrap; }
+.native-turn-files { margin-top: 8px; }
+.native-turn-extra:empty { display: none; }
+.native-turn-process { margin: 8px 0 0; border: 1px solid var(--line); border-radius: 10px; background: #fafbfd; font-size: 12px; }
+.native-history > .native-turn-process { margin: -6px 0 14px 44px; max-width: min(820px, 88%); }
+.native-turn-process > summary { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; color: var(--muted); list-style: none; }
+.native-turn-process > summary::before { content: '▸'; transition: transform .15s; }
+.native-turn-process[open] > summary::before { transform: rotate(90deg); }
+.native-process-title { font-weight: 600; color: var(--ink); }
+.native-process-phase { margin-left: auto; color: var(--accent); }
+.native-process-body { display: grid; gap: 6px; padding: 0 10px 10px; max-height: 420px; overflow: auto; }
+.native-process-body .live-scene-event { margin: 0; padding: 8px 10px; border: 1px solid #eceff4; border-radius: 8px; background: #fff; }
+.native-process-body .live-scene-event header { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+.native-process-body pre { margin: 4px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; max-height: 240px; overflow: auto; }
+.native-process-tool > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.native-process-tool .live-scene-tool-name { flex: 1; min-width: 0; font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.native-process-tool .live-scene-tool-state { flex: none; padding: 1px 7px; border-radius: 6px; background: #eef1f6; color: var(--muted); font-size: 11px; }
+.native-process-tool.is-completed .live-scene-tool-state { background: #e5f6ec; color: #23824f; }
+.native-process-tool.is-failed .live-scene-tool-state { background: #fdecea; color: #b4442f; }
+.native-process-tool h4 { margin: 8px 0 0; font-size: 11px; color: var(--muted); }

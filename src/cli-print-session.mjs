@@ -7,15 +7,6 @@ import { ClaudeContextUsage } from './context-usage.mjs';
 
 const MAX_TOOL_OUTPUT = 12000;
 
-/** A takeover turn resumes the exact native ID with the CLI's own model and instructions; only print/stream flags are added. */
-export function nativeTurnArgs(runtime,{cwd,sessionId,prompt}) {
-  if(!sessionId)throw new Error('A takeover turn needs an exact native session ID');
-  if(runtime==='claude')return ['-p',prompt,'--output-format','stream-json','--verbose','--resume',sessionId,'--dangerously-skip-permissions'];
-  if(runtime==='grok')return ['--always-approve','--no-plan','--cwd',cwd,'--output-format','streaming-messages-json','--include-partial-messages','--permission-mode','bypassPermissions','--resume',sessionId,'-p',prompt];
-  if(runtime==='agy')return ['--output-format','stream-json','--dangerously-skip-permissions','--mode','accept-edits','--conversation',sessionId,'--print',prompt];
-  throw new Error('Unsupported CLI');
-}
-
 function extractText(content) {
   if (typeof content === 'string') return content;
   if (Array.isArray(content)) return content.map(extractText).filter(Boolean).join('');
@@ -41,8 +32,7 @@ function roleRules(roleName, roleInstructions) {
 
 /** print/stream CLI adapter: tools are auto-approved, with no native per-item approval. */
 export class CliPrintSession {
-  constructor({ cwd, model, mode, emit, roleInstructions = '', roleName = '', effort = null, runtime, env = process.env, resumeSessionId = null, keepAlive = false, inheritInstructions = false, maintenance = false, minimalInstructions=false, instructionMessage='',configurationUpdate='',beforeInput,onProcess,native=false }) {
-    this.native=native;
+  constructor({ cwd, model, mode, emit, roleInstructions = '', roleName = '', effort = null, runtime, env = process.env, resumeSessionId = null, keepAlive = false, inheritInstructions = false, maintenance = false, minimalInstructions=false, instructionMessage='',configurationUpdate='',beforeInput,onProcess }) {
     this.beforeInput=beforeInput;this.onProcess=onProcess;this.inputAttempted=false;
     this.minimalInstructions=minimalInstructions;this.instructionMessage=instructionMessage;
     this.configurationUpdate=configurationUpdate;
@@ -64,7 +54,6 @@ export class CliPrintSession {
     return process.env.GROK_BIN || 'grok';
   }
   args(prompt) {
-    if(this.native)return nativeTurnArgs(this.runtime,{cwd:this.cwd,sessionId:this.resumeSessionId,prompt});
     if(this.configurationUpdate&&['claude','grok'].includes(this.runtime))prompt=[this.configurationUpdate,prompt].join('\n\n');
     const rules = this.minimalInstructions?this.roleInstructions:roleRules(this.roleName, this.roleInstructions);
     // A maintenance turn is not allowed to inherit an adapter's ordinary auto-approved write tools.

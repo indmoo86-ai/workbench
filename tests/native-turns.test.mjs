@@ -10,7 +10,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const load = name => import(pathToFileURL(join(root, 'src', name)).href);
 const { NativeTurnsHome, NativeTurnRunner, applyNativeTurnEvent } = await load('native-turns.mjs');
 const { Store } = await load('store.mjs');
-const { nativeTurnArgs, CliPrintSession } = await load('cli-print-session.mjs');
+const { nativeTurnArgs, NativeCliSession: CliPrintSession, NativeCodexSession } = await load('native-turn-sessions.mjs');
+const { createHomeNativeTurns } = await load('native-turns-home.mjs');
+const { receiveTurnFiles } = await load('native-turns-worker.mjs');
 const { assertNativeSessionIdle } = await load('native-sessions.mjs');
 
 const SID = '00000000-1111-4222-8333-444444444444';
@@ -21,7 +23,7 @@ function home(t) {
   const sent = [];
   const turns = new NativeTurnsHome({ db, send: (nodeId, payload) => sent.push({ nodeId, ...payload }), online: () => true, change() {},
     assertIdle: input => assertNativeSessionIdle(db, { ...input, workspace: null, projectId: null }) });
-  return { db, sent, turns, worker: { id: 'n1', capabilities: { nativeTurns: 1 } } };
+  return { db, sent, turns, worker: { id: 'n1', capabilities: { nativeTurns: 2 } } };
 }
 
 test('a takeover send is idempotent by client ID and forwards only the exact native ID and text', t => {
@@ -30,7 +32,7 @@ test('a takeover send is idempotent by client ID and forwards only the exact nat
   const first = turns.create('n1', worker, body), again = turns.create('n1', worker, body);
   assert.equal(first.id, again.id);
   assert.equal(sent.length, 1);
-  assert.deepEqual(sent[0], { nodeId: 'n1', type: 'native_turn', id: first.id, runtime: 'codex', sessionId: SID, prompt: 'continue please' });
+  assert.deepEqual(sent[0], { nodeId: 'n1', type: 'native_turn', id: first.id, runtime: 'codex', sessionId: SID, prompt: 'continue please', attachments: [] });
   assert.throws(() => turns.create('n1', worker, { ...body, text: 'changed' }), /already used/);
   assert.throws(() => turns.create('n1', worker, { ...body, clientTurnId: 'client-000002' }), /still replying/);
 });
@@ -52,11 +54,11 @@ test('takeover is refused for invalid input, old Workers and sessions owned by a
 test('turn events keep completed messages in order and ignore updates after the end', () => {
   let turn = { id: 'x', status: 'queued', text: '' };
   for (const event of [{ kind: 'status', status: 'running' }, { kind: 'text', text: 'Hel' }, { kind: 'text', text: 'lo' }, { kind: 'message', text: 'Hello' },
-    { kind: 'text', text: 'Done' }, { kind: 'message', text: 'Done.' }, { kind: 'tool', text: 'shell' }, { kind: 'status', status: 'succeeded' }, { kind: 'status', status: 'running' }])
+    { kind: 'text', text: 'Done' }, { kind: 'message', text: 'Done.' }, { kind: 'tool', text: 'shell', item: { id: 'a', name: 'shell', status: 'inProgress' } }, { kind: 'status', status: 'succeeded' }, { kind: 'status', status: 'running' }])
     turn = applyNativeTurnEvent(turn, event);
   assert.equal(turn.text, 'Hello\n\nDone.');
   assert.equal(turn.status, 'succeeded');
-  assert.deepEqual(turn.tools, ['shell']);
+  assert.deepEqual(turn.events.map(e => e.type), ['text', 'message', 'text', 'message', 'tool']);
   assert.equal(applyNativeTurnEvent({ status: 'stopping' }, { kind: 'status', status: 'running' }).status, 'stopping');
 });
 
@@ -78,17 +80,17 @@ test('Worker runner resumes the history folder and stops a CLI that returns a di
   await runner.start({ id: 't1', runtime: 'codex', sessionId: SID, prompt: 'p' });
   assert.equal(created[0].cwd, '/tmp/demo');
   assert.equal(created[0].resumeSessionId, SID);
-  assert.deepEqual(events.map(e => e.event.status || e.event.kind), ['starting', 'running', 'message', 'succeeded']);
+  assert.deepEqual(events.filter(e => e.event).map(e => e.event.status || e.event.kind), ['starting', 'starting', 'running', 'message', 'succeeded']);
   assert.equal(runner.size, 0);
   events.length = 0;
   const other = new NativeTurnRunner({ send: m => events.push(m), resolveSession: async () => ({ workspace: '/tmp/demo' }),
     createSession: options => fake(() => options.emit('status', { status: 'running', nativeSessionId: 'aaaaaaaa-0000-0000-0000-000000000000' })) });
   await other.start({ id: 't2', runtime: 'codex', sessionId: SID, prompt: 'p' });
-  assert.match(events.at(-1).event.error, /different native session/);
+  assert.match(events.filter(e => e.event).at(-1).event.error, /different native session/);
   events.length = 0;
   const unknown = new NativeTurnRunner({ send: m => events.push(m), resolveSession: async () => ({ workspace: null }), createSession: () => assert.fail('must not start') });
   await unknown.start({ id: 't3', runtime: 'claude', sessionId: SID, prompt: 'p' });
-  assert.match(events.at(-1).event.error, /working folder/);
+  assert.match(events.filter(e => e.event).at(-1).event.error, /working folder/);
 });
 
 test('native takeover arguments resume exactly and carry no Workbench rules or model override', () => {
@@ -100,19 +102,194 @@ test('native takeover arguments resume exactly and carry no Workbench rules or m
   assert.throws(() => nativeTurnArgs('claude', { cwd: '/tmp', sessionId: null, prompt: 'x' }), /exact native session ID/);
 });
 
-test('a controlled Claude executable receives the exact resume and streams its reply', async t => {
+test('a controlled per-turn Grok executable receives the exact resume and streams its reply', async t => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'wb-native-cli-')));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const bin = join(dir, 'claude');
+  const bin = join(dir, 'grok');
   writeFileSync(bin, `#!/usr/bin/env node\nconst a=process.argv.slice(2);const id=a[a.indexOf('--resume')+1];\nconsole.log(JSON.stringify({type:'system',session_id:id}));\nconsole.log(JSON.stringify({type:'result',subtype:'success',session_id:id,result:'echo:'+a[a.indexOf('-p')+1]+':'+process.cwd()}));\n`);
   chmodSync(bin, 0o755);
-  const prior = process.env.CLAUDE_BIN; process.env.CLAUDE_BIN = bin; t.after(() => { if (prior === undefined) delete process.env.CLAUDE_BIN; else process.env.CLAUDE_BIN = prior; });
+  const prior = process.env.GROK_BIN; process.env.GROK_BIN = bin; t.after(() => { if (prior === undefined) delete process.env.GROK_BIN; else process.env.GROK_BIN = prior; });
   const events = [];
-  const runner = new NativeTurnRunner({ send: m => events.push(m.event), resolveSession: async () => ({ workspace: dir }),
-    createSession: ({ runtime, cwd, resumeSessionId, emit }) => new CliPrintSession({ cwd, runtime, emit, resumeSessionId, env: process.env, native: true }) });
+  const runner = new NativeTurnRunner({ send: m => { if (m.event) events.push(m.event); }, resolveSession: async () => ({ workspace: dir }),
+    createSession: ({ runtime, cwd, resumeSessionId, emit, keepAlive }) => new CliPrintSession({ cwd, runtime, emit, resumeSessionId, env: process.env, keepAlive }) });
   const done = new Promise(resolve => { const timer = setInterval(() => { if (events.some(e => ['succeeded', 'failed'].includes(e.status))) { clearInterval(timer); resolve(); } }, 20); });
-  await runner.start({ id: 't9', runtime: 'claude', sessionId: SID, prompt: 'hi' });
+  await runner.start({ id: 't9', runtime: 'grok', sessionId: SID, prompt: 'hi' });
   await done;
   assert.equal(events.at(-1).status, 'succeeded', JSON.stringify(events));
   assert.equal(events.find(e => e.kind === 'message').text, `echo:hi:${dir}`);
+});
+
+const fakeProc = () => ({ exitCode: null, signalCode: null, killed: false });
+function residentFake(created, { stopStatus = 'interrupted' } = {}) {
+  return options => {
+    const session = { options, proc: fakeProc(), starts: 0, reuses: 0, shutdowns: 0,
+      reuse(next) { this.reuses++; Object.assign(this.options, next); },
+      async start(prompt) { this.starts++; this.lastPrompt = prompt; if (!this.hold) { this.options.emit('message', { text: `reply ${this.starts}` }); this.options.emit('status', { status: 'succeeded' }); } },
+      async stop() { this.options.emit('status', { status: stopStatus }); },
+      shutdown() { this.shutdowns++; this.proc.exitCode = 0; } };
+    created.push(session); return session;
+  };
+}
+
+test('a resident CLI is started once per takeover, reused, counted once and closed on idle or release', async () => {
+  const sent = [], created = [];
+  const runner = new NativeTurnRunner({ send: m => sent.push(m), resolveSession: async () => ({ workspace: '/tmp/demo' }), createSession: residentFake(created), idleMs: 30 });
+  await runner.start({ id: 'r1', runtime: 'claude', sessionId: SID, prompt: 'one' });
+  await runner.start({ id: 'r2', runtime: 'claude', sessionId: SID, prompt: 'two' });
+  assert.equal(created.length, 1);
+  assert.equal(created[0].reuses, 1);
+  assert.equal(created[0].options.keepAlive, true);
+  assert.equal(runner.size, 1);
+  assert.ok(runner.holds('claude', SID));
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(runner.size, 0);
+  assert.equal(created[0].shutdowns, 1);
+  assert.deepEqual(sent.at(-1), { type: 'native_takeover_closed', runtime: 'claude', sessionId: SID, reason: 'idle' });
+  await runner.start({ id: 'r3', runtime: 'codex', sessionId: SID, prompt: 'three' });
+  runner.release('codex', SID);
+  assert.equal(created[1].shutdowns, 1);
+  assert.equal(sent.at(-1).reason, 'released');
+});
+
+test('stop interrupts the current turn but keeps the resident process for the next message', async () => {
+  const created = [], sent = [];
+  const runner = new NativeTurnRunner({ send: m => sent.push(m), resolveSession: async () => ({ workspace: '/tmp/demo' }), createSession: options => { const s = residentFake(created)(options); s.hold = true; return s; } });
+  await runner.start({ id: 's1', runtime: 'codex', sessionId: SID, prompt: 'long' });
+  await runner.stop('s1');
+  assert.equal(sent.filter(m => m.id === 's1').at(-1).event.status, 'interrupted');
+  assert.equal(created[0].shutdowns, 0);
+  assert.equal(runner.size, 1);
+  created[0].hold = false;
+  await runner.start({ id: 's2', runtime: 'codex', sessionId: SID, prompt: 'next' });
+  assert.equal(created.length, 1);
+  assert.equal(sent.filter(m => m.id === 's2').at(-1).event.status, 'succeeded');
+  runner.stopAll();
+});
+
+test('Grok has no resident input mode and resumes per turn; images are refused for it and non-image files become paths', async t => {
+  const created = [], sent = [];
+  const runner = new NativeTurnRunner({ send: m => sent.push(m), resolveSession: async () => ({ workspace: '/tmp/demo' }), createSession: residentFake(created),
+    prepareInputs: async m => ({ files: m.files || [], images: m.images || [] }) });
+  await runner.start({ id: 'g1', runtime: 'grok', sessionId: SID, prompt: 'look', files: [{ name: 'notes.txt', path: '/data/notes.txt', mime: 'application/octet-stream' }] });
+  await runner.start({ id: 'g2', runtime: 'grok', sessionId: SID, prompt: 'again' });
+  assert.equal(created.length, 2);
+  assert.equal(created[0].options.keepAlive, false);
+  assert.equal(created[0].shutdowns, 1);
+  assert.match(created[0].lastPrompt, /notes\.txt: \/data\/notes\.txt/);
+  assert.equal(runner.size, 0);
+  await runner.start({ id: 'g3', runtime: 'grok', sessionId: SID, prompt: 'img', images: [{ mime: 'image/png', data: 'AA==' }] });
+  assert.match(sent.at(-1).event.error, /cannot receive images/);
+  const { db, worker } = home(t);
+  const dir = mkdtempSync(join(tmpdir(), 'wb-native-files-')); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const hook = createHomeNativeTurns({ db, dataDir: dir, send() {}, online: () => true, change() {} }), turns = hook.turns, store = turns.attachments;
+  const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+  const request = Object.assign((async function* () { yield png; })(), { headers: { 'x-file-name': 'shot.png', 'content-length': String(png.length) } });
+  const image = await store.upload(NativeTurnsHome.owner('n1'), request);
+  assert.equal(db.get('attachments', image.id), null, 'takeover files never enter group-chat attachments');
+  assert.equal(db.get('nativeTurnAttachments', image.id).projectId, 'native:n1');
+  assert.equal(image.mime, 'image/png');
+  assert.throws(() => turns.create('n1', worker, { runtime: 'grok', sessionId: SID, clientTurnId: 'client-img-01', text: 'x', attachmentIds: [image.id] }), /cannot receive images/);
+  assert.throws(() => turns.create('n2', worker, { runtime: 'claude', sessionId: SID, clientTurnId: 'client-img-02', text: 'x', attachmentIds: [image.id] }), /Attachment|attachment/);
+  const turn = turns.create('n1', worker, { runtime: 'claude', sessionId: SID, clientTurnId: 'client-img-03', text: 'see', attachmentIds: [image.id] });
+  assert.deepEqual(turns.attachmentFor(turn.id, image.id), { owner: 'native:n1', id: image.id });
+});
+
+test('turn events retain tools, intermediate messages, errors and phases in order for the page', () => {
+  let turn = { id: 'x', status: 'queued', text: '' };
+  const steps = [[{ kind: 'status', status: 'starting' }, 'starting'], [{ kind: 'log', text: 'Model is thinking', thinking: true }, 'thinking'],
+    [{ kind: 'tool', text: 'Bash', item: { id: 't1', name: 'Bash', input: { command: 'ls' }, status: 'inProgress' } }, 'tool'],
+    [{ kind: 'tool', text: 'Bash', item: { id: 't1', status: 'completed', output: 'a.txt' } }, 'working'],
+    [{ kind: 'message', text: 'Interim note', phase: 'commentary' }, 'replying']];
+  for (const [event, phase] of steps) { turn = applyNativeTurnEvent(turn, event); assert.equal(turn.phase, phase); }
+  turn = applyNativeTurnEvent(turn, { kind: 'status', status: 'failed', error: 'boom' });
+  assert.deepEqual(turn.events.map(e => e.type), ['log', 'tool', 'tool', 'message', 'error']);
+  assert.equal(turn.events[1].payload.item.input.command, 'ls');
+  assert.equal(turn.phase, null);
+  assert.equal(applyNativeTurnEvent(turn, { kind: 'text', text: 'late' }), turn);
+});
+
+test('a resident Claude stream-json process receives exact resume, keeps its pid across turns and gets images as content blocks', async t => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'wb-native-resident-')));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const bin = join(dir, 'claude');
+  writeFileSync(bin, `#!/usr/bin/env node
+const a=process.argv.slice(2);if(!a.includes('--input-format'))process.exit(3);const id=a[a.indexOf('--resume')+1];
+console.log(JSON.stringify({type:'system',session_id:id}));
+require('node:readline').createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);if(m.type!=='user')return;
+ const c=m.message.content,images=Array.isArray(c)?c.filter(b=>b.type==='image').length:0,text=Array.isArray(c)?c[0].text:c;
+ console.log(JSON.stringify({type:'assistant',message:{content:[{type:'tool_use',id:'tu'+text,name:'Read',input:{file:'x'}}]}}));
+ console.log(JSON.stringify({type:'result',subtype:'success',session_id:id,result:'pid='+process.pid+' text='+text+' images='+images}));});
+`.replace('#!/usr/bin/env node\n', '#!/usr/bin/env node\nconst require=(await import("node:module")).createRequire(import.meta.url);\n'));
+  writeFileSync(join(dir, 'package.json'), '{"type":"module"}');
+  chmodSync(bin, 0o755);
+  const prior = process.env.CLAUDE_BIN; process.env.CLAUDE_BIN = bin; t.after(() => { if (prior === undefined) delete process.env.CLAUDE_BIN; else process.env.CLAUDE_BIN = prior; });
+  const events = [];
+  const runner = new NativeTurnRunner({ send: m => events.push(m), resolveSession: async () => ({ workspace: dir }),
+    prepareInputs: async m => ({ files: [], images: m.withImage ? [{ mime: 'image/png', data: 'iVBORw0KGgo=' }] : [] }),
+    createSession: ({ runtime, cwd, resumeSessionId, emit, keepAlive, inputImages }) => { const s = new CliPrintSession({ cwd, runtime, emit, resumeSessionId, env: process.env, keepAlive, inputImages }); return s; } });
+  t.after(() => runner.stopAll());
+  const finished = id => new Promise(resolve => { const timer = setInterval(() => { const e = events.find(x => x.id === id && ['succeeded', 'failed'].includes(x.event?.status)); if (e) { clearInterval(timer); resolve(e); } }, 20); });
+  await runner.start({ id: 'c1', runtime: 'claude', sessionId: SID, prompt: 'first' });
+  assert.equal((await finished('c1')).event.status, 'succeeded');
+  await runner.start({ id: 'c2', runtime: 'claude', sessionId: SID, prompt: 'second', withImage: true });
+  assert.equal((await finished('c2')).event.status, 'succeeded');
+  const replies = events.filter(e => e.event?.kind === 'message').map(e => e.event.text);
+  const pids = replies.map(text => text.match(/pid=(\d+)/)[1]);
+  assert.equal(pids[0], pids[1]);
+  assert.match(replies[0], /text=first images=0/);
+  assert.match(replies[1], /text=second images=1/);
+  assert.ok(events.some(e => e.id === 'c2' && e.event?.kind === 'tool' && e.event.item.name === 'Read'));
+  assert.equal(runner.size, 1);
+});
+
+test('a resident Codex app-server resumes the thread once and reuses it for later turns with image input items', async t => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'wb-native-codex-')));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const bin = join(dir, 'codex.mjs');
+  writeFileSync(bin, `import {createInterface} from 'node:readline';let resumes=0,turns=0;const out=m=>process.stdout.write(JSON.stringify(m)+'\\n');
+createInterface({input:process.stdin}).on('line',line=>{const m=JSON.parse(line);
+ if(m.method==='initialize')out({id:m.id,result:{}});
+ if(m.method==='thread/resume'){resumes++;out({id:m.id,result:{thread:{id:m.params.threadId}}});}
+ if(m.method==='turn/start'){turns++;const images=m.params.input.filter(i=>i.type==='localImage').length,id='turn'+turns;out({id:m.id,result:{turn:{id}}});out({method:'turn/started',params:{turn:{id}}});
+  out({method:'item/started',params:{item:{id:'cmd'+turns,type:'commandExecution',command:'ls'}}});
+  out({method:'item/completed',params:{item:{id:'msg'+turns,type:'agentMessage',text:'resumes='+resumes+' turns='+turns+' images='+images+' pid='+process.pid}}});
+  out({method:'turn/completed',params:{turn:{id,status:'completed'}}});}
+});`);
+  const wrapper = join(dir, 'codex');
+  writeFileSync(wrapper, `#!/bin/sh\nexec "${process.execPath}" "${bin}" "$@"\n`); chmodSync(wrapper, 0o755);
+  const prior = process.env.CODEX_BIN; process.env.CODEX_BIN = wrapper; t.after(() => { if (prior === undefined) delete process.env.CODEX_BIN; else process.env.CODEX_BIN = prior; });
+  const events = [];
+  const runner = new NativeTurnRunner({ send: m => events.push(m), resolveSession: async () => ({ workspace: dir }),
+    prepareInputs: async m => ({ files: m.withImage ? [{ name: 'a.png', path: join(dir, 'a.png'), mime: 'image/png' }] : [], images: [] }),
+    createSession: ({ cwd, resumeSessionId, emit, keepAlive, attachments }) => new NativeCodexSession({ cwd, writableRoots: [cwd], attachments, emit, resumeSessionId, env: process.env, keepAlive }) });
+  t.after(() => runner.stopAll());
+  const finished = id => new Promise(resolve => { const timer = setInterval(() => { const e = events.find(x => x.id === id && ['succeeded', 'failed'].includes(x.event?.status)); if (e) { clearInterval(timer); resolve(e); } }, 20); });
+  await runner.start({ id: 'x1', runtime: 'codex', sessionId: SID, prompt: 'a' });
+  assert.equal((await finished('x1')).event.status, 'succeeded');
+  await runner.start({ id: 'x2', runtime: 'codex', sessionId: SID, prompt: 'b', withImage: true });
+  assert.equal((await finished('x2')).event.status, 'succeeded', JSON.stringify(events.filter(e => e.id === 'x2')));
+  const replies = events.filter(e => e.event?.kind === 'message').map(e => e.event.text);
+  assert.match(replies[0], /resumes=1 turns=1 images=0/);
+  assert.match(replies[1], /resumes=1 turns=2 images=1/);
+  assert.equal(replies[0].match(/pid=(\d+)/)[1], replies[1].match(/pid=(\d+)/)[1]);
+  assert.ok(events.some(e => e.event?.kind === 'tool' && e.event.item.command === 'ls'));
+});
+
+test('takeover files are verified by hash and stored under the Worker data folder', async t => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'wb-native-recv-'))); t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const bytes = Buffer.from('hello'), sha256 = (await import('node:crypto')).createHash('sha256').update(bytes).digest('hex');
+  const item = { id: '11111111-1111-4111-8111-111111111111', name: 'a.txt', mime: 'application/octet-stream', size: 5, sha256 };
+  const turnId = '22222222-2222-4222-8222-222222222222';
+  const ok = async () => ({ ok: true, arrayBuffer: async () => bytes });
+  const [file] = await receiveTurnFiles({ items: [item], turnId, root: dir, home: 'http://127.0.0.1:1', token: 'x', fetchImpl: ok });
+  assert.ok(file.path.startsWith(join(dir, turnId)));
+  await assert.rejects(receiveTurnFiles({ items: [{ ...item, sha256: '0'.repeat(64) }], turnId, root: dir, home: 'http://127.0.0.1:1', token: 'x', fetchImpl: ok }), /verification/);
+});
+
+test('managed adapters keep their default behaviour: the shared Codex and print classes are untouched by takeover', async () => {
+  const { CodexSession } = await load('codex.mjs');
+  const { CliPrintSession: Base } = await load('cli-print-session.mjs');
+  assert.ok(new Base({ cwd: '/tmp', runtime: 'claude', model: 'm', emit() {} }).args('hi').includes('--append-system-prompt'));
+  assert.equal(Object.prototype.hasOwnProperty.call(CodexSession.prototype, 'close'), false);
+  assert.ok(new NativeCodexSession({ cwd: '/tmp', emit() {}, resumeSessionId: SID }) instanceof CodexSession);
 });
