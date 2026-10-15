@@ -31,7 +31,7 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
  function populate(){const signature=JSON.stringify((getData().workers||[]).map(w=>[w.id,w.name,w.online,w.nodeKind,w.runtimes?.map(r=>[r.type,r.available,r.supported])]));if(signature===lastCatalog)return false;lastCatalog=signature;options(device,[['all',t('All sessions')],['created',t('Created sessions')],['group',t('Group chats')],['local',t('Local machine')],['cloud',t('Servers')],['other',t('Other devices')]]);options(tool,[['all',t('All Agents')],...Object.entries(names)]);return true;}
  function workers(){return(getData().workers||[]).filter(w=>['all','created','group'].includes(device.value)||(device.value==='other'?!['local','cloud'].includes(w.nodeKind):w.nodeKind===device.value));}
  function resetDetail(){detailVersion++;selected=null;detailSignature='';takeover.detach();content.replaceChildren(el('div','native-empty',t('Select a native session to view its details.')));side.replaceChildren(el('h2','native-side-title',t('Session details')),el('p','native-side-hint',t('Read-only preview. Take over at the bottom to continue here, or open iTerm.')));}
- function renderList(){const signature=JSON.stringify([key(selected),items]);if(signature===listSignature)return;listSignature=signature;const scroll=list.scrollTop;list.replaceChildren();for(const item of items){const b=el('button',`project-item${key(selected)===key(item)?' active':''}`);b.type='button';b.title=`${item.title||item.id}\n${workerName(item.nodeId)}`;const copy=el('span','project-item-copy');const title=el('strong','',item.title||item.id);title.translate=false;copy.append(title,el('small','',`${names[item.runtime]} · ${time(item.modifiedAt||item.createdAt)}`));b.append(agentIconEl(item.runtime),copy);b.addEventListener('click',()=>read(item));list.append(b);}list.scrollTop=scroll;}
+ function renderList(){const signature=JSON.stringify([key(selected),items]);if(signature===listSignature)return;listSignature=signature;const scroll=list.scrollTop;list.replaceChildren();for(const item of items){const b=el('button',`project-item${key(selected)===key(item)?' active':''}`);b.type='button';b.title=`${displayTitle(item)}\n${workerName(item.nodeId)}`;const copy=el('span','project-item-copy');const title=el('strong','',displayTitle(item));title.translate=false;copy.append(title,el('small','',`${names[item.runtime]} · ${time(item.modifiedAt||item.createdAt)}`));b.append(agentIconEl(item.runtime),copy);b.addEventListener('click',()=>read(item));list.append(b);}list.scrollTop=scroll;}
  /** Fetch at most two device catalogues at a time; one unavailable device must not hide the others. */
  async function load({quiet=false}={}){if(!active())return;if(quiet&&loading){pendingRefresh=true;return;}pendingRefresh=false;const ticket=++version;loading=true;lastRefresh=Date.now();if(!quiet){items=[];resetDetail();renderList();note.textContent=t('Loading native sessions…');}
   // The API's all scope excludes managed group history; combine both scopes only for the unfiltered view.
@@ -50,7 +50,7 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
  const scroll=el('div','native-session-scroll');
  async function read(item,{quiet=false}={}){const ticket=++detailVersion;selected=item;renderList();if(!quiet){onPreview?.();takeover.detach();scroll.replaceChildren(el('p','workspace-note',t('Loading…')));content.replaceChildren(scroll);detailSignature='';}
   try{const id=nativeId(item),readable=id&&item.hasHistory!==false,value=readable?{...item,...await api(`${endpoint(item.nodeId)}?${new URLSearchParams({runtime:item.runtime,sessionId:id})}`),id:item.id,entryId:item.entryId,nodeId:item.nodeId,sessionId:id,title:item.title}:item;if(ticket!==detailVersion||!active()||key(selected)!==key(item))return;selected=value;const signature=JSON.stringify(value);if(quiet&&signature===detailSignature)return;detailSignature=signature;const top=scroll.scrollTop,atBottom=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<40;
-   const history=el('div','native-history');history.append(el('h2','native-title',value.title||value.id));
+   const history=el('div','native-history');history.append(el('h2','native-title',displayTitle(value)));
    for(const m of value.messages||[]){const text=m.role==='user'?cleanUserText(m.text):m.text;const row=chatRow(m.role,text,value.runtime,m.timestamp);row.dataset.role=m.role;if(m.role==='user')row.dataset.text=text.trim();history.append(row);}
    if(value.notice||!value.messages?.length)history.append(el('p','workspace-note',t(value.notice||(value.canReopen?'This session has not started. Open it to begin chatting.':!readable?'Native session ID has not been linked yet. Existing history is unchanged.':'No text preview is available for this session.'))));
    if(value.partial)history.append(el('p','workspace-note',t('Only recent readable content is shown. Full history is available in the CLI.')));
@@ -80,13 +80,19 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview}){
  const IMAGE_CLIS=new Set(['codex','claude']),openTools=new Set();
  const phaseLabel=turn=>turn.status==='queued'?'Waiting for the device…':turn.status==='stopping'?'Stopping…':turn.phase==='starting'||turn.status==='starting'?'Starting the CLI…':turn.phase==='tool'?'Running a tool':turn.phase==='waiting'||turn.status==='waiting_user'?'Waiting':turn.phase==='replying'?'Replying…':turn.phase==='working'?'Working…':'Thinking…';
  /** Codex records an attached image as markup with a Worker-local path; show a short placeholder instead. */
+/** CLI titles can start with injected context markup (e.g. <environment_context>); show readable text or the short ID. */
+const displayTitle=item=>{const text=String(item.title||'').replace(/<([a-z_-]+)\b[^>]*>[\s\S]*?(<\/\1>|$)/gi,' ').replace(/\s+/g,' ').trim();return text||`${String(item.id||'').slice(0,8)}\u2026`;};
+const sizeText=n=>!Number.isFinite(n)?'':n<1024?`${n} B`:n<1048576?`${(n/1024).toFixed(1)} KB`:`${(n/1048576).toFixed(1)} MB`;
+/** Hide CLI-internal stderr logging (timestamped WARN/ERROR lines) from the run process; real errors arrive as error events. */
+const cliNoise=text=>/^\s*\d{4}-\d\d-\d\dT[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN|ERROR)\b/.test(String(text||''));
 const cleanUserText=text=>String(text||'').replace(/<image\b[^>]*>[\s\S]*?<\/image>/gi,'').replace(/\n*Attached files for this message \(local paths\):[\s\S]*$/,'').trim();
 /** A turn shows its process only when it holds more than the final reply: tools, runtime notes or intermediate messages. */
-const hasProcess=turn=>{const rows=liveSceneRows(turn.events||[],{status:turn.status}).rows;return rows.some(r=>r.kind==='tool'||r.kind==='log'||r.kind==='error')||rows.filter(r=>r.kind==='message'||r.kind==='text').length>2;};
+const processRows=turn=>liveSceneRows(turn.events||[],{status:turn.status}).rows.filter(r=>!(r.kind==='log'&&cliNoise(r.text)));
+const hasProcess=turn=>{const rows=processRows(turn);return rows.some(r=>r.kind==='tool'||r.kind==='log'||r.kind==='error')||rows.filter(r=>r.kind==='message'||r.kind==='text').length>2;};
 const valueText=value=>typeof value==='string'?value:value==null?'':JSON.stringify(value,null,2);
  /** The group-chat live-scene projection orders text, messages, logs and merged tool states for one turn. */
  function processBlock(turn,{open=false}={}){
-  const model=liveSceneRows(turn.events||[],{status:turn.status}),tools=model.rows.filter(r=>r.kind==='tool').length,live=['queued','starting','running','waiting_user','stopping'].includes(turn.status);
+  const model={rows:processRows(turn)},tools=model.rows.filter(r=>r.kind==='tool').length,live=['queued','starting','running','waiting_user','stopping'].includes(turn.status);
   const box=el('details','native-turn-process');box.open=open;box.dataset.turn=turn.id;
   const summary=el('summary','');summary.append(el('span','native-process-title',t('Run process')),el('span','native-process-count',t('{count} tool calls',{count:tools})));
   if(live)summary.append(el('span','native-process-phase',`${t(phaseLabel(turn))}${turn.phase==='tool'&&turn.toolName?` · ${turn.toolName}`:''}`));
@@ -114,7 +120,8 @@ const valueText=value=>typeof value==='string'?value:value==null?'':JSON.stringi
   const draft=()=>drafts[k()]||={text:'',attachments:[]};
   const fileUrl=(nodeId,item)=>{const id=`${nodeId}:${item.id}`;if(!urls.has(id))urls.set(id,api(`${endpoint(nodeId)}/attachments/${encodeURIComponent(item.id)}`,{blob:true}).then(blob=>URL.createObjectURL(blob)).catch(e=>{urls.delete(id);throw e;}));return urls.get(id);};
   function attachmentCard(item,remove){const card=el('div',`attachment-card${item.mime?.startsWith('image/')?'':' attachment-file-card'}`);card.title=item.name;
-   if(item.mime?.startsWith('image/')){const img=el('img');img.alt=item.name;void fileUrl(current.nodeId,item).then(url=>{img.src=url;}).catch(()=>{});card.append(img);}else card.append(el('span','attachment-name',item.name));
+   if(item.mime?.startsWith('image/')){const img=el('img');img.alt=item.name;void fileUrl(current.nodeId,item).then(url=>{img.src=url;}).catch(()=>{});card.append(img);}else card.append(el('span','native-file-icon','\u{1F4C4}'));
+   if(remove||!item.mime?.startsWith('image/')){const info=el('span','native-file-info');info.append(el('span','attachment-name',item.name),el('small','',sizeText(item.size)));card.append(info);}
    if(remove){const x=button('×',remove,'attachment-remove');x.setAttribute('aria-label',t('Remove attachment'));card.append(x);}return card;}
   function detach(){current=null;turns=[];historyEl=null;feed.replaceChildren();shell.remove();clearInterval(poll);poll=null;}
   function attach(value,{readable,historyAt:at,history}){const same=current&&k()===`${value.nodeId}/${value.runtime}/${value.sessionId}`;current=value;historyAt=at;historyEl=history;if(!same){turns=[];feed.replaceChildren();}
@@ -128,7 +135,7 @@ const valueText=value=>typeof value==='string'?value:value==null?'':JSON.stringi
    const rows=[...(historyEl?.querySelectorAll('.native-chat-row')||[])],used=new Set();
    for(const turn of turns){
     const live=['queued','starting','running','waiting_user','stopping'].includes(turn.status);
-    if(!live&&turn.endedAt&&Date.parse(turn.endedAt)<=historyAt&&turn.prompt.trim()){
+    if(!live&&turn.endedAt&&turn.prompt.trim()){
      const prompt=turn.prompt.trim(),index=rows.findIndex((row,i)=>!used.has(i)&&row.dataset.role==='user'&&row.dataset.text===prompt);
      if(index>=0){used.add(index);let anchor=rows[index];for(let i=index+1;i<rows.length&&rows[i].dataset.role!=='user';i++)anchor=rows[i];
       if(turn.attachments?.length){const files=el('div','chat-attachments native-turn-files native-turn-anchored');for(const item of turn.attachments)files.append(attachmentCard(item));rows[index].querySelector('.chat-col')?.append(files);}
