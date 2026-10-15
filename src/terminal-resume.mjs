@@ -73,7 +73,7 @@ export function nativeTerminalProject(db,{nodeId,runtime,sessionId,folderProject
 export function terminalOwnsProject(db,session,projectId) {
   if(!projectId||closed.has(session.status))return false;
   if(session.projectId===projectId)return true;
-  if(session.kind!=='native')return false;
+  if(!['native','native-turn'].includes(session.kind))return false;
   const {projects,unknown}=nativeSessionOwnership(db,{nodeId:session.nodeId,runtime:session.runtime||session.nativeSession?.runtime,sessionId:session.sessionId||session.nativeSession?.id});
   return projects.has(projectId)||unknown.has(projectId);
 }

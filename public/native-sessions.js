@@ -1,14 +1,20 @@
-import {t,dateLocale} from './i18n.js';
+import {t as globalT,dateLocale,getLanguage} from './i18n.js';
+import pageZh from './locales/native-takeover-zh.js';
 import {simplifiedCliOutput} from './output-language.js';
 import {agentIconEl,setActionIcon} from './role-icons.js';
 import {createListOrder} from './list-order.js';
+import {renderMarkdown} from './markdown.js';
+import {liveSceneRows} from './live-scene.js';
+import {toolStatusLabel,stripAnsi} from './run-log-data.js';
 
+/** New takeover strings resolve from this page's own dictionary; every existing string keeps the global translation. */
+const t=(text,params)=>{const own=getLanguage()==='zh'&&typeof text==='string'?pageZh[text]:undefined;return own===undefined?globalT(text,params):params?own.replace(/\{(\w+)\}/g,(m,k)=>params[k]??m):own;};
 const names={codex:'Codex',claude:'Claude Code',grok:'Grok',agy:'Agy'};
 const el=(tag,cls,text)=>{const n=document.createElement(tag);if(cls)n.className=cls;if(text!==undefined)n.textContent=text;return n;};
 const button=(text,fn,cls='secondary')=>{const n=el('button',cls,t(text));n.type='button';n.addEventListener('click',fn);return n;};
 const closeButton=fn=>{const n=button('',fn,'icon-button native-close');setActionIcon(n,'close','Close');n.dataset.close='';return n;};
 
-/** The session view only reads native history and prepares terminal links; it never submits a chat turn. */
+/** The session view reads native history and prepares terminal links. Only after an explicit takeover does it submit turns, resuming the same native ID. */
 export function createNativeSessionUI({api,getData,onModeChange,onPreview,onStateRefresh=async()=>{}}){
  const mode=document.querySelector('#navigation-mode'),list=el('nav','project-list native-session-list'),content=el('section','native-session-content panel'),side=el('section','native-session-sidebar');
  list.id='native-session-list';content.id='native-session-content';side.id='native-session-sidebar';
@@ -47,12 +53,15 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview,onStat
   let panel=side.querySelector('[data-native-controls]');if(!panel){panel=el('section','native-session-controls');panel.dataset.nativeControls='';side.append(panel);}
   const signature=JSON.stringify([key(item),matches.map(c=>[c.id,c.status,c.processState,c.lastCheckedAt,c.processError]),other?.id,uncertain,managedBusy,worker?.online,worker?.capabilities,returningClaim,controlFeedback]);
   if(panel.dataset.signature===signature)return;panel.dataset.signature=signature;panel.replaceChildren(el('h3','',t('Terminal occupancy')));
-  const status=matches.length>1?'Several terminal reservations match this session; use role details to check them':!worker?.online?'Device offline; terminal process state unknown':claim?claim.processState==='unknown'?'Terminal process state unverified':claim.status==='stopping'?'Stopping terminal CLI…':claim.status==='active'||claim.processState==='active'?'Terminal CLI is running':claim.status==='finished'?'Waiting for verified return':claim.status==='prepared'?'Waiting to open terminal':'Terminal reserved; refresh to check the process':uncertain?'Native session device ownership is unknown; check the original role session':other?'Another terminal has taken over this group chat':managedBusy?'Managed CLI is running; takeover is unavailable':'Not taken over';
+  const nativeTurn=claim?.kind==='native-turn';
+  const status=matches.length>1?'Several terminal reservations match this session; use role details to check them':nativeTurn?claim.status==='stopping'||takeover.isReleasing(item)?'Ending page takeover; waiting for the CLI to exit…':'Taken over on the Sessions page':!worker?.online?'Device offline; terminal process state unknown':claim?claim.processState==='unknown'?'Terminal process state unverified':claim.status==='stopping'?'Stopping terminal CLI…':claim.status==='active'||claim.processState==='active'?'Terminal CLI is running':claim.status==='finished'?'Waiting for verified return':claim.status==='prepared'?'Waiting to open terminal':'Terminal reserved; refresh to check the process':uncertain?'Native session device ownership is unknown; check the original role session':other?'Another terminal has taken over this group chat':managedBusy?'Managed CLI is running; takeover is unavailable':'Not taken over';
   const state=el('p','workspace-note',t(status));state.setAttribute('role','status');panel.append(state);
   if(claim?.lastCheckedAt)panel.append(el('p','workspace-note',t('Checked at: {time}',{time:time(claim.lastCheckedAt)})));
   if(claim?.processError)panel.append(el('p','workspace-note',t(claim.processError)));
   const project=data.projects?.find(p=>p.id===(claim?.projectId||other?.projectId))||((claim||other)&&owners.size===1?data.projects?.find(p=>owners.has(p.id)):null);if(project)panel.append(el('p','workspace-note',t('Group chat paused on this device: {project}',{project:project.name})));
-  if(claim){
+  if(nativeTurn){
+   const pending=claim.status==='stopping'||takeover.isReleasing(item),actions=el('div','native-session-actions'),release=button(pending?'Ending takeover…':'End takeover',()=>void takeover.release(item),'secondary');release.disabled=pending;actions.append(release);panel.append(actions);const feedback=takeover.feedback(item);if(feedback)panel.append(el('p','global-error',feedback));
+  }else if(claim){
    panel.append(el('p','workspace-note',t('Exited terminals return automatically within about 15 seconds. Unopened links expire after 5 minutes.')));
    const actions=el('div','native-session-actions');
    const perform=async action=>{
@@ -72,7 +81,7 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview,onStat
    if(!worker?.online)release.title=stop.title=t('Device offline; reconnect before stopping the CLI');
    else if(worker?.capabilities?.terminalControl!==1)stop.title=t('Upgrade this Worker to check or stop terminal processes.');
    actions.append(release,stop);panel.append(actions);
-  }else if(!matches.length&&!other&&!uncertain&&!managedBusy&&(item.canReopen||id&&item.hasHistory!==false&&item.canResume!==false)){
+  }else if(!matches.length&&!other&&!uncertain&&!managedBusy&&!takeover.isOn(item)&&(item.canReopen||id&&item.hasHistory!==false&&item.canResume!==false)){
    const resume=button(item.canReopen?'Open unstarted session':'Continue in iTerm',()=>openForm(item),'primary');resume.disabled=!worker?.online||worker?.capabilities?.nativeTakeover!==1;panel.append(resume);
    if(worker?.online&&worker.capabilities?.nativeTakeover!==1)panel.append(el('p','workspace-note',t('Upgrade this Worker to safely take over native sessions')));
   }
@@ -81,8 +90,8 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview,onStat
  function options(select,values){const old=select.value;select.replaceChildren(...values.map(([value,label])=>{const o=el('option','',label);o.value=value;return o;}));if(values.some(([v])=>v===old))select.value=old;}
  function populate(){const signature=JSON.stringify((getData().workers||[]).map(w=>[w.id,w.name,w.online,w.nodeKind,w.runtimes?.map(r=>[r.type,r.available,r.supported])]));if(signature===lastCatalog)return false;lastCatalog=signature;options(device,[['all',t('All sessions')],['created',t('Created sessions')],['group',t('Group chats')],['local',t('Local machine')],['cloud',t('Servers')],['other',t('Other devices')]]);options(tool,[['all',t('All Agents')],...Object.entries(names)]);return true;}
  function workers(){return(getData().workers||[]).filter(w=>['all','created','group'].includes(device.value)||(device.value==='other'?!['local','cloud'].includes(w.nodeKind):w.nodeKind===device.value));}
- function resetDetail(){detailVersion++;selected=null;detailSignature='';content.replaceChildren(el('div','native-empty',t('Select a native session to view its details.')));side.replaceChildren(el('h2','',t('Session details')),el('p','workspace-note',t('Read-only preview. Continue chatting in iTerm.')));}
- function renderList(){if(listOrder.active())return;const ordered=listOrder.ordered(items,key),signature=JSON.stringify([key(selected),ordered]);if(signature===listSignature)return;listSignature=signature;const scroll=list.scrollTop;list.replaceChildren();for(const item of ordered){const b=el('button',`project-item${key(selected)===key(item)?' active':''}`);b.type='button';b.dataset.orderId=key(item);b.title=`${item.title||item.id}\n${workerName(item.nodeId)}`;const copy=el('span','project-item-copy');const title=el('strong','',item.title||item.id);title.translate=false;copy.append(title,el('small','',`${names[item.runtime]} · ${time(item.modifiedAt||item.createdAt)}`));b.append(agentIconEl(item.runtime),copy);b.addEventListener('click',()=>read(item));list.append(b);}list.scrollTop=scroll;}
+ function resetDetail(){detailVersion++;selected=null;detailSignature='';takeover.detach();content.replaceChildren(el('div','native-empty',t('Select a native session to view its details.')));side.replaceChildren(el('h2','native-side-title',t('Session details')),el('p','native-side-hint',t('Read-only preview. Take over at the bottom to continue here, or open iTerm.')));}
+ function renderList(){if(listOrder.active())return;const ordered=listOrder.ordered(items,key),signature=JSON.stringify([key(selected),ordered]);if(signature===listSignature)return;listSignature=signature;const scroll=list.scrollTop;list.replaceChildren();for(const item of ordered){const b=el('button',`project-item${key(selected)===key(item)?' active':''}`);b.type='button';b.dataset.orderId=key(item);b.title=`${displayTitle(item)}\n${workerName(item.nodeId)}`;const copy=el('span','project-item-copy');const title=el('strong','',displayTitle(item));title.translate=false;copy.append(title,el('small','',`${names[item.runtime]} · ${time(item.modifiedAt||item.createdAt)}`));b.append(agentIconEl(item.runtime),copy);b.addEventListener('click',()=>read(item));list.append(b);}list.scrollTop=scroll;}
  /** Fetch at most two device catalogues at a time; one unavailable device must not hide the others. */
  async function load({quiet=false}={}){if(!active())return;if(quiet&&loading){pendingRefresh=true;return;}pendingRefresh=false;const ticket=++version;loading=true;lastRefresh=Date.now();if(!quiet){items=[];resetDetail();renderList();note.textContent=t('Loading native sessions…');}
   // The API's all scope excludes managed group history; combine both scopes only for the unfiltered view.
@@ -97,14 +106,172 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview,onStat
   // A mutation/focus refresh arriving during a read must run after that older snapshot settles.
   if(pendingRefresh)void load({quiet:true});
  }
- async function read(item,{quiet=false}={}){const ticket=++detailVersion;selected=item;renderList();if(!quiet){onPreview?.();content.replaceChildren(el('p','workspace-note',t('Loading…')));detailSignature='';}
-  try{const id=nativeId(item),readable=id&&item.hasHistory!==false,value=readable?{...item,...await api(`${endpoint(item.nodeId)}?${new URLSearchParams({runtime:item.runtime,sessionId:id})}`),id:item.id,entryId:item.entryId,nodeId:item.nodeId,sessionId:id,title:item.title}:item;if(ticket!==detailVersion||!active()||key(selected)!==key(item))return;selected=value;const signature=JSON.stringify(value);if(quiet&&signature===detailSignature)return;detailSignature=signature;const scroll=content.scrollTop;content.replaceChildren();
-   content.append(el('h2','native-title',value.title||value.id));
-   for(const m of value.messages||[]){const card=el('article',`native-history-message ${m.role}`);card.append(el('strong','',t(m.role==='user'?'User':'Assistant')),el('pre','',simplifiedCliOutput(m.text)));content.append(card);}
-   if(value.notice||!value.messages?.length)content.append(el('p','workspace-note',t(value.notice||(value.canReopen?'This session has not started. Open it to begin chatting.':!readable?'Native session ID has not been linked yet. Existing history is unchanged.':'No text preview is available for this session.'))));
-   if(value.partial)content.append(el('p','workspace-note',t('Only recent readable content is shown. Full history is available in the CLI.')));
-   side.replaceChildren(el('h2','',t('Session details')));const details=el('dl','native-session-meta');for(const[label,text]of[['Device',workerName(value.nodeId)],['Agent tool',names[value.runtime]],['Session ID',id||t('Not available yet')],['Working folder',value.workspace||t('Choose a folder when opening')]]){const term=el('dt','',t(label)),data=el('dd','',text);data.translate=false;details.append(term,data);}side.append(details,el('p','workspace-note',t('Read-only preview. Continue chatting in iTerm.')));renderSessionControls(value);if(quiet)content.scrollTop=scroll;
-  }catch(e){if(ticket===detailVersion){if(quiet)note.textContent=t(e.message);else content.replaceChildren(el('p','global-error',t(e.message)));}}
+ /** History scrolls above a persistent footer, so quiet refreshes never discard a takeover draft. */
+ const scroll=el('div','native-session-scroll');
+ async function read(item,{quiet=false}={}){const ticket=++detailVersion;selected=item;renderList();if(!quiet){onPreview?.();takeover.detach();scroll.replaceChildren(el('p','workspace-note',t('Loading…')));content.replaceChildren(scroll);detailSignature='';}
+  try{const id=nativeId(item),readable=id&&item.hasHistory!==false,value=readable?{...item,...await api(`${endpoint(item.nodeId)}?${new URLSearchParams({runtime:item.runtime,sessionId:id})}`),id:item.id,entryId:item.entryId,nodeId:item.nodeId,sessionId:id,title:item.title}:item;if(ticket!==detailVersion||!active()||key(selected)!==key(item))return;selected=value;const signature=JSON.stringify(value);if(quiet&&signature===detailSignature)return;detailSignature=signature;const top=scroll.scrollTop,atBottom=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<40;
+   const history=el('div','native-history');history.append(el('h2','native-title',displayTitle(value)));
+   for(const m of value.messages||[]){const text=m.role==='user'?cleanUserText(m.text):m.text;const row=chatRow(m.role,text,value.runtime,m.timestamp);row.dataset.role=m.role;if(m.role==='user')row.dataset.text=text.trim();history.append(row);}
+   if(value.notice||!value.messages?.length)history.append(el('p','workspace-note',t(value.notice||(value.canReopen?'This session has not started. Open it to begin chatting.':!readable?'Native session ID has not been linked yet. Existing history is unchanged.':'No text preview is available for this session.'))));
+   if(value.partial)history.append(el('p','workspace-note',t('Only recent readable content is shown. Full history is available in the CLI.')));
+   const historyAt=Date.now();scroll.replaceChildren(history,takeover.feed);if(!content.contains(scroll))content.replaceChildren(scroll);
+   takeover.attach(value,{readable,historyAt,history});
+   renderSide(value,id,readable);
+   if(quiet&&!atBottom)scroll.scrollTop=top;else scroll.scrollTop=scroll.scrollHeight;
+  }catch(e){if(ticket===detailVersion){if(quiet)note.textContent=t(e.message);else{scroll.replaceChildren(el('p','global-error',t(e.message)));content.replaceChildren(scroll);}}}
+ }
+ /** Same row/bubble structure as the group chat, so both views share one visual language. */
+ function chatRow(role,text,runtime,at,extra){const agent=role!=='user',row=el('article',`chat-row ${agent?'agent':'human'} native-chat-row`);if(agent){const avatar=el('span','chat-avatar');avatar.append(agentIconEl(runtime));row.append(avatar);}
+  const col=el('div','chat-col'),header=el('div','chat-message-header'),name=el('div','chat-name',agent?names[runtime]||t('Assistant'):t('Me'));name.translate=false;header.append(name);if(at){const stamp=el('time','',time(at));stamp.dateTime=at;header.append(stamp);}col.append(header);
+  const bubble=el('div','chat-bubble'),body=simplifiedCliOutput(text||'');if(agent){const md=renderMarkdown(body);md.classList?.add('markdown-body');bubble.append(md);}else bubble.append(el('div','chat-message-text',body));if(extra)bubble.append(extra);col.append(bubble);row.append(col);return row;}
+ function renderSide(value,id,readable){
+  side.replaceChildren();const head=el('div','native-side-head'),title=el('h2','native-side-title',t('Session details')),badge=el('span',`native-side-badge ${takeover.isOn(value)?'is-live':''}`,t(takeover.isOn(value)?'Taken over':'Read-only'));head.append(title,badge);side.append(head);
+  const card=(heading,rows)=>{const section=el('section','native-side-card');section.append(el('h3','',t(heading)));const list=el('dl','native-session-meta');for(const[label,text,copy]of rows){const term=el('dt','',t(label)),data=el('dd','');const valueText=el('span','native-meta-value',text);valueText.translate=false;data.append(valueText);if(copy){const b=button('',async()=>{try{await navigator.clipboard.writeText(copy);b.classList.add('is-copied');b.title=t('Copied');setTimeout(()=>{b.classList.remove('is-copied');b.title=t('Copy');},1500);}catch{}},'icon-button native-copy');b.title=t('Copy');b.setAttribute('aria-label',t('Copy {label}',{label:t(label)}));b.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg>';data.append(b);data.classList.add('has-copy');}list.append(term,data);}section.append(list);side.append(section);};
+  const agentLine=el('span','native-agent-line');agentLine.append(agentIconEl(value.runtime),el('span','',names[value.runtime]||value.runtime));
+  card('Runtime',[['Device',workerName(value.nodeId)],['Agent tool',names[value.runtime]]]);
+  side.querySelector('.native-side-card:last-of-type dd:nth-of-type(2) .native-meta-value')?.replaceChildren(agentLine);
+  card('Native session',[['Session ID',id||t('Not available yet'),id||null],['Working folder',value.workspace||t('Choose a folder when opening'),value.workspace||null]]);
+  const actions=el('section','native-side-card native-side-actions');actions.append(el('h3','',t('Continue')));
+  actions.append(el('p','native-side-hint',t(takeover.isOn(value)?'Messages sent below resume this exact native session on its device.':'Read-only preview. Take over at the bottom to continue here, or open iTerm.')));
+  side.append(actions);renderSessionControls(value);
+ }
+ const takeover=createTakeover();
+ const IMAGE_CLIS=new Set(['codex','claude']),openTools=new Set();
+ const permissionPrompt=value=>value.runtime==='codex'?'Take over with automatic tool approval? Codex can change files inside this session workspace.':'Take over with permission prompts bypassed? {tool} can make changes without asking again.';
+ const phaseLabel=turn=>turn.status==='queued'?'Waiting for the device…':turn.status==='stopping'?'Stopping…':turn.phase==='starting'||(!turn.phase||turn.phase==='queued')&&turn.status==='starting'?'Starting the CLI…':turn.phase==='tool'?'Running a tool':turn.phase==='waiting'||turn.status==='waiting_user'?'Waiting':turn.phase==='replying'?'Replying…':turn.phase==='working'?'Working…':'Thinking…';
+ /** Codex records an attached image as markup with a Worker-local path; show a short placeholder instead. */
+/** CLI titles can start with injected context markup (e.g. <environment_context>); show readable text or the short ID. */
+const displayTitle=item=>{const text=String(item.title||'').replace(/<([a-z_-]+)\b[^>]*>[\s\S]*?(<\/\1>|$)/gi,' ').replace(/\s+/g,' ').trim();return text||`${String(item.id||'').slice(0,8)}\u2026`;};
+const sizeText=n=>!Number.isFinite(n)?'':n<1024?`${n} B`:n<1048576?`${(n/1024).toFixed(1)} KB`:`${(n/1048576).toFixed(1)} MB`;
+/** Hide CLI-internal stderr logging (timestamped WARN/ERROR lines) from the run process; real errors arrive as error events. */
+const cliNoise=text=>/^\s*\d{4}-\d\d-\d\dT\S+\s+(TRACE|DEBUG|INFO|WARN|ERROR)\b/m.test(stripAnsi(String(text||'')));
+const cleanUserText=text=>String(text||'').replace(/<image\b[^>]*>[\s\S]*?<\/image>/gi,'').replace(/\n*Attached files for this message \(local paths\):[\s\S]*$/,'').trim();
+/** A turn shows its process only when it holds more than the final reply: tools, runtime notes or intermediate messages. */
+const norm=text=>stripAnsi(String(text||'')).replace(/\s+/g,' ').trim();
+const allRows=turn=>liveSceneRows(turn.events||[],{status:turn.status}).rows.filter(r=>!(r.kind==='log'&&cliNoise(r.text)));
+/** The reply bubble shows the final message; the process keeps intermediate messages once each (streamed text that equals a message is dropped). */
+const finalReply=turn=>{const rows=allRows(turn),last=[...rows].reverse().find(r=>r.kind==='message'||r.kind==='text');return last||null;};
+const processRows=turn=>{const rows=allRows(turn),messages=new Set(rows.filter(r=>r.kind==='message').map(r=>norm(r.text))),final=finalReply(turn),seen=new Set();
+ return rows.filter(r=>{if(r===final)return false;if(r.kind!=='message'&&r.kind!=='text')return true;const n=norm(r.text);if(!n||(r.kind==='text'&&messages.has(n))||seen.has(n)||(final&&n===norm(final.text)))return false;seen.add(n);return true;});};
+const replyText=turn=>{const f=finalReply(turn);return f?f.text:turn.text||'';};
+const hasProcess=turn=>{const rows=processRows(turn);return rows.some(r=>r.kind==='tool'||r.kind==='log'||r.kind==='error')||rows.some(r=>r.kind==='message'||r.kind==='text');};
+const valueText=value=>typeof value==='string'?value:value==null?'':JSON.stringify(value,null,2);
+ /** The group-chat live-scene projection orders text, messages, logs and merged tool states for one turn. */
+ function processBlock(turn,{open=false}={}){
+  const model={rows:processRows(turn)},tools=model.rows.filter(r=>r.kind==='tool').length,live=['queued','starting','running','waiting_user','stopping'].includes(turn.status);
+  const box=el('details','native-turn-process');box.open=open;box.dataset.turn=turn.id;
+  const summary=el('summary','');summary.append(el('span','native-process-title',t('Run process')),el('span','native-process-count',t('{count} tool calls',{count:tools})));
+  const hidden=liveSceneRows(turn.events||[],{status:turn.status}).rows.filter(r=>r.kind==='log'&&cliNoise(r.text)).length;if(hidden){const note=el('span','native-process-hidden',t('{count} CLI notices hidden',{count:hidden}));note.title=t('Timestamped CLI stderr lines (configuration and sandbox notices) are not shown here');summary.append(note);}
+  if(live)summary.append(el('span','native-process-phase',`${t(phaseLabel(turn))}${turn.phase==='tool'&&turn.toolName?` · ${turn.toolName}`:''}`));
+  box.append(summary);const body=el('div','native-process-body');
+  for(const row of model.rows){
+   if(row.kind==='tool'){const item=row.item,card=el('details',`live-scene-event is-tool native-process-tool is-${item.status||'call'}`);card.dataset.key=row.key;const openKey=`${turn.id}:${row.key}`;card.open=openTools.has(openKey);card.addEventListener('toggle',()=>card.open?openTools.add(openKey):openTools.delete(openKey));
+    const head=el('summary','');const name=el('span','live-scene-tool-name',valueText(item.name||item.command||item.tool||item.title||item.type||t('Tool')).slice(0,160));name.translate=false;head.append(name,el('span','live-scene-tool-state',t(toolStatusLabel(item,turn.status))));card.append(head);
+    for(const[label,value]of[['Arguments',item.input??item.arguments??item.parameters],['Changes',item.changes],['Output',item.aggregatedOutput??item.output??item.results??item.result],['Error',item.error]]){if(value===undefined||value===null||value==='')continue;card.append(el('h4','',t(label)),el('pre','',stripAnsi(valueText(value))));}
+    if(item.exitCode!=null)card.append(el('small','',t('Exit code {exitCode}',{exitCode:item.exitCode})));body.append(card);}
+   else{const card=el('section',`live-scene-event is-${row.kind}`);card.append(el('header','',t(row.kind==='log'||row.kind==='error'?'Runtime event':'Agent output')));card.append(el('pre','',row.kind==='text'||row.kind==='message'?simplifiedCliOutput(stripAnsi(row.text)):stripAnsi(row.text)));body.append(card);}
+  }
+  if(!model.rows.length)body.append(el('p','live-scene-empty',t('Waiting for recorded execution events…')));
+  box.append(body);return box;
+ }
+ /** Takeover reuses the group-chat composer behaviour: Enter sends, Shift+Enter breaks lines, paste/drag/attach uploads files, an unconfirmed send retries the same message ID. */
+ function createTakeover(){
+  const stored=(name,fallback)=>{try{return JSON.parse(sessionStorage.getItem(name)||JSON.stringify(fallback));}catch{return fallback;}};
+  const consentKey='agent-workbench.native-takeover-v3-consent',on=new Set(stored(consentKey,[])),drafts=stored('agent-workbench.native-takeover-drafts',{}),operations=new Map();
+  const save=()=>{try{sessionStorage.setItem(consentKey,JSON.stringify([...on]));sessionStorage.setItem('agent-workbench.native-takeover-drafts',JSON.stringify(drafts));}catch{}};
+  const feed=el('div','native-takeover-feed'),shell=el('div','chat-composer-shell native-session-footer'),urls=new Map(),openProcesses=new Set();
+  let current=null,turns=[],poll=null,historyAt=0,historyEl=null,supported=true,fetchTicket=0,residentState='closed';
+  const sessionKey=value=>value?`${value.nodeId}/${value.runtime}/${value.sessionId}`:'';
+  const k=()=>sessionKey(current);
+  const isOn=value=>on.has(sessionKey(value));
+  const operation=(id=k())=>{if(!operations.has(id))operations.set(id,{sending:false,uploads:0,releasing:false,message:''});return operations.get(id);};
+  const isReleasing=value=>operation(sessionKey(value)).releasing;
+  const activeTurn=()=>turns.find(x=>['queued','starting','running','waiting_user','stopping'].includes(x.status));
+  const turnsUrl=()=>`${endpoint(current.nodeId)}/turns`;
+  const draft=(id=k())=>drafts[id]||={text:'',attachments:[]};
+  const fileUrl=(nodeId,item)=>{const id=`${nodeId}:${item.id}`;if(!urls.has(id))urls.set(id,api(`${endpoint(nodeId)}/attachments/${encodeURIComponent(item.id)}`,{blob:true}).then(blob=>URL.createObjectURL(blob)).catch(e=>{urls.delete(id);throw e;}));return urls.get(id);};
+  const revokeAttachment=(nodeId,id)=>{const key=`${nodeId}:${id}`,pending=urls.get(key);urls.delete(key);if(pending)void Promise.resolve(pending).then(url=>URL.revokeObjectURL(url)).catch(()=>{});};
+  const revokeUrls=()=>{for(const id of [...urls.keys()]){const split=id.indexOf(':');revokeAttachment(id.slice(0,split),id.slice(split+1));}};
+  function attachmentCard(item,remove){const card=el('div',`attachment-card${item.mime?.startsWith('image/')?'':' attachment-file-card'}`);card.title=item.name;
+   if(item.mime?.startsWith('image/')){const img=el('img');img.alt=item.name;void fileUrl(current.nodeId,item).then(url=>{img.src=url;}).catch(()=>{});card.append(img);}else card.append(el('span','native-file-icon','\u{1F4C4}'));
+   if(remove||!item.mime?.startsWith('image/')){const info=el('span','native-file-info');info.append(el('span','attachment-name',item.name),el('small','',sizeText(item.size)));card.append(info);}
+   if(remove){const x=button('×',remove,'attachment-remove');x.setAttribute('aria-label',t('Remove attachment'));card.append(x);}return card;}
+  function detach(){current=null;turns=[];historyEl=null;feed.replaceChildren();shell.remove();clearInterval(poll);poll=null;revokeUrls();}
+  function attach(value,{readable,historyAt:at,history}){const same=current&&k()===`${value.nodeId}/${value.runtime}/${value.sessionId}`;current=value;historyAt=at;historyEl=history;if(!same){turns=[];feed.replaceChildren();}
+   const worker=getData().workers?.find(w=>w.id===value.nodeId);supported=worker?.capabilities?.nativeTurns===3;
+   const eligible=readable&&value.canResume!==false&&!value.canReopen&&Boolean(value.workspace);
+   if(!eligible){shell.remove();return;}
+   content.append(shell);render();void refresh();
+  }
+  /** Turns already in native history keep their process next to the matching reply; others render as their own rows. */
+  function renderFeed(){feed.replaceChildren();for(const old of historyEl?.querySelectorAll('.native-turn-anchored')||[])old.remove();
+   const rows=[...(historyEl?.querySelectorAll('.native-chat-row')||[])],used=new Set();
+   for(const turn of turns){
+    const live=['queued','starting','running','waiting_user','stopping'].includes(turn.status);
+    if(!live&&turn.endedAt&&turn.prompt.trim()){
+     const prompt=turn.prompt.trim(),index=rows.findIndex((row,i)=>!used.has(i)&&row.dataset.role==='user'&&row.dataset.text===prompt);
+     if(index>=0){used.add(index);let anchor=rows[index];for(let i=index+1;i<rows.length&&rows[i].dataset.role!=='user';i++)anchor=rows[i];
+      if(turn.attachments?.length){const files=el('div','chat-attachments native-turn-files native-turn-anchored');for(const item of turn.attachments)files.append(attachmentCard(item));rows[index].querySelector('.chat-col')?.append(files);}
+      const extra=el('div','native-turn-anchored');
+      if(hasProcess(turn)){const block=processBlock(turn,{open:openProcesses.has(turn.id)});block.addEventListener('toggle',()=>block.open?openProcesses.add(turn.id):openProcesses.delete(turn.id));extra.append(block);}
+      if(turn.status!=='succeeded')extra.append(el('span','native-turn-error',`${t(turn.status==='interrupted'?'Interrupted':'Failed')}${turn.error?` \u00b7 ${t(turn.error)}`:''}`));
+      if(extra.childElementCount)anchor.after(extra);continue;}
+    }
+    let files=null;if(turn.attachments?.length){files=el('div','chat-attachments native-turn-files');for(const item of turn.attachments)files.append(attachmentCard(item));}
+    feed.append(chatRow('user',turn.prompt,current.runtime,turn.createdAt,files));
+    const meta=el('div','native-turn-state');
+    if(live){const dots=el('span','native-turn-live');dots.setAttribute('aria-hidden','true');meta.append(dots,el('span','',`${t(phaseLabel(turn))}${turn.phase==='tool'&&turn.toolName?` · ${turn.toolName}`:''}`),button('Stop',()=>stop(turn),'secondary compact'));}
+    else if(turn.status!=='succeeded')meta.append(el('span','native-turn-error',`${t(turn.status==='interrupted'?'Interrupted':'Failed')}${turn.error?` · ${t(turn.error)}`:''}`));
+    const extra=el('div','native-turn-extra');const block=processBlock(turn,{open:live||openProcesses.has(turn.id)});block.addEventListener('toggle',()=>{if(!live)block.open?openProcesses.add(turn.id):openProcesses.delete(turn.id);});
+    if(live||hasProcess(turn))extra.append(block);if(meta.childElementCount)extra.append(meta);
+    feed.append(chatRow('assistant',replyText(turn),current.runtime,null,extra));
+   }}
+  function render(){
+   if(!current)return;const value=current,taken=isOn(value);shell.replaceChildren();renderFeed();
+   if(!taken){const bar=el('div','native-takeover-bar');const copy=el('div','native-takeover-copy');copy.append(el('strong','',t('Read-only preview')),el('span','',t(supported?'Take over to keep chatting in this exact native session here.':'Upgrade this Worker to take over native sessions')));const b=button('Take over session',()=>{if(!confirm(t(permissionPrompt(value),{tool:names[value.runtime]||value.runtime})))return;on.add(k());save();render();renderSide(value,value.sessionId,true);input.focus();},'primary native-takeover-button');b.disabled=!supported;bar.append(copy,b);shell.append(bar);return;}
+   const id=k(),d=draft(id),op=operation(id),busy=Boolean(activeTurn());
+   const form=el('form','chat-composer native-takeover-form'),barRow=el('div','chat-input-bar'),field=el('div','chat-input-field'),note=el('p','workspace-note native-takeover-note'),tray=el('div','chat-attachments native-takeover-tray');
+   input.placeholder=t('Message {tool}; replies continue this native session',{tool:names[value.runtime]||value.runtime});if(input.value!==d.text)input.value=d.text||'';
+   note.textContent=op.message||(d.pending?t('Sending is not yet confirmed; clicking Send retries the same message without dispatching twice.'):'');note.hidden=!note.textContent;
+   for(const item of d.attachments||[])tray.append(attachmentCard(item,()=>{if(!d.pending)void removeAttachment(id,value.nodeId,item);}));
+   if(op.uploads)tray.append(el('span','attachment-uploading',t('Uploading attachments…')));tray.hidden=!tray.childElementCount;
+   sendButton.disabled=op.sending||op.releasing||busy||op.uploads>0;sendButton.textContent=t(op.sending?'Sending…':d.pending?'Retry send':'Send');input.disabled=op.sending||op.releasing;attachButton.disabled=op.sending||op.releasing||Boolean(d.pending);
+   field.append(tray,attachButton,input);barRow.append(field,sendButton);
+   const release=button(op.releasing?'Ending takeover…':'End takeover',()=>void endTakeover(value),'secondary compact native-release');release.disabled=busy||op.sending||op.uploads>0||op.releasing;
+   const status=el('div','native-takeover-status');status.append(el('span',`native-takeover-dot${residentState==='open'?' is-resident':''}`),el('span','',t(op.releasing?'Ending page takeover; waiting for the CLI to exit…':busy?'This session is replying…':residentState==='open'?'Taken over · CLI is resident; messages continue this native session':'Taken over · the next message starts the CLI')),release);
+   if(!IMAGE_CLIS.has(value.runtime))status.append(el('span','native-takeover-limit',t('{tool} cannot receive images here; files are passed as paths',{tool:names[value.runtime]})));
+   form.append(status,note,barRow);form.addEventListener('submit',e=>{e.preventDefault();void submit();});shell.append(form);resize();
+  }
+  async function endTakeover(value){const id=sessionKey(value),op=operation(id);if(op.releasing)return;op.releasing=true;op.message='';if(k()===id){render();renderSide(value,value.sessionId,true);}try{await api(`${endpoint(value.nodeId)}/takeover/release`,{method:'POST',json:{runtime:value.runtime,sessionId:value.sessionId}});if(k()===id)await refresh();else await onStateRefresh();}catch(error){op.releasing=false;op.message=t(error.message);if(k()===id){render();renderSide(value,value.sessionId,true);}}}
+  async function removeAttachment(id,nodeId,item){const op=operation(id);op.message='';if(k()===id)render();try{await api(`${endpoint(nodeId)}/attachments/${encodeURIComponent(item.id)}`,{method:'DELETE'});const d=draft(id);d.attachments=(d.attachments||[]).filter(a=>a.id!==item.id);revokeAttachment(nodeId,item.id);save();}catch(error){op.message=t(error.message);}finally{if(k()===id)render();}}
+  const input=el('textarea');input.rows=1;input.setAttribute('aria-label',t('Chat message'));
+  const sendButton=el('button','primary',t('Send'));sendButton.type='submit';
+  const fileInput=el('input');fileInput.type='file';fileInput.multiple=true;fileInput.hidden=true;document.body.append(fileInput);
+  const attachButton=el('button','native-attach');attachButton.type='button';attachButton.title=t('Upload an image or file');attachButton.setAttribute('aria-label',t('Upload file'));attachButton.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m8 12 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l8-8M7 13l7-7"/></svg>';
+  attachButton.addEventListener('click',()=>fileInput.click());fileInput.addEventListener('change',()=>{void upload(fileInput.files);fileInput.value='';});
+  /** Same limits as the group chat: at most 6 files per message, 20 MB each; images only for CLIs with image input. */
+  async function upload(list){if(!current)return;const id=k(),nodeId=current.nodeId,runtime=current.runtime,d=draft(id),op=operation(id),files=[...list];if(op.sending||op.releasing||d.pending)return;op.message='';
+   if((d.attachments?.length||0)+op.uploads+files.length>6){op.message=t('At most 6 attachments per message');render();return;}
+   if(files.some(f=>!f.size||f.size>20*1024*1024)){op.message=t('Attachments cannot be empty; each file is limited to 20 MB');render();return;}
+   if(!IMAGE_CLIS.has(runtime)&&files.some(f=>f.type.startsWith('image/'))){op.message=t('{tool} cannot receive images here; files are passed as paths',{tool:names[runtime]});render();return;}
+   op.uploads+=files.length;render();
+   for(const file of files){let uploaded=null;try{uploaded=await api(`${endpoint(nodeId)}/attachments`,{method:'POST',body:file,headers:{'Content-Type':'application/octet-stream','X-File-Name':encodeURIComponent(file.name||'pasted-image.png')}});if(!IMAGE_CLIS.has(runtime)&&uploaded.mime.startsWith('image/'))throw Error('This CLI cannot receive images in a takeover; send files or use iTerm');(d.attachments||=[]).push({id:uploaded.id,name:uploaded.name,mime:uploaded.mime,size:uploaded.size});save();}catch(error){if(uploaded)void api(`${endpoint(nodeId)}/attachments/${encodeURIComponent(uploaded.id)}`,{method:'DELETE'}).catch(()=>{});op.message=t(error.message);}finally{op.uploads--;if(k()===id)render();}}}
+  input.addEventListener('paste',e=>{const files=[...(e.clipboardData?.files||[])];if(files.length){e.preventDefault();void upload(files);}});
+  shell.addEventListener('dragover',e=>{if(e.dataTransfer?.types.includes('Files')){e.preventDefault();shell.classList.add('is-dragging');}});
+  shell.addEventListener('dragleave',()=>shell.classList.remove('is-dragging'));
+  shell.addEventListener('drop',e=>{shell.classList.remove('is-dragging');if(e.dataTransfer?.files.length&&current&&isOn(current)){e.preventDefault();void upload(e.dataTransfer.files);}});
+  const resize=()=>{input.style.height='auto';input.style.height=`${Math.min(120,Math.max(40,input.scrollHeight))}px`;};
+  input.addEventListener('input',()=>{draft().text=input.value;save();resize();});
+  input.addEventListener('keydown',e=>{if(window.matchMedia('(max-width: 1000px)').matches)return;if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing&&!sendButton.disabled){e.preventDefault();input.form?.requestSubmit();}});
+  async function submit(){if(!current||activeTurn())return;const id=k(),value=current,d=draft(id),op=operation(id);if(op.sending||op.releasing||op.uploads)return;if(!d.pending&&!input.value.trim()&&!d.attachments?.length)return;op.message='';
+   d.pending||={clientTurnId:crypto.randomUUID(),text:input.value,attachmentIds:(d.attachments||[]).map(a=>a.id)};save();op.sending=true;render();
+   try{const turn=await api(`${endpoint(value.nodeId)}/turns`,{method:'POST',json:{runtime:value.runtime,sessionId:value.sessionId,allowAll:true,...d.pending}});drafts[id]={text:'',attachments:[]};if(k()===id){input.value='';turns=[...turns.filter(x=>x.id!==turn.id),turn];}}
+   catch(error){if(!error.isNetworkError)delete d.pending;op.message=t(error.message);}
+   finally{op.sending=false;save();if(current){render();schedule();if(k()===id)scroll.scrollTop=scroll.scrollHeight;}}}
+  async function stop(turn){const op=operation();try{const next=await api(`${turnsUrl()}/${encodeURIComponent(turn.id)}/stop`,{method:'POST',json:{}});turns=turns.map(x=>x.id===next.id?next:x);render();}catch(error){op.message=t(error.message);render();}}
+  async function refresh(){if(!current)return;const ticket=++fetchTicket,id=k(),op=operation(id);try{const result=await api(`${turnsUrl()}?${new URLSearchParams({runtime:current.runtime,sessionId:current.sessionId})}`);if(ticket!==fetchTicket||k()!==id)return;const wasActive=Boolean(activeTurn()),bottom=scroll.scrollHeight-scroll.scrollTop-scroll.clientHeight<80;supported=result.supported!==false;residentState=result.process||'closed';turns=result.items||[];if(op.releasing&&residentState==='closed'){op.releasing=false;on.delete(id);save();await onStateRefresh();}render();renderSide(current,current.sessionId,true);if(wasActive&&!activeTurn()&&selected)void read(selected,{quiet:true});schedule();if(bottom)scroll.scrollTop=scroll.scrollHeight;}catch(error){op.message=t(error.message);render();schedule();}}
+  function schedule(){clearInterval(poll);poll=null;if(current&&(activeTurn()||operation().releasing))poll=setInterval(()=>{if(!document.hidden)void refresh();},1000);}
+  return {feed,attach,detach,isOn,isReleasing,feedback:value=>operation(sessionKey(value)).message,release:endTakeover,refresh};
  }
  const dialog=el('dialog','settings-edit-dialog native-session-dialog');dialog.id='native-session-dialog';document.body.append(dialog);
  const picker=el('dialog','settings-edit-dialog native-file-picker');picker.id='native-file-picker';document.body.append(picker);let pickerVersion=0;
@@ -150,7 +317,7 @@ export function createNativeSessionUI({api,getData,onModeChange,onPreview,onStat
  }
  /** Segmented buttons share one mode transition; selecting the active side does not reload history. */
  const switches=[...mode.querySelectorAll('button[data-mode]')];
- function selectMode(value){if(!['groups','sessions'].includes(value)||value===modeValue)return;modeValue=value;for(const control of switches)control.setAttribute('aria-pressed',String(control.dataset.mode===value));document.body.dataset.navigationMode=value;if(active())populate();else{version++;detailVersion++;loading=pendingRefresh=false;dialog.close();}onModeChange();if(active())void load();}
+ function selectMode(value){if(!['groups','sessions'].includes(value)||value===modeValue)return;modeValue=value;for(const control of switches)control.setAttribute('aria-pressed',String(control.dataset.mode===value));document.body.dataset.navigationMode=value;if(active())populate();else{version++;detailVersion++;loading=pendingRefresh=false;takeover.detach();dialog.close();}onModeChange();if(active())void load();}
  for(const control of switches)control.addEventListener('click',()=>selectMode(control.dataset.mode));
  mode.addEventListener('keydown',event=>{const index=event.key==='ArrowLeft'||event.key==='Home'?0:event.key==='ArrowRight'||event.key==='End'?1:null;if(index===null)return;event.preventDefault();switches[index].focus();selectMode(switches[index].dataset.mode);});
  device.addEventListener('change',()=>load());tool.addEventListener('change',()=>load());
