@@ -170,7 +170,7 @@ Evolve the existing source-sync configuration and records to support stable scop
 
 ### 13.2 Scope and baseline compatibility
 
-Add explicit project-folder scopes beside existing repository scopes. Include source files, documentation and required ordinary/binary resources. Permit the selected project's `.workbench/docs/` subtree as a narrow exception even when its parent is Git-ignored; exclude the rest of `.workbench/`. Enforce the versioned policy, mandatory exclusions and current bounded transfer limits on both endpoints.
+Add explicit project-folder scopes beside existing repository scopes. The default source-only policy includes source files, documentation and required ordinary/binary resources. Permit the selected project's `.workbench/docs/` subtree as a narrow exception even when its parent is Git-ignored; exclude the rest of `.workbench/`. Section 14 defines the separately approved output policy. Enforce the versioned policy, mandatory exclusions and current bounded transfer limits on both endpoints.
 
 The current capture requires a Git root and committed-tree baseline. Relaxing only the path filter is insufficient. Add saved-content initialization within the same engine: identical captures establish equality; one-sided new files can be offered to absent peers; different existing same-path contents create a conflict before writes. The first capture is not automatically authoritative.
 
@@ -226,3 +226,41 @@ Release `dc43c14` was installed on the local Home/Worker and one remote Worker. 
 Review regressions cover policy-2 conflict preservation before migration, explicit nested document-scope ownership and isolated relative-document links. Filename/parent collisions block preparation explicitly before writes. The existing modifier/candidate workflow has directory contract tests; arbitrary external shell edits remain unknown-author changes and escalate to the supervisor. Directory sync cannot be used as a pinned Git delivery receipt. Observers currently recapture bounded eligible file hashes on a change hint or reconciliation; only missing changed content is transferred. Hashing is not a block-level delta or a second version-control system. Scope disable is blocked while unresolved conflicts remain; use global pause to stop work without discarding them.
 
 Idle conflict polling selects only Runs with conflict links through a sparse index, instead of loading all historical Run bodies. File capture still performs fresh pre-read and post-read path checks and hashes actual bytes. Ordinary missing markers do not create rejected filesystem promises, and the final verified leaf stat is reused for descriptor identity comparison. No path-safety cache, mtime-only hash cache, scan-frequency reduction or history deletion is introduced by these CPU optimizations.
+
+## 14. Opt-in source and outputs policy
+
+Status: implemented locally; isolated Home/Worker/browser verification only. Not deployed or automatically enabled. Earlier physical-device acceptance in section 13 does not validate this increment on a remote server.
+
+Absent `contentMode`, or `source-only`, retains the existing exclusions and Git-ignore behavior. `source-and-outputs` includes eligible reports, logs, `coverage`, `outputs`, `.local`, other `.workbench` files and ignored artifacts. It requires directory scope, capture policy 4 and `sourceSyncOutputs: 1` on every participating Worker. Unsupported Workers cannot activate, receive a new expanded command, or keep watching the expanded scope after a downgrade.
+
+Mandatory exclusions fall into five categories:
+
+1. Version control: `.git`, `.worktrees`, nested repositories/submodules and their boundary protections.
+2. Runtime state: `.data`, per-turn `.wb-bridge-*`, `.wb-source-sync-*` journals/recovery siblings, the project ownership marker, Home/Worker database files and their sidecars/backups. A directory containing `home.sqlite` or `worker.sqlite` is a private runtime root, even below `.local`; its staging and pending state are excluded together. Receiver path walks check again before writing.
+3. Dependencies: `node_modules`, `vendor`, `.venv`, `venv`, Python bytecode caches.
+4. Credentials and keys: environment files, credential/secret/token prefixes, named API/Worker/access/refresh tokens, native auth/Worker configuration files, SSH and package-registry credentials, private keys and certificate stores. Expanded mode excludes `.env.*` examples too; legacy example handling stays unchanged.
+5. CLI login folders: `.codex` and `.claude`.
+
+`build` and `dist` remain excluded in this increment. Other eligible cache/output folders are not excluded merely because Git ignores them. Filename rules cannot detect credentials embedded in a script or report: operators must review the newly included paths and the warning before enabling. Path traversal, symlink/hardlink, nonordinary-file, alias and overlapping-scope checks remain in force. This is not a secret-content scanner.
+
+### Preview and migration
+
+Use the existing disable/preview/enable sequence. Pending operations and unresolved conflicts block migration; no cleanup or forced cancellation is performed. Review the exact preview and configuration revision; changing the mode, devices or scopes invalidates the browser's preview. Existing projects and active tasks are not rewritten by installation.
+
+Expanded preview reads stable bytes locally to calculate hashes, but keeps only bounded metadata: included paths, newly eligible paths and exclusions. It does not save content blobs on the Worker, request body uploads, or permit upload to Home. The first real post-activation capture supplies actual transfer content and rechecks freshness. A changing file cannot be substituted using an earlier preview hash.
+
+### Limits and receipts
+
+Limits remain 20 MiB per file, 100 MiB per changed capture/batch content, 10,000 files per scope and 1 GiB per project's retained Home content store. Scope walking also keeps the existing bounded directory-entry traversal guard. Distinct incoming content across scopes is checked before authorizing additional uploads and before baseline advancement. Project storage quota includes retained evidence; it is not just the size of current live files.
+
+The first limit violation stops the incomplete scan or transfer and reports `Over sync limit`, the relative path when applicable, and actual/maximum bytes or count. It is never recorded as a successful partial manifest or an inferred deletion. Already acknowledged files, historical baselines, conflict evidence and backups remain intact. A quota-rejected transfer retains its original capture and settles a separate hash-bound blocked receipt; it does not repeatedly upload the same completed capture. A fresh observation or explicit new request can retry after the underlying problem is resolved. No automatic quota eviction, history pruning or raised limits are introduced.
+
+### Handoffs and visibility
+
+New public latest pointers use `.workbench/handoffs/<nodeId>/LATEST.md`; private-review pointers keep `.workbench/handoffs/private/<roleId>/<nodeId>/LATEST.md`. Use stable, path-safe identifiers rather than display names. Managed turns carry the node identity, and automatic end-of-turn handoffs use the same helper. Unmanaged local tools derive a stable local key without recording a hostname. Historical root/role latest files are not moved, deleted or rewritten; `wb boot` and `wb handoff last` fall back to them when no device-specific pointer exists. Per-Run automatic-write suppression checks both layouts.
+
+Managed sync conflict reads and status cannot expose unreleased independent-review content through the blob cache. This retains the existing application-level visibility boundary, not strong isolation against native CLIs sharing an OS account. Git-based execution inputs and the separate Mac-local file-reading authorization remain unchanged.
+
+### Increment acceptance
+
+Local checks exercise policy compatibility, mandatory exclusions, ignored outputs, no-body preview, scope ownership, all four limits, runtime-folder protection, per-device and private handoffs, legacy reads, review visibility and durable quota rejection. A real isolated Home and two Worker processes on one Mac, with a real browser, verified preview/activation, bidirectional output and handoff transfer, unchanged Git HEAD/index, over-limit peer preservation and recovery, unchanged unrelated project settings, desktop/mobile layout and language switching. No model was invoked. Physical Mac/Linux deployment and production activation remain separate gates; no new latency or CPU guarantee is claimed.

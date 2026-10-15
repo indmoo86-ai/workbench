@@ -5,6 +5,8 @@ import { join, resolve, relative, isAbsolute, dirname } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { tr } from './i18n.mjs';
+import {hostname} from 'node:os';
+import {handoffDirectory,handoffReadPaths} from './handoff-paths.mjs';
 import {normalizeReadQuery,normalizeFileRead,normalizeReadSelector,readObject,readId,readError} from './node-query-recipes.mjs';
 
 const exec = promisify(execFile);
@@ -34,6 +36,7 @@ export function context() {
     knowledge,
     workspace: env('WB_WORKSPACE'),
     runId: env('WB_RUN_ID'),
+    nodeId:env('WB_NODE_ID')||`local-${createHash('sha256').update(hostname()).digest('hex')}`,
     role: env('WB_ROLE'),
     hop: Number(env('WB_HOP') || 0),
     home: env('WB_HOME'),
@@ -57,7 +60,7 @@ async function ensureKnowledge(dir) {
 export async function boot() {
   const ctx = context();
   const knowledge = await ensureKnowledge(ctx.knowledge);
-  const last = ctx.documentViews&&ctx.home&&ctx.runId?(await homeFetch('/api/agent/documents',{runId:ctx.runId,action:'last'}).catch(()=>null))?.text||'':await readFile(join(knowledge, 'handoffs', 'LATEST.md'), 'utf8').catch(() => '');
+  const last = (await handoffLast().catch(()=>null))?.text||'';
   return {
     ok: true,
     role: ctx.role || null,
@@ -120,6 +123,12 @@ async function homeFetch(pathname, payload) {
 export async function chatPost(text) {
   if (!String(text || '').trim()) throw new Error(tr('wbTools.chatNeedsText'));
   return homeFetch('/api/agent/note', { runId: context().runId, text: String(text).trim() });
+}
+
+/** Sending is queued in Home with a stable ID; credentials and project identity never come from tool input. */
+export async function notifySupervisor(action,input) {
+  if (process.env.WB_SYSTEM_SUPERVISOR !== '1') throw new Error(tr('wechatChannel.supervisorOnly'));
+  return homeFetch('/api/agent/notify',{runId:context().runId,action,input});
 }
 
 export async function askRole(name, text) {
@@ -208,25 +217,25 @@ function renderHandoff({ ctx, git, done, files, verify, next, blocked, auto }) {
 
 export async function handoffLast() {
   const ctx=context();if(ctx.documentViews&&ctx.home&&ctx.runId){const result=await homeFetch('/api/agent/documents',{runId:ctx.runId,action:'last'});return {ok:true,...result};}
-  const dir = await ensureKnowledge(context().knowledge);
-  const text = await readFile(join(dir, 'handoffs', 'LATEST.md'), 'utf8').catch(() => '');
-  if (!text) return { ok: false, error: tr('wbTools.noWrittenHandoffYet') };
-  return { ok: true, path: join(dir, 'handoffs', 'LATEST.md'), text };
+  const dir = await ensureKnowledge(ctx.knowledge);
+  for(const path of handoffReadPaths(ctx.nodeId,ctx.reviewPrivate)){try{const text=await readFile(join(dir,path),'utf8');return {ok:true,path:join(dir,path),text};}catch(e){if(e.code!=='ENOENT')throw e;}}
+  return { ok: false, error: tr('wbTools.noWrittenHandoffYet') };
 }
 
 export async function handoffHasRun(runId, knowledge) {
   if (!runId) return false;
   const dir = join(knowledge || context().knowledge, 'handoffs');
-  const names = await readdir(dir).catch(() => []);
-  return names.some(name => name.includes(runId));
+  const visit=async(root,depth)=>{for(const entry of await readdir(root,{withFileTypes:true}).catch(()=>[])){if(entry.isFile()&&entry.name.includes(runId))return true;if(depth&&entry.isDirectory()&&await visit(join(root,entry.name),depth-1))return true;}return false;};
+  return visit(dir,3);
 }
 
 /** Fixed template: done items / files / commit / next steps. With auto=true, skipped if this run already has a handoff. */
 export async function writeHandoff(fields = {}, override = {}) {
   const ctx = { ...context(), ...override };
   const dir = await ensureKnowledge(ctx.knowledge);
-  const handoffs=ctx.reviewPrivate?join(dir,'handoffs','private',ctx.reviewPrivate):join(dir,'handoffs');
-  if (fields.auto && ctx.runId && (await readdir(handoffs).catch(()=>[])).some(name=>name.includes(ctx.runId))) {
+  const handoffs=join(dir,handoffDirectory(ctx.nodeId,ctx.reviewPrivate));
+  const previous=join(dir,handoffDirectory('',ctx.reviewPrivate));
+  if (fields.auto && ctx.runId && (await Promise.all([handoffs,previous].map(path=>readdir(path).catch(()=>[])))).flat().some(name=>name.includes(ctx.runId))) {
     return { ok: true, skipped: true, reason: tr('wbTools.turnAlreadyHasWrittenHandoff') };
   }
   const git = await gitSnapshot(ctx.workspace || ctx.projectRoot);
@@ -247,4 +256,4 @@ export async function writeHandoff(fields = {}, override = {}) {
   return { ok: true, path: file, latest: join(handoffs, 'LATEST.md') };
 }
 
-export const helpText = () => [tr('minimal.teamHelp'),tr('minimal.waitHelp'),tr('wbTools.builtInCollaborationToolsWorkbench'),process.env.WB_QUEUE_BATCH==='1'?tr('sessionQueue.passRule'):'',process.env.WB_SYSTEM_SUPERVISOR==='1'?tr('collabSessions.toolHelp'):'',process.env.WB_SOURCE_SYNC==='1'?tr('sourceSync.toolGuide'):'',process.env.WB_READ_TOOLS==='1'?tr('readTools.guide'):''].filter(Boolean).join('\n\n');
+export const helpText = () => [tr('minimal.teamHelp'),tr('minimal.waitHelp'),tr('wbTools.builtInCollaborationToolsWorkbench'),process.env.WB_QUEUE_BATCH==='1'?tr('sessionQueue.passRule'):'',process.env.WB_SYSTEM_SUPERVISOR==='1'?tr('collabSessions.toolHelp'):'',process.env.WB_SYSTEM_SUPERVISOR==='1'?tr('wechatChannel.toolGuide'):'',process.env.WB_SOURCE_SYNC==='1'?tr('sourceSync.toolGuide'):'',process.env.WB_READ_TOOLS==='1'?tr('readTools.guide'):''].filter(Boolean).join('\n\n');

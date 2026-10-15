@@ -26,6 +26,7 @@ import {listNativeSessions,readNativeSession,nativeTuiArgs,assertNativeSessionId
 import { giteeRepository } from './repository.mjs';
 import { inspectRuntimes, runtimeIssue } from './runtime-probe.mjs';
 import { writeHandoff } from './wb-tools.mjs';
+import {handoffReadPaths} from './handoff-paths.mjs';
 import { resolveNodeKind } from './node-kind.mjs';
 import { normalizeRemoteDesktopUrl } from './remote-desktop.mjs';
 import { validateLaunch, afterProcessExit, recordDeliveryResult, recoverDeliveryCommands, continuationSource } from './worker-coordinator.mjs';
@@ -41,7 +42,7 @@ import { outboxBatch } from './worker-outbox.mjs';
 import { prepareProjectSpace } from './project-space.mjs';
 import { publishProjectDelivery, receiveProjectDelivery, fetchExecutionDeliveries } from './project-delivery.mjs';
 import { collectCcusageReport } from './token-usage.mjs';
-import { nativeEnvironment, findSessionHistory, projectTerminalLock, processAlive, releaseTerminalSession, checkTerminalSession, stopTerminalSession, resumeEnvironment, freshTerminalArgs } from './terminal-resume.mjs';
+import { nativeEnvironment, findSessionHistory, projectTerminalLock, nativeTerminalProject, managedRunProcessState, releaseTerminalSession, checkTerminalSession, stopTerminalSession, resumeEnvironment, freshTerminalArgs } from './terminal-resume.mjs';
 import { receiveAttachments } from './attachments.mjs';
 import { inspectExecutionRepositories, prepareExecutionWorkspace, executionConflict, verifyExecutionVersions,resolveExecutionRepositories,inspectExecutionInput,assertExecutionInputVersions,executionInputBaselines } from './execution-workspace.mjs';
 import { createRunInput, instructionDelivery,executionInstructionComponents,executionEnvironmentHint } from './run-input.mjs';
@@ -126,7 +127,7 @@ const warmSessions = new WarmSessions({max:capacity,changed:()=>{send({type:'war
 const cliRecovery=new CliSessionRecovery({db,warmSessions,activeSessions:sessions,emit});
 const recoveryBinding=m=>({taskId:m.run.taskId||m.task.id,projectId:m.run.projectId,roleId:m.run.roleId,nodeId:identity.nodeId,roleSessionId:m.run.roleSessionId||null,
   nativeSessionId:m.run.resumeNativeSessionId||db.get('runs',m.run.continuationRunId||'')?.nativeSession?.id||null,priorRunId:m.run.continuationRunId||null,runId:m.run.id});
-async function checkNativeDriver(m){const binding=recoveryBinding(m);if(!binding.nativeSessionId&&!binding.priorRunId)return;if(!cliRecoveryEnabled){const owned=sessions.get(binding.runId),pid=(owned?.preparing?owned.session:owned)?.proc?.pid;if(cliRecovery.records(binding).some(r=>r.pid&&r.pid!==pid&&processAlive(r.pid)&&!warmSessions.owns(r.pid)))throw Error(tr('worker.nativeSessionStillHasProcess'));return;}const result=await cliRecovery.check(binding);if(result.state!=='ready'){const error=Error(result.reason||tr('cliRecovery.waiting'));error.code='CLI_RECOVERY_WAIT';error.recovery=result;throw error;}}
+async function checkNativeDriver(m){const binding=recoveryBinding(m);if(!binding.nativeSessionId&&!binding.priorRunId)return;if(!cliRecoveryEnabled){const owned=sessions.get(binding.runId),pid=(owned?.preparing?owned.session:owned)?.proc?.pid;if(cliRecovery.records(binding).some(r=>r.pid!==pid&&!warmSessions.owns(r.pid)&&managedRunProcessState(r)!=='exited'))throw Error(tr('worker.nativeSessionStillHasProcess'));return;}const result=await cliRecovery.check(binding);if(result.state!=='ready'){const error=Error(result.reason||tr('cliRecovery.waiting'));error.code='CLI_RECOVERY_WAIT';error.recovery=result;throw error;}}
 /** Slot reservations count before asynchronous preparation; retained processes are reclaimed, never active work. */
 function occupiedSlots(){return sessions.size+organizerRunning+reservedTerminalSlots(db,identity.nodeId);}
 function reportCapacity(){send({type:'capacity_state',capacity,usage:{active:sessions.size,retained:warmSessions.snapshot().length,organizer:organizerRunning,terminal:reservedTerminalSlots(db,identity.nodeId)}});}
@@ -335,6 +336,7 @@ async function command(m) {
         PATH: `${join(base, 'bin')}${delimiter}${process.env.PATH || ''}`,
         WB_PROJECT_ROOT: m.run.execution?.isolated ? folder : root,
         WB_KNOWLEDGE: knowledge,
+        WB_NODE_ID: identity.nodeId,
         WB_WORKSPACE: folder,
         WB_RUN_ID: c.runId,
         WB_ROLE_SESSION_ID: m.run.roleSessionId || '',
@@ -474,6 +476,7 @@ async function command(m) {
           blocked: rec.status === 'succeeded' ? tr('worker.none') : (rec.error || rec.status || tr('worker.unsuccessful'))
         }, {
           knowledge,
+          nodeId:identity.nodeId,
           reviewPrivate:m.run.reviewGuarded?m.run.roleId:'',
           projectRoot: root,
           workspace: folder,
@@ -610,6 +613,10 @@ async function query(m) {
         const bytes=await readFile(target);return {path:relative(knowledge,target),text:bytes.toString('utf8'),hash:createHash('sha256').update(bytes).digest('hex')};
       };
       if(input.action==='read'){reply(await read(input.path));return;}
+      if(input.action==='last'){
+        for(const path of handoffReadPaths(identity.nodeId,input.reviewPrivate||'')){try{reply(await read(path));return;}catch(e){if(e.code!=='ENOENT')throw e;}}
+        reply({path:handoffReadPaths(identity.nodeId,input.reviewPrivate||'')[0],text:'',hash:createHash('sha256').update('').digest('hex')});return;
+      }
       if(!['list','snapshot'].includes(input.action))throw new Error(tr('collabSessions.invalidAction'));
       const files=[];let partial=false;
       const walk=async path=>{
@@ -700,11 +707,11 @@ async function query(m) {
       const workspace=await projectRoot(history?.workspace||input.workspace);
       const projectIds=new Set();
       for(const binding of input.bindings||[]){const root=await realpath(binding.localRoot).catch(()=>null);if(root&&(inside(root,workspace)||inside(workspace,root)))projectIds.add(binding.projectId);}
-      if(projectIds.size>1)throw Error('This folder overlaps several group chats; open it from the owning role instead');
-      const projectId=[...projectIds][0]||input.projectId;
-      const assertIdle=()=>assertNativeSessionIdle(db,{runtime,sessionId:input.sessionId,workspace,projectId});
+      const owner=nativeTerminalProject(db,{nodeId:identity.nodeId,runtime,sessionId:input.sessionId,folderProjectIds:[...projectIds],managedProjectIds:input.managedProjectIds||[]});
+      const projectId=owner||input.projectId;
+      const assertIdle=()=>assertNativeSessionIdle(db,{nodeId:identity.nodeId,runtime,sessionId:input.sessionId,workspace,projectId});
       assertIdle();
-      if(m.action==='native_terminal_preview'){send({type:'reply',id:m.id,result:{workspace,projectId:[...projectIds][0]||null,runtime,sessionId:input.sessionId||null}});return;}
+      if(m.action==='native_terminal_preview'){send({type:'reply',id:m.id,result:{workspace,projectId:owner,runtime,sessionId:input.sessionId||null}});return;}
       if(typeof input.id!=='string'||!/^[a-zA-Z0-9-]{8,100}$/.test(input.id)||!input.projectId||input.nodeId!==identity.nodeId||projectId!==input.projectId)throw Error('Terminal binding changed; refresh and try again');
       const nativeSession={...await nativeEnvironment(runtime),id:input.sessionId||null};
       assertIdle();
@@ -765,7 +772,7 @@ async function query(m) {
       }
       const r=db.get('runs',m.runId);
       if(r)await warmSessions.closeProject(r.projectId);
-      if(!r || !terminal.has(r.status) || sessions.has(r.id) || processAlive(r.pid))throw new Error(tr('worker.originalCliHasNotExited'));
+      if(!r || !terminal.has(r.status) || sessions.has(r.id) || managedRunProcessState(r)!=='exited')throw new Error(tr('worker.originalCliHasNotExited'));
       if(db.list('runs').some(other=>other.projectId===r.projectId&&!terminal.has(other.status)))throw new Error(tr('worker.projectStillHasExecutionsOn'));
       const lock=projectTerminalLock(db,r.projectId,identity.nodeId);
       if(lock && lock.id!==id)throw new Error(tr('worker.projectHasBeenTakenOver'));
@@ -951,12 +958,14 @@ async function query(m) {
   } catch (e) { send(guarded?budgetReadReply({id:m.id,error:['source_inspect','source_read','read_query'].includes(m.action)?e.code||'read_failed':e.message}).message:{type:'reply',id:m.id,error:e.message}); }
   finally {if(modifies)db.remove('sourceSyncOperations',m.id);}
 }
-// On Worker restart, only known PIDs are verified; no --resume is attempted and no replacement process is started.
+// Reconcile saved startup identities after restart; PID reuse never authorizes a signal or native resume.
 recoverDeliveryCommands(db);
 for (const r of db.list('runs').filter(r => !terminal.has(r.status))) {
   if(r.cliRecoveryWait){emit(r.id,'status',{status:'waiting_user',cliRecoveryWait:true});continue;}
-  let alive = false; if (r.pid) try { process.kill(r.pid, 0); alive = true; } catch (e) { alive = e.code === 'EPERM'; }
-  emit(r.id, 'status', { status: alive ? 'reconciling' : 'interrupted', controlLost: true, error: alive ? tr('worker.leftoverProcessFoundAwaitingManual') : tr('worker.workerRestartedOriginalManagedProcess') });
+  const exited=managedRunProcessState(r)==='exited';
+  emit(r.id, 'status', { status: exited ? 'interrupted' : 'reconciling', controlLost: true,
+    ...(exited?{pid:null,previousPid:r.pid||null,processSettled:true,driverState:'exited'}:{}),
+    error: exited ? tr('worker.workerRestartedOriginalManagedProcess') : tr('worker.leftoverProcessFoundAwaitingManual') });
 }
 function connect() {
   if (quitting) return;
@@ -966,7 +975,7 @@ function connect() {
     send({ type: 'register', node: { id: identity.nodeId, name: process.env.NODE_NAME || hostname(), platform: systemPlatform,organizerBusy:organizerRunning,
       nodeKind: resolveNodeKind(process.env.NODE_KIND, systemPlatform),
       remoteDesktopUrl: normalizeRemoteDesktopUrl(process.env.REMOTE_DESKTOP_URL),
-      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { queryRecipes:1,fileReadFreshness:1,readSourceBindings:1,fileReadModes:['source_current','expected_version'],nativeSessions:2,cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
+      workspaceRoot:defaultRoot,warmSessions:warmSessions.snapshot(), capabilities: { queryRecipes:1,fileReadFreshness:1,readSourceBindings:1,fileReadModes:['source_current','expected_version'],nativeSessions:2,nativeTakeover:1,cliRecovery:1,minimalInstructions:1,terminalFresh:1,terminalControl:['darwin','linux'].includes(systemPlatform)?1:0,terminalAutoReturn:1,cliCapacity:1,roleSwitch:1,sourceSync:1,sourceSyncDirectory:1,sourceSyncOutputs:1,sourceSyncTools:1,projectFiles:1,openProjectFolder:systemPlatform==='darwin'&&resolveNodeKind(process.env.NODE_KIND,systemPlatform)==='local'?1:0,peerStatus:1,...discussionCapabilities(),summaryBatches:1,stableInstructions:1,warmSessions:1,gitVersions:1,attachmentTransfer:1,managedResume:1,sessionTools:1,timerTools:1,terminalResume:1,collaborationTools:2,sessionQueue:2,executionScheduling:1,attachments:1, projectSpace:1, workspaceBindings: true, roomRoles: true, projectBrowser: true, runtimeDiscovery: true, tokenUsage:1, coordinationVersion: 1, projectSetup: 1 }, allowedRoots: roots, runtimes, capacity } });
   });
   ws.on('message', async bytes => {
     try {

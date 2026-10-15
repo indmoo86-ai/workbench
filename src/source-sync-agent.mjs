@@ -1,21 +1,25 @@
 import {contentHash,validateEntry,syncError} from './source-sync-manifest.mjs';
 import {conflictHashes} from './source-sync-conflicts.mjs';
 import {sourceScopeBinding} from './source-sync-scopes.mjs';
+import {reviewView,reviewSourceFileAllowed} from './collaboration-sessions.mjs';
 
 /** All project roles can inspect sync facts; assignment and proposal are tied to actual Run identity. */
 export class SourceSyncAgent {
   constructor({db,sync,conflicts,storage,query}){Object.assign(this,{db,sync,conflicts,storage,query});}
-  conflict(run,id){const c=this.db.get('sourceSyncConflicts',id);if(c?.projectId!==run.projectId)throw syncError('conflict_missing');return c;}
+  conflict(run,id){const c=this.db.get('sourceSyncConflicts',id);if(c?.projectId!==run.projectId)throw syncError('conflict_missing');
+    if(!this.visible(run,c))throw syncError('review_document_not_released');return c;}
+  /** Sync storage is not an alternate route around independent-review document visibility. */
+  visible(run,c){return !reviewView(this.db,run).reviewGuarded||c.sides?.length>0&&c.sides.every(s=>reviewSourceFileAllowed(this.db,run,{sourceNodeId:s.nodeId,sourceRunId:s.sourceRunId,reviewPath:c.path.replace(/^\.workbench\//,''),hash:s.entry?.hash,scopeId:c.repositoryId}));}
   async execute(run,action,input={}){
     if(!input||typeof input!=='object'||Array.isArray(input))throw syncError('invalid_request');
     if(action==='status'){
-      if(input.candidateId){const c=this.db.get('sourceSyncCandidates',input.candidateId);if(c?.projectId!==run.projectId)throw syncError('candidate_not_ready');return {candidateId:c.id,status:c.status,result:c.result,error:c.error};}
-      return this.sync.status(run.projectId);
+      if(input.candidateId){const c=this.db.get('sourceSyncCandidates',input.candidateId);if(c?.projectId!==run.projectId||c.runId!==run.id)throw syncError('candidate_not_ready');this.conflict(run,c.conflictId);return {candidateId:c.id,status:c.status,result:c.result,error:c.error};}
+      const state=this.sync.status(run.projectId);return reviewView(this.db,run).reviewGuarded?{...state,conflicts:state.conflicts.filter(c=>this.visible(run,c))}:state;
     }
     if(action==='request'){if(run.sourceConflictId)throw syncError('resolution_must_propose');return this.sync.request(run.projectId,{requestId:input.requestId,repositoryIds:input.repositoryIds,targetNodeIds:input.targetNodeIds,sourceNodeId:run.nodeId},{kind:'agent',runId:run.id,roleId:run.roleId});}
     if(action==='read'){
       const c=this.conflict(run,input.conflictId);
-      if(input.side===undefined)return {...c,expectedHashes:conflictHashes(c),peerResults:(c.peerTaskIds||[]).map(id=>{const t=this.db.get('tasks',id),r=t?.currentRunId&&this.db.get('runs',t.currentRunId);return {taskId:id,status:r?.status||t?.status,result:r?.result||null};})};
+      if(input.side===undefined){const view=reviewView(this.db,run);return {...c,expectedHashes:conflictHashes(c),peerResults:(c.peerTaskIds||[]).map(id=>{const t=view.get('tasks',id),r=t?.currentRunId&&view.get('runs',t.currentRunId);return {taskId:id,status:r?.status||t?.status,result:r?.result||null};})};}
       let side=input.side==='base'?{entry:c.base}:input.side==='proposal'?(c.proposal?{entry:c.proposal.entry}:null):c.sides.find(s=>s.endpointId===input.side);
       if(!side&&!['base','proposal'].includes(input.side)){
         const matches=c.sides.filter(s=>s.nodeId===input.side);if(matches.length>1)throw syncError('ambiguous_side','Use the endpointId returned by sync read.');

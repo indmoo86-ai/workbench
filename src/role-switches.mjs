@@ -4,6 +4,7 @@ import {Coordinator} from './coordinator.mjs';
 import {RoleSessions} from './role-sessions.mjs';
 import {activeRoleSwitch, belongsToDrain, switchSettled} from './role-switch-policy.mjs';
 import {tr} from './i18n.mjs';
+import {projectTerminalLock} from './terminal-resume.mjs';
 
 const terminal = new Set(['succeeded','failed','interrupted']);
 const planTerminal = new Set(['succeeded','completed_with_issues','completed','cancelled','blocked']);
@@ -61,7 +62,7 @@ export class RoleSwitches {
     const workspace=this.workspace(role);
     if(current.length>1)throw new Error('Multiple current sessions require reconciliation.');
     if(current[0]&&(current[0].nodeId!==role.nodeId||current[0].runtime!==role.runtime||current[0].workspaceRoot!==workspace.root))throw new Error('Original session binding is inconsistent; reconcile it before switching.');
-    if(this.db.list('terminalSessions').some(s=>s.projectId===projectId&&s.nodeId===role.nodeId&&!['released','cancelled'].includes(s.status)))throw new Error('Project is under manual terminal control.');
+    if(projectTerminalLock(this.db,projectId,role.nodeId))throw new Error('Project is under manual terminal control.');
     return {role,candidate,supervisorConfig,workspace,sourceSessionId:current[0]?.id||null,sourceGeneration:current[0]?.generation||null};
   }
 

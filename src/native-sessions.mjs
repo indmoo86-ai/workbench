@@ -2,17 +2,17 @@ import {readdir,open,realpath,stat} from 'node:fs/promises';
 import {constants} from 'node:fs';
 import {homedir} from 'node:os';
 import {join,basename,dirname,relative,isAbsolute} from 'node:path';
-import {resumeArgs,processAlive} from './terminal-resume.mjs';
+import {resumeArgs,managedRunProcessState,terminalOwnsProject} from './terminal-resume.mjs';
 
 const runtimes=new Set(['codex','claude','grok','agy']);
 const idPattern=/^[a-zA-Z0-9][a-zA-Z0-9_-]{7,127}$/;
 const inside=(root,path)=>{const r=relative(root,path);return !r||r!=='..'&&!r.startsWith('../')&&!isAbsolute(r);};
 
 /** A terminal link cannot start a second driver for an occupied history or overlapping work folder. */
-export function assertNativeSessionIdle(db,{runtime,sessionId,workspace,projectId,claimId}){
+export function assertNativeSessionIdle(db,{runtime,sessionId,workspace,projectId,nodeId,claimId}){
  const overlap=path=>typeof path==='string'&&typeof workspace==='string'&&(inside(path,workspace)||inside(workspace,path));
- if(db.list('runs').some(r=>r.status==='reconciling'||(!['succeeded','failed','interrupted'].includes(r.status)||processAlive(r.pid))&&(r.projectId===projectId||overlap(r.workspace)||sessionId&&r.nativeSession?.runtime===runtime&&r.nativeSession?.id===sessionId)))throw Error('This session or folder is still used by a managed CLI; finish it before opening a terminal');
- if(db.list('terminalSessions').some(s=>s.id!==claimId&&!['released','cancelled','finished'].includes(s.status)&&(overlap(s.workspace)||sessionId&&s.nativeSession?.runtime===runtime&&s.nativeSession?.id===sessionId)))throw Error('Session is occupied; no second CLI was started');
+ if(db.list('runs').some(r=>r.status==='reconciling'||(!['succeeded','failed','interrupted'].includes(r.status)||managedRunProcessState(r)!=='exited')&&(r.projectId===projectId||overlap(r.workspace)||sessionId&&r.nativeSession?.runtime===runtime&&r.nativeSession?.id===sessionId)))throw Error('This session or folder is still used by a managed CLI; finish it before opening a terminal');
+ if(db.list('terminalSessions').some(s=>s.id!==claimId&&(!nodeId||s.nodeId===nodeId)&&!['released','cancelled'].includes(s.status)&&(terminalOwnsProject(db,s,projectId)||overlap(s.workspace)||sessionId&&(s.nativeSession?.runtime||s.runtime)===runtime&&(s.nativeSession?.id||s.sessionId)===sessionId)))throw Error('Session is occupied; no second CLI was started');
 }
 
 /** Only discover vendor-owned history directories; no browser-supplied file path is accepted. */

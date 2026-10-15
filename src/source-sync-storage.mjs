@@ -4,7 +4,7 @@ import {Transform} from 'node:stream';
 import {pipeline} from 'node:stream/promises';
 import {randomUUID,createHash} from 'node:crypto';
 import {join} from 'node:path';
-import {contentHash,validateEntry,SOURCE_SYNC_LIMITS,syncError} from './source-sync-manifest.mjs';
+import {contentHash,validateEntry,SOURCE_SYNC_LIMITS,syncError,syncLimitError} from './source-sync-manifest.mjs';
 import {readSourceBlob} from './source-sync-files.mjs';
 
 /** Immutable project-local blob storage; reserve quota before consuming a stream, never prune conflict evidence. */
@@ -22,7 +22,7 @@ export class SourceSyncStorage {
     try {
       if(await this.has(projectId,entry)){stream.resume();return {hash:entry.hash,reused:true};}
       this.db.transaction(()=>{const usage=this.db.get('sourceSyncBlobUsage',projectId)||{id:projectId,projectId,bytes:0};
-        if(usage.bytes+entry.size>SOURCE_SYNC_LIMITS.projectBytes)throw syncError('storage_full');
+        if(usage.bytes+entry.size>SOURCE_SYNC_LIMITS.projectBytes)throw syncLimitError('storage_full','project',SOURCE_SYNC_LIMITS.projectBytes,usage.bytes+entry.size);
         this.db.put('sourceSyncBlobUsage',{...usage,bytes:usage.bytes+entry.size});reserved=true;
       });
       const directory=this.directory(projectId);await mkdir(directory,{recursive:true,mode:0o700});temporary=join(directory,`.upload-${randomUUID()}`);

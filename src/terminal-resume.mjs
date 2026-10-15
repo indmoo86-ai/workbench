@@ -39,9 +39,48 @@ export function freshTerminalArgs({runtime,model,effort,instructions='',workspac
   throw new Error(tr('terminalResume.cliDoesNotSupportResume'));
 }
 
+/** Resolve missing device identity only from the original session, never from a role's mutable current device. */
+function nativeSessionOwnership(db,{nodeId,runtime,sessionId}) {
+  const projects=new Set(),unknown=new Set();
+  if(!sessionId||!runtime||!nodeId)return {projects,unknown};
+  const sessions=db.list('roleSessions'),byId=new Map(sessions.map(s=>[s.id,s]));
+  for(const session of sessions)if(session.runtime===runtime&&session.nativeSessionId===sessionId&&session.projectId){if(session.nodeId===nodeId)projects.add(session.projectId);else if(!session.nodeId)unknown.add(session.projectId);}
+  for(const run of db.list('runs'))if(run.nativeSession?.runtime===runtime&&run.nativeSession.id===sessionId&&run.projectId){
+    const saved=byId.get(run.roleSessionId),device=run.nodeId||(saved?.projectId===run.projectId?saved.nodeId:null);
+    if(device===nodeId)projects.add(run.projectId);else if(!device)unknown.add(run.projectId);
+  }
+  return {projects,unknown};
+}
+
+/** Native identity is device/runtime scoped; moving project folders does not transfer historical ownership. */
+export function nativeSessionProjectIds(db,identity) {
+  const {projects,unknown}=nativeSessionOwnership(db,identity);
+  if(unknown.size)throw Error('Native session device ownership is unknown; check the original role session');
+  return [...projects];
+}
+
+/** Resolve exact native ownership first; conflicting folders or identities must never fall back to standalone. */
+export function nativeTerminalProject(db,{nodeId,runtime,sessionId,folderProjectIds=[],managedProjectIds=[]}) {
+  const exact=new Set([...nativeSessionProjectIds(db,{nodeId,runtime,sessionId}),...(sessionId?managedProjectIds:[])]);
+  const folders=new Set(folderProjectIds.filter(Boolean));
+  if(exact.size>1||folders.size>1)throw Error('Native session ownership is ambiguous; open it from the owning role instead');
+  const owner=[...exact][0],folder=[...folders][0];
+  if(owner&&folder&&owner!==folder)throw Error('Native session and folder belong to different group chats');
+  return owner||folder||null;
+}
+
+/** Keep unreturned leases, including legacy standalone claims that actually own a group's native session. */
+export function terminalOwnsProject(db,session,projectId) {
+  if(!projectId||closed.has(session.status))return false;
+  if(session.projectId===projectId)return true;
+  if(session.kind!=='native')return false;
+  const {projects,unknown}=nativeSessionOwnership(db,{nodeId:session.nodeId,runtime:session.runtime||session.nativeSession?.runtime,sessionId:session.sessionId||session.nativeSession?.id});
+  return projects.has(projectId)||unknown.has(projectId);
+}
+
 /** Take over the whole project's execution window on this node, avoiding concurrent use of the shared directory and deliveries. */
 export function projectTerminalLock(db, projectId, nodeId) {
-  return db.list('terminalSessions').find(s => s.projectId === projectId && s.nodeId === nodeId && !closed.has(s.status)) || null;
+  return db.list('terminalSessions').find(s => s.nodeId === nodeId && terminalOwnsProject(db,s,projectId)) || null;
 }
 
 export function processAlive(pid) {
@@ -109,6 +148,35 @@ export function startNativeSessionObservation(session,rootIdentity,{intervalMs=2
 const processKey=p=>p&&!p.unknown?{pid:p.pid,uid:p.uid,start:p.start}:null;
 const sameProcess=(actual,expected)=>!!actual&&!actual.unknown&&actual.pid===expected?.pid&&actual.uid===expected.uid&&actual.start===expected.start;
 export {processKey as processIdentityKey,sameProcess as sameProcessIdentity};
+
+/** A recycled PID is not occupancy. Legacy executable clues can exclude a foreign process, never authorize stopping it. */
+export function recordedProcessState(pid,expected,session={}) {
+  if(!Number.isInteger(pid)||pid<1||!processAlive(pid))return 'exited';
+  const current=terminalProcessIdentity(pid);
+  if(!current||current.zombie)return 'exited';
+  if(current.unknown)return 'unknown';
+  if(expected) {
+    if(expected.pid!==pid||!Number.isInteger(expected.uid)||typeof expected.start!=='string'||!expected.start)return 'unknown';
+    if(current.start!==expected.start)return 'exited';
+    return sameProcess(current,expected)?'active':'unknown';
+  }
+  const runtime=['codex','claude','grok','agy'].includes(session?.runtime)?session.runtime:null;
+  const binary=typeof session?.binary==='string'&&session.binary?basename(session.binary):null;
+  if(!runtime&&!binary||!current.command)return 'unknown';
+  const executable=basename(current.command.match(/^\s*(?:"([^"]+)"|'([^']+)'|(\S+))/)?.slice(1).find(Boolean)||'');
+  const escaped=value=>value.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  if([runtime,binary].filter(Boolean).some(name=>new RegExp(`(?:^|[/\\\\\\s])${escaped(name)}(?:\\.js)?(?:\\s|$)`,'i').test(current.command)))return 'unknown';
+  // Generic launchers may hide the CLI executable; missing startup proof remains a safe wait.
+  if(!executable||/^(?:node(?:js)?|python[\d.]*|bash|sh|zsh|dash|fish|env|perl|ruby|java|powershell|pwsh|cmd)(?:\.exe)?$/i.test(executable))return 'unknown';
+  return 'exited';
+}
+
+/** Check driver and saved tool children together; finished model output does not prove process retirement. */
+export function managedRunProcessState(run) {
+  const states=[recordedProcessState(run?.pid,run?.processIdentity,run?.nativeSession),
+    ...(run?.driverStopProcesses||[]).filter(proof=>proof.pid!==run.pid).map(proof=>recordedProcessState(proof.pid,proof))];
+  return states.includes('active')?'active':states.includes('unknown')?'unknown':'exited';
+}
 
 function updateNativeCatalog(db,session,fields){
   if(session?.kind!=='native'||!session.catalogEntryId)return null;
@@ -261,7 +329,10 @@ export function claimTerminalSession(db, id, pid) {
 export function releaseTerminalSession(db,id) {
   return db.transaction(()=>{
     const prior=db.get('terminalSessions',id);
-    if(prior && (processAlive(prior.pid)||processAlive(prior.childPid)))throw new Error(tr('terminalResume.terminalCliHasNotExited'));
+    const states=prior?[recordedProcessState(prior.pid,prior.wrapperIdentity,{binary:process.execPath}),
+      recordedProcessState(prior.childPid,prior.childIdentity,prior.nativeSession),
+      ...(prior.stopProcesses||[]).map(proof=>recordedProcessState(proof.pid,proof))]:[];
+    if(states.some(state=>state!=='exited'))throw new Error(tr('terminalResume.terminalCliHasNotExited'));
     if(prior)updateNativeCatalog(db,prior,releasedCatalogState(prior,new Date().toISOString()));
     return db.put('terminalSessions',{...prior,id,status:'released'});
   });
@@ -275,7 +346,11 @@ async function runTerminal(dbPath,id) {
   if(['new','native'].includes(before.kind)&&await realpath(before.workspace)!==before.workspace)throw new Error(tr('terminalResume.originalWorkingDirectoryDoesNot'));
   if(before.kind!=='new'&&(before.kind!=='native'||before.nativeSession.id))await findSessionHistory(before.nativeSession);
   await access(before.nativeSession.binary,constants.X_OK);
-  if(before.kind==='native')(await import('./native-sessions.mjs')).assertNativeSessionIdle(db,{runtime:before.nativeSession.runtime,sessionId:before.nativeSession.id,workspace:before.workspace,projectId:before.projectId,claimId:id});
+  if(before.kind==='native'){
+    const owner=nativeTerminalProject(db,{nodeId:before.nodeId,runtime:before.nativeSession.runtime,sessionId:before.nativeSession.id});
+    if(owner&&owner!==before.projectId)throw Error('Native session ownership changed; return this link and prepare it again');
+    (await import('./native-sessions.mjs')).assertNativeSessionIdle(db,{nodeId:before.nodeId,runtime:before.nativeSession.runtime,sessionId:before.nativeSession.id,workspace:before.workspace,projectId:before.projectId,claimId:id});
+  }
   const session=claimTerminalSession(db,id,process.pid);
   const args=session.kind==='native'?(await import('./native-sessions.mjs')).nativeTuiArgs(session.nativeSession.runtime,{id:session.nativeSession.id,...session.nativeOptions}):session.kind==='new'?freshTerminalArgs({...session.roleSettings,runtime:session.nativeSession.runtime,workspace:session.workspace}):resumeArgs(session.nativeSession.runtime,session.nativeSession.id);
   console.log(session.kind==='new'||session.kind==='native'&&!session.nativeSession.id?tr('roleTerminal.startingNew',{workspace:session.workspace}):tr('terminalResume.resumingOriginalSessionDirectoryPlatform', { id: session.nativeSession.id, workspace: session.workspace }));

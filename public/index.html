@@ -127,7 +127,7 @@
             </div>
             <nav id="global-settings-tabs" class="settings-tabs" role="tablist" aria-label="Settings categories">
               <button type="button" role="tab" data-settings-tab="general">Basic Settings</button>
-              <button type="button" role="tab" data-settings-tab="devices">Devices, CLIs and Models</button>
+              <button type="button" role="tab" data-settings-tab="devices">Devices and CLIs</button>
               <button type="button" role="tab" data-settings-tab="hosting">Code Hosting Accounts</button>
               <button type="button" role="tab" data-settings-tab="assistant">Configuration Assistant</button>
               <button type="button" role="tab" data-settings-tab="prompts">Platform Prompts</button>
@@ -246,7 +246,7 @@
             </section>
 
             <section class="settings-panel" data-settings-panel="devices" id="settings-devices-panel" hidden>
-              <div class="settings-panel-heading device-panel-heading"><div><h3>Devices, CLIs and Models</h3><p>Manage registered local machines and servers, and view device connection, CLI availability, models and sign-in status. Project configuration is not included here.</p></div><button class="secondary" id="show-device-enroll" type="button">Add device</button></div>
+              <div class="settings-panel-heading device-panel-heading"><div><h3>Devices and CLIs</h3><p>Manage registered local machines and servers, and view device connection, CLI availability, models and sign-in status. Project configuration is not included here.</p></div><button class="secondary" id="show-device-enroll" type="button">Add device</button></div>
               <section class="settings-block device-enroll-panel" id="device-enroll-panel" hidden aria-label="Add server device">
                 <h4>Add server device</h4>
                 <form id="device-enroll-form" class="form-grid">
@@ -299,10 +299,11 @@
             </section>
 
             <section class="settings-panel" data-settings-panel="assistant" hidden>
-              <h3>Platform Configuration Assistant</h3><p class="workspace-note">Helps check devices, connect Workers, and prepare project folders and repositories. Enter passwords and Tokens in the device or account forms.</p>
+              <h3>Platform Configuration Assistant</h3><p class="workspace-note">Tell the assistant what you want to configure. It will check the current setup and guide the next steps.</p>
               <div class="assistant-workspace">
+                <div class="assistant-chat" aria-label="Configuration conversation"><div id="assistant-conversation" role="log" aria-live="polite"></div><div id="assistant-proposals"></div></div>
                 <form id="configuration-assistant-form" class="form-grid assistant-composer-card">
-                  <div class="assistant-runtime-card full-width"><div><span class="settings-kicker">ACTIVE RUNTIME</span><strong>Run configuration</strong><p id="assistant-runtime-summary" class="workspace-note">Loading devices and models…</p></div><button class="secondary compact" id="edit-assistant-runtime" type="button" aria-label="Edit configuration assistant run parameters">Edit</button></div>
+                  <div class="assistant-runtime-card full-width"><p id="assistant-runtime-summary" class="workspace-note">Loading devices and models…</p><button class="secondary compact" id="edit-assistant-runtime" type="button" aria-label="Edit configuration assistant run parameters">Run configuration</button></div>
                   <dialog id="assistant-runtime-dialog" class="settings-edit-dialog" aria-labelledby="assistant-runtime-dialog-title">
                     <div class="dialog-heading"><div><p class="eyebrow">CONFIG ASSISTANT</p><h3 id="assistant-runtime-dialog-title">Edit run configuration</h3></div><button class="icon-button" id="close-assistant-runtime-dialog" type="button" aria-label="Close">×</button></div>
                     <div class="form-grid">
@@ -311,11 +312,9 @@
                     <p id="assistant-runtime-feedback" class="form-feedback" role="status" hidden></p>
                     <div class="form-actions"><button class="secondary" id="cancel-assistant-runtime-dialog" type="button">Cancel</button><button class="primary" id="save-assistant-runtime-dialog" type="button">Done</button></div>
                   </dialog>
-                  <label class="full-width">Request<textarea name="text" rows="3" required placeholder="Check the newly added server and help me prepare the project folder"></textarea></label>
-                  <div class="form-actions full-width"><button class="primary" type="submit">Send to configuration assistant</button><button class="secondary" type="button" id="assistant-stop">Stop current run</button></div>
+                  <textarea class="full-width" name="text" rows="3" required aria-label="Request" placeholder="Describe what you want to configure…"></textarea>
+                  <div class="form-actions full-width"><button class="secondary" type="button" id="assistant-stop">Stop current run</button><button class="primary" type="submit">Send</button></div>
                 </form><p id="assistant-feedback" class="form-feedback" hidden></p>
-                <section class="assistant-thread"><h4>Recent Conversation and Suggestions</h4><div id="assistant-conversation"></div><div id="assistant-proposals"></div></section>
-                <details><summary>Fixed Configuration Prompts</summary><pre class="prompt-preview" id="configuration-assistant-prompt"></pre></details>
               </div>
             </section>
 
@@ -364,7 +363,6 @@
                     </div>
                     <p class="workspace-note">Used only to preselect values when creating a project; configured projects are unchanged.</p>
                   </section>
-                  <details id="prompt-merge-preview"><summary>View instruction merge order</summary><p class="workspace-note">Platform hard rules → Platform prompts → Current role prompt</p><pre id="platform-prompt-preview" class="prompt-preview"></pre></details>
                   <p id="platform-prompts-feedback" class="form-feedback" role="status" hidden></p>
                   <div class="form-actions prompt-settings-actions">
                     <button class="secondary" id="restore-platform-prompts" type="button">Restore defaults</button>
@@ -389,7 +387,7 @@
                 <section class="settings-overview-card">
                   <span class="settings-kicker">WECHAT</span><h4>WeChat Notifications and Commands</h4>
                   <p id="wechat-summary" class="settings-overview-preview">Loading WeChat status</p>
-                  <p class="workspace-note">Pending questions are kept persistently, and replies return to the original project by number. Ordinary work progress is not pushed.</p>
+                  <p class="workspace-note">Only project supervisors can call the notification tool. Select a configured platform and account; messages identify their project and numbered replies return to its supervisor.</p>
                   <button class="secondary compact" id="manage-wechat" type="button">Manage WeChat</button>
                 </section>
                 <section class="settings-overview-card" aria-labelledby="api-token-section-title">
@@ -407,11 +405,11 @@
               <dialog id="wechat-dialog" class="settings-edit-dialog" aria-labelledby="wechat-dialog-title">
                 <div class="dialog-heading"><h3 id="wechat-dialog-title">WeChat Notifications and Commands</h3><button class="icon-button" id="close-wechat-dialog" type="button" aria-label="Close WeChat settings">×</button></div>
                 <p id="wechat-health" class="workspace-note"></p>
-                <div class="form-actions"><button class="secondary" id="toggle-wechat" type="button">Enable WeChat</button><button class="secondary" id="check-wechat" type="button">Check connection</button></div>
-                <p class="workspace-note">Ordinary questions have no wait timeout; after you reply to the question in the project chat, or mark it handled here, late WeChat replies will no longer run. Native permission approvals still have their own expiry. Confirm repository configuration and Git delivery in the web UI.</p>
-                <label for="wechat-project">Project entry</label><select id="wechat-project"></select>
-                <button class="secondary" id="send-wechat-entry" type="button">Get project WeChat entry</button>
-                <p class="workspace-note">Reply "number + instruction" to the original role/supervisor, or "number + @role + instruction". Always include the number; without one, the WeChat Hub assigns the reply to the most recently sent message.</p>
+                <div class="wechat-actions"><button class="secondary" id="toggle-wechat" type="button">Enable WeChat</button><button class="secondary" id="check-wechat" type="button">Check connection</button></div>
+                <p class="workspace-note">Enabling exposes the notification tool to each project's supervisor only. Reports and approvals are not forwarded automatically. Credentials are configured on Home, not in this dialog.</p>
+                <label for="wechat-channel">Notification channel (platform · account)</label><select id="wechat-channel" translate="no"></select>
+                <button class="secondary" id="save-wechat-channel" type="button">Save notification channel</button>
+                <p class="workspace-note">Messages automatically identify their project. Reply with "number + instruction" to queue the reply to that project's original supervisor, even if the text contains @mentions. Always include the number. Existing records keep their original account; changing the channel affects new messages only. Native permissions and Git delivery keep their existing approval boundaries.</p>
                 <p id="wechat-feedback" class="inline-error" role="status"></p>
                 <div id="wechat-records" class="wechat-records"></div>
               </dialog>

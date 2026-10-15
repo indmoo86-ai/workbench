@@ -117,17 +117,24 @@ export function roleActivity(role, tasks = [], runs = [], {requests=[],warm=fals
   if (!configured) return { tone: 'setup', label: 'Setup needed', detail: 'Select a device, CLI and model' };
   if (!role.enabled) return { tone: 'idle', label: 'Disabled', detail: 'Will not receive new assignments' };
   const ownTasks=tasks.filter(item=>!item.switchOperationId && (item.roleId===role.id || item.roleSnapshot?.id===role.id));
-  const queued=ownTasks.filter(t=>t.status==='ready');
-  const discussionRun=runs.find(r=>r.roleId===role.id&&r.discussionDeliveryId&&['queued','starting','running','waiting_user','stopping','reconciling'].includes(r.status));
-  if(discussionRun){const p=executionProgress({run:discussionRun,online:worker===undefined||Boolean(worker?.online)});return {...p,detail:p.reason||p.detail||'This round only handles peer discussion and does not change business task status'};}
-  const task = ownTasks.find(t=>runs.some(r=>r.id===t.currentRunId&&['queued','starting','running','waiting_user','stopping','reconciling'].includes(r.status))) || queued[0] || ownTasks.at(-1);
-  const run = task?.currentRunId ? runs.find(item => item.id === task.currentRunId) : null;
-  const request=task?requests.find(r=>r.targetRoleId===role.id&&(r.taskId===task.id||(run&&r.currentRunId===run.id))):null;
-  if(task){const p=executionProgress({run,task,request,online:worker===undefined||Boolean(worker?.online)});return {...p,detail:p.reason||p.detail||task.title||'Execution finished; see the reply and report'};}
-  const detected=currentRuntimeActivity(role,worker,check);
-  if(detected)return detected;
-  if(warm)return {tone:'idle',label:'Idle',detail:'CLI ready · conversation can continue'};
-  return { tone: 'idle', label: 'Idle', detail: 'Waiting to be mentioned' };
+  const ownRuns=runs.filter(r=>r.roleId===role.id&&!r.switchOperationId),byId=new Map(runs.map(r=>[r.id,r]));
+  const ownRequests=requests.filter(r=>r.targetRoleId===role.id),online=worker===undefined||Boolean(worker?.online);
+  const entries=ownTasks.map(task=>{const run=byId.get(task.currentRunId),request=(run&&ownRequests.find(r=>r.currentRunId===run.id))||ownRequests.filter(r=>r.taskId===task.id).at(-1);return {task,run,request,progress:executionProgress({task,run,request,online:true})};});
+  // Historical outcomes never determine current availability. Use timestamps, not response-array insertion order.
+  const latest=entries.filter(e=>['error','completed','stopped'].includes(e.progress.state)).sort((a,b)=>
+    (Date.parse(a.run?.createdAt||a.task.createdAt)||0)-(Date.parse(b.run?.createdAt||b.task.createdAt)||0)).at(-1);
+  const lastFailure=latest?.progress.state==='error'?{taskId:latest.task.id,runId:latest.run?.id||null,
+    reason:latest.progress.reason||latest.task.error||latest.request?.error||latest.progress.detail,
+    at:latest.run?.finishedAt||latest.request?.finishedAt||latest.task.createdAt}:null;
+  const withHistory=activity=>({...activity,...(lastFailure?{lastFailure}:{})});
+  const active=ownRuns.find(r=>['queued','starting','preparing','running','waiting_user','stopping','reconciling'].includes(r.status)||r.status==='failed'&&r.processSettled===false);
+  if(active){const e=entries.find(e=>e.run?.id===active.id),p=executionProgress({run:active.status==='failed'?{...active,status:'reconciling'}:active,task:e?.task,request:e?.request,online});return withHistory({...p,detail:p.reason||p.detail});}
+  const pending=entries.find(e=>e.progress.state==='waiting'&&(['waiting_call','waiting_delivery','waiting_dependencies','waiting_input'].includes(e.request?.status)||e.task.discussionWait||e.task.status==='waiting_discussion'))
+    ||entries.find(e=>['queued','waiting'].includes(e.progress.state)&&(e.task.status==='ready'||e.task.status==='in_progress'&&!e.run));
+  if(pending){const p=executionProgress({...pending,online});return withHistory({...p,detail:p.reason||p.detail||pending.task.title});}
+  const detected=currentRuntimeActivity(role,worker,check,lastFailure?.at);
+  if(detected)return withHistory(detected);
+  return withHistory({tone:'idle',label:'Idle',detail:warm?'CLI ready · conversation can continue':'Waiting to be mentioned'});
 }
 
 /** The current probe only updates availability of idle roles; it does not override running/waiting states or rewrite past results. */
@@ -140,8 +147,8 @@ function currentRuntimeActivity(role,worker,check,after) {
   const checked=Date.parse(report?.checkedAt||'')||0;
   if(check?.state==='checking'&&attempt>previous)return {tone:'waiting',label:'Checking',detail:'Re-querying CLI status and quota…'};
   if(check?.state==='failed'&&attempt>=checked&&attempt>previous)return {tone:'blocked',label:'Check failed',detail:check.error||'This check did not complete; please retry'};
-  // When a failure happens after the probe, an old "available" report must not erase the newer runtime error.
-  if(after&&checked<=previous)return null;
+  // A probe older than the last failure proves no recovery; ask for a new observation instead of pinning an old error.
+  if(after&&checked<=previous)return {tone:'waiting',label:'To check',detail:'Refresh CLI availability after the last execution failure'};
   if(!checked||Date.now()-checked>600000||checked>Date.now()+60000)return {tone:'waiting',label:'To check',detail:'CLI check is stale or incomplete; please refresh'};
   if(!report.available)return {tone:'blocked',label:'CLI unavailable',detail:report.reason||'CLI failed the check; verify sign-in or configuration'};
   if(!report.models?.some(m=>m.id===role.model))return {tone:'blocked',label:'Model unavailable',detail:'The current model is not in this device\'s CLI model list; please reconfigure'};

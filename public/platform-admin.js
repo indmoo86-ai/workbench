@@ -13,7 +13,7 @@ export function deviceEntries(workers = [], devices = []) {
 /** Basic settings manage only devices and accounts; conversations run existing platform tools through the fixed configuration assistant. */
 export function platformAdminUI({api,getData,refreshState,create}) {
   const $=s=>document.querySelector(s), account=$('#hosting-account-form'), accountDialog=$('#hosting-account-dialog'), device=$('#device-enroll-form'), assistant=$('#configuration-assistant-form');
-  let signature='',assistantState={},loading=false,assistantConfigLoaded=false,pendingMessage=null;
+  let signature='',assistantState={},loading=false,assistantConfigLoaded=false,pendingMessage=null,conversationSignature='';
   const text=(target,value)=>{const el=typeof target==='string'?$(target):target;el.textContent=value;el.hidden=false;};
   const option=(id,label)=>{const el=create('option','',label);el.value=id;return el;};
   function choices(el,values,blank,preferred=''){
@@ -37,6 +37,29 @@ export function platformAdminUI({api,getData,refreshState,create}) {
   device.addEventListener('submit',e=>{e.preventDefault();const values=Object.fromEntries(new FormData(device));void action(device.querySelector('[type=submit]'),'#device-admin-feedback',async()=>{const result=await api('/api/devices',{method:'POST',json:values});device.elements.password.value='';$('#device-enroll-panel').hidden=true;return result;});});
   $('#show-device-enroll').addEventListener('click',()=>{const panel=$('#device-enroll-panel');panel.hidden=!panel.hidden;if(!panel.hidden){device.reset();device.elements.name.focus();}});
   $('#cancel-device-enroll').addEventListener('click',()=>{$('#device-enroll-panel').hidden=true;device.reset();});
+
+  /** Removal is checked again by Home; a stale page can never clear an occupied device. */
+  function deleteDeviceButton({worker,device:registered}) {
+    const button=create('button','secondary compact danger device-delete-button','Delete device');button.type='button';
+    button.addEventListener('click',()=>{
+      const name=worker?.name||registered?.name||worker?.id||registered?.nodeId;
+      if(!confirm(t('Delete device {name}? This removes its registration. Files, conversation history and reports are kept. Existing project bindings are not reassigned.',{name})))return;
+      const path=registered?`/api/devices/${encodeURIComponent(registered.id)}`:`/api/workers/${encodeURIComponent(worker.id)}`;
+      void action(button,'#device-admin-feedback',async()=>{const result=await api(path,{method:'DELETE'});return {...result,note:t('Device deleted. Files and history are kept.')};});
+    });
+    return button;
+  }
+
+  /** Forget an unavailable catalog entry, without uninstalling a CLI or touching its native sessions. */
+  function deleteRuntimeButton(worker,runtime) {
+    const button=create('button','secondary compact danger runtime-delete-button','Delete CLI');button.type='button';
+    button.addEventListener('click',event=>{
+      event.preventDefault();event.stopPropagation();
+      if(!confirm(t('Remove unavailable CLI {name} from this device? Software and history are kept. It will reappear if a later check confirms it is available.',{name:runtime.label||runtime.type})))return;
+      void action(button,'#device-admin-feedback',async()=>{const result=await api(`/api/workers/${encodeURIComponent(worker.id)}/runtimes/${encodeURIComponent(runtime.type)}`,{method:'DELETE'});return {...result,note:t('Unavailable CLI removed. Software and history are kept.')};});
+    });
+    return button;
+  }
 
   /** The edit form is hosted by the device dialog; list refreshes do not overwrite what is being typed. */
   function deviceDetails({worker,device:registered}) {
@@ -129,24 +152,32 @@ export function platformAdminUI({api,getData,refreshState,create}) {
   assistantRuntimeDialog.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.tagName==='SELECT')e.preventDefault();});
   for(const name of ['nodeId','runtime','model'])assistant.elements[name].addEventListener('change',()=>{assistantState.config={};if(name!=='model')assistant.elements.model.value='';assistantChoices();});
   assistant.elements.effort.addEventListener('change',assistantRuntimeSummary);
-  assistant.addEventListener('submit',e=>{e.preventDefault();if(!runtimeComplete()){text('#assistant-runtime-feedback','Please select a run device, CLI and model first.');assistantRuntimeDialog.showModal();return;}const fields=Object.fromEntries(new FormData(assistant));pendingMessage ||= crypto.randomUUID();fields.clientMessageId=pendingMessage;void action(assistant.querySelector('[type=submit]'),'#assistant-feedback',async()=>{await api('/api/platform/assistant',{method:'POST',json:fields});pendingMessage=null;assistant.elements.text.value='';await refreshAssistant();return {note:'Configuration assistant received it; results will appear below.'};});});
+  assistant.addEventListener('submit',e=>{e.preventDefault();if(!runtimeComplete()){text('#assistant-runtime-feedback','Please select a run device, CLI and model first.');assistantRuntimeDialog.showModal();return;}const fields=Object.fromEntries(new FormData(assistant));pendingMessage ||= crypto.randomUUID();fields.clientMessageId=pendingMessage;void action(assistant.querySelector('[type=submit]'),'#assistant-feedback',async()=>{await api('/api/platform/assistant',{method:'POST',json:fields});pendingMessage=null;assistant.elements.text.value='';await refreshAssistant();return {note:'Configuration assistant received it; results will appear in the conversation.'};});});
   $('#assistant-stop').addEventListener('click',e=>{const run=(assistantState.runs||[]).findLast(r=>!['succeeded','failed','interrupted'].includes(r.status));if(!run)return text('#assistant-feedback','No assistant session is running');void action(e.currentTarget,'#assistant-feedback',()=>api(`/api/runs/${encodeURIComponent(run.id)}/stop`,{method:'POST',json:{commandId:crypto.randomUUID()}}));});
   async function refreshAssistant(){
     if(loading)return;loading=true;
     try{
       assistantState=await api('/api/platform/assistant');
       if(!assistantConfigLoaded){assistantChoices();assistantConfigLoaded=true;}
-      $('#configuration-assistant-prompt').textContent=assistantState.prompt;
+      const active=(assistantState.tasks||[]).filter(t=>['ready','in_progress'].includes(t.status));
+      const nextConversation=JSON.stringify([assistantState.messages,active,assistantState.proposals,getLanguage()]);
+      if(nextConversation===conversationSignature)return;
+      conversationSignature=nextConversation;
+      const chat=$('.assistant-chat'),follow=chat.scrollHeight-chat.scrollTop-chat.clientHeight<80;
       const conversation=$('#assistant-conversation');conversation.replaceChildren();
-      for(const m of (assistantState.messages||[]).slice(-20)){const card=create('article','settings-block');card.append(create('strong','',m.sender==='human'?'Me':'Configuration assistant'),create('p','assistant-message',m.text));conversation.append(card);}
-      const active=(assistantState.tasks||[]).filter(t=>['ready','in_progress'].includes(t.status));if(active.length)conversation.append(create('p','workspace-note',active.map(t=>t.waitingReason||'Configuration assistant is working…').join(t('; '))));
+      for(const m of (assistantState.messages||[]).slice(-20)){const card=create('article',`assistant-bubble ${m.sender==='human'?'assistant-bubble-human':''}`);card.append(create('strong','',m.sender==='human'?'Me':'Configuration assistant'),create('p','assistant-message',m.text));conversation.append(card);}
+      if(!conversation.children.length)conversation.append(create('p','assistant-empty','Describe what you want to configure…'));
+      if(active.length)conversation.append(create('p','workspace-note',active.map(t=>t.waitingReason||'Configuration assistant is working…').join(t('; '))));
+      $('#assistant-stop').hidden=!active.length;
       const proposals=$('#assistant-proposals');proposals.replaceChildren();
-      for(const p of (assistantState.proposals||[]).slice(-8)){
-        const card=create('article','settings-block');card.append(create('strong','',`${p.summary} · ${p.status}`),create('pre','prompt-preview',JSON.stringify(p.actions,null,2)));
+      for(const p of (assistantState.proposals||[]).filter(p=>['pending','running','blocked'].includes(p.status)).slice(-8)){
+        const card=create('article','settings-block');card.append(create('strong','',p.summary));
+        const details=create('details'),summary=create('summary','','Configuration details');details.append(summary,create('pre','prompt-preview',JSON.stringify(p.actions,null,2)));card.append(details);
         if(p.error)card.append(create('p','inline-error',p.error));
         if(p.status==='pending')for(const [act,label] of [['approve','Apply configuration'],['reject','Dismiss suggestion']]){const button=create('button','secondary',label);button.type='button';setActionIcon(button,act==='approve'?'check':'stop');button.addEventListener('click',()=>void action(button,'#assistant-feedback',async()=>{await api(`/api/platform/proposals/${p.id}/${act}`,{method:'POST',json:{}});await refreshAssistant();}));card.append(button);}
         proposals.append(card);
       }
+      if(follow)chat.scrollTop=chat.scrollHeight;
     }catch(e){text('#assistant-feedback',e.message);}finally{loading=false;}
   }
   function refresh(){
@@ -173,5 +204,5 @@ export function platformAdminUI({api,getData,refreshState,create}) {
     if(document.querySelector('[data-settings-panel="assistant"]')?.hidden===false)void refreshAssistant();
   }
   document.querySelector('[data-settings-tab="assistant"]').addEventListener('click',()=>void refreshAssistant());
-  return {refresh,deviceDetails};
+  return {refresh,deviceDetails,deleteDeviceButton,deleteRuntimeButton};
 }

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { validateLocalSupervisor } from './project-setup.mjs';
 import { tr } from './i18n.mjs';
 import { executionText } from './input-language.mjs';
+import { visibleRuntimes } from './runtime-probe.mjs';
 
 export const configurationPrompt = () => executionText('platformAssistant.youFixedPlatformConfigurationAssistant');
 
@@ -20,7 +21,7 @@ export class PlatformAssistant {
     return {devices:this.db.list('devices'), accounts:this.db.list('hostingAccounts'),
       projects:this.db.list('projects').filter(p=>!p.systemConfig).map(p=>({id:p.id,name:p.name,folderName:p.folderName,repositoryCount:repositories.filter(r=>r.projectId===p.id).length})),
       repositories, workspaces:this.db.list('workspaces').filter(w=>w.projectId!==PROJECT_ID),
-      workers:this.db.list('workers').map(w=>({id:w.id,name:w.name,nodeKind:w.nodeKind,online:this.online(w.id),workspaceRoot:w.workspaceRoot,allowedRoots:w.allowedRoots,runtimes:w.runtimes})), proposals:this.db.list('platformProposals').slice(-10)};
+      workers:this.db.list('workers').map(w=>({id:w.id,name:w.name,nodeKind:w.nodeKind,online:this.online(w.id),workspaceRoot:w.workspaceRoot,allowedRoots:w.allowedRoots,runtimes:visibleRuntimes(w.runtimes,this.db.get('workerConfigs',w.id)?.hiddenRuntimes),capacity:w.capacity,cliUsage:w.cliUsage})), proposals:this.db.list('platformProposals').slice(-10)};
   }
   propose(run,input) {
     this.assert(run);
@@ -50,7 +51,7 @@ export class PlatformAssistant {
         if(a.type==='cli')result=await this.query({nodeId:a.nodeId},'cli_install',{runtime:a.runtime},180000);
         if(a.type==='workspace'){
           const checked=await this.query({nodeId:a.nodeId},'workspace_root',a.workspaceRoot);
-          const worker=this.db.get('workers',a.nodeId), config={id:a.nodeId,workspaceRoot:checked.localRoot,name:a.name||worker.name};
+          const worker=this.db.get('workers',a.nodeId), config={...this.db.get('workerConfigs',a.nodeId),id:a.nodeId,workspaceRoot:checked.localRoot,name:a.name||worker.name};
           this.db.put('workerConfigs',config);this.db.put('workers',{...worker,...config});result=config;
         }
         p=this.db.put('platformProposals',{...p,completed:[...p.completed,{type:a.type,result}]});this.change();

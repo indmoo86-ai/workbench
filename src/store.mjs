@@ -5,7 +5,7 @@ import { dirname } from 'node:path';
 import { giteeRepository } from './repository.mjs';
 import { roleWorkspace } from './project-repositories.mjs';
 import { projectRepositories } from './project-space.mjs';
-import { projectTerminalLock } from './terminal-resume.mjs';
+import { projectTerminalLock, terminalOwnsProject } from './terminal-resume.mjs';
 import { RoleSessions,taskConversationId } from './role-sessions.mjs';
 import { buildRunContext } from './run-context.mjs';
 import { steeringWaitReason } from './role-steering.mjs';
@@ -169,7 +169,7 @@ export class Store {
       if(this.list('discussionThreads').some(t=>t.projectId===id&&t.status==='open')
         ||this.list('discussionDeliveries').some(d=>d.projectId===id&&['queued','dispatched','runtime_accepted','reconciling'].includes(d.status))
         ||this.list('discussionIntents').some(i=>i.projectId===id&&i.status==='queued'))throw new Error(tr('store.projectStillHasUnfinishedDiscussions'));
-      if(this.list('terminalSessions').some(s=>s.projectId===id&&!['released','cancelled'].includes(s.status)))throw new Error(tr('store.projectStillUnderManualTerminal'));
+      if(this.list('terminalSessions').some(s=>terminalOwnsProject(this,s,id)))throw new Error(tr('store.projectStillUnderManualTerminal'));
       if (this.list('coordinationRequests').some(r => r.projectId === id && !['succeeded', 'failed', 'cancelled'].includes(r.status))
         || this.list('plans').some(p => p.projectId === id && !['completed', 'cancelled'].includes(p.status))) throw new Error(tr('store.projectStillHasUnfinishedCalls'));
       if (this.list('deliveries').some(d => d.projectId === id && !['ready', 'cancelled', 'blocked'].includes(d.status))) throw new Error(tr('store.projectStillHasUnfinishedGit'));

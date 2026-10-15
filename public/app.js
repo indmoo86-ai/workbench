@@ -1,6 +1,10 @@
 import { t, getLanguage, setLanguage, onLanguageChange, syncLanguageWithBackend, dateLocale } from './i18n.js';
 import {simplifiedCliOutput} from './output-language.js';
 import {createNativeSessionUI} from './native-sessions.js';
+import {createListOrder} from './list-order.js';
+import {installSelectControls} from './select-controls.js';
+
+installSelectControls();
 import {roleContextRing} from './context-usage.js';
 import {latestTerminalRun} from './role-history.js';
 import {createHistoryViewer} from './history-view.js';
@@ -39,7 +43,6 @@ const dom = {
   settingsDeviceList: document.querySelector('#settings-device-list'),
   promptsForm: document.querySelector('#platform-prompts-form'),
   promptsDialog: document.querySelector('#platform-prompts-dialog'),
-  promptsPreview: document.querySelector('#platform-prompt-preview'),
   promptsUpdated: document.querySelector('#platform-prompts-updated'),
   promptsFeedback: document.querySelector('#platform-prompts-feedback'),
   workspaceTitle: document.querySelector('#workspace-title'),
@@ -104,6 +107,8 @@ const app = {
 };
 app.view = 'workspace';
 app.settingsTab = 'devices';
+const projectOrder=createListOrder({container:dom.projectList,scope:'projects',onEnd:()=>renderProjects(),onError:setError});
+const roleOrder=createListOrder({container:dom.roleList,scope:()=>`roles:${app.selectedProjectId||''}`,onEnd:()=>renderRoles(),onError:setError});
 
 const statusLabels = {
   draft: 'Draft', ready: 'Ready', in_progress: 'In progress', in_review: 'In review',
@@ -250,7 +255,7 @@ function createMobileDrawers() {
 }
 const drawers = createMobileDrawers();
 const inspector=createWorkspaceInspector({api,getProject:getCurrentProject,getData:()=>app.data,openDevices:()=>openSettings('devices'),openProjectFolder});
-const nativeSessionUI=createNativeSessionUI({api,getData:()=>app.data,onModeChange:()=>{app.view='workspace';render();},onPreview:()=>mobilePanel('chat')});
+const nativeSessionUI=createNativeSessionUI({api,getData:()=>app.data,onModeChange:()=>{app.view='workspace';render();},onPreview:()=>mobilePanel('chat'),onStateRefresh:()=>refreshState({quiet:true})});
 initWorkspaceColumns();
 const mobilePanel = drawers.set;
 document.querySelector('#mobile-projects').innerHTML = UI_ICON.folder;
@@ -658,11 +663,13 @@ function renderExecutionPlans() {
 }
 
 function renderProjects() {
+  if(projectOrder.active())return;
   dom.projectList.replaceChildren();
   const icons = projectIconAssignments(app.data.projects);
-  for (const project of app.data.projects) {
+  for (const project of projectOrder.ordered(app.data.projects)) {
     const button = create('button', `project-item${project.id === app.selectedProjectId ? ' active' : ''}`);
     button.type = 'button';
+    button.dataset.orderId=project.id;
     // Names, titles and accessible labels are user data; the count below is translated explicitly.
     button.translate = false;
     const count = project.supervisorRoleId ? (app.data.repositories || []).filter(r => r.projectId === project.id).length : (app.data.workspaces || []).filter(w => w.projectId === project.id).length;
@@ -823,13 +830,14 @@ async function startDesktopChain() {
 
 function renderRoles() {
   if (!dom.roleList) return;
+  if(roleOrder.active())return;
   roleRefresh.update();
   dom.roleList.replaceChildren();
   const project = getCurrentProject();
   const supervisor = project && app.data.supervisorRoles?.find(r => r.id === project.supervisorRoleId && r.projectId === project.id);
   // Home preserves device registration order; include offline devices so reconnects do not renumber clouds.
   const cloudNumbers = new Map(app.data.workers.filter(w => workerKind(w) === 'cloud').map((w, index) => [w.id, index + 1]));
-  const roles = project ? [...(supervisor ? [supervisor] : []), ...(app.data.roles || []).filter(r => r.projectId === project.id && !r.archivedAt && r.id !== supervisor?.id)] : [];
+  const roles = project ? [...(supervisor ? [supervisor] : []), ...roleOrder.ordered((app.data.roles || []).filter(r => r.projectId === project.id && !r.archivedAt && r.id !== supervisor?.id))] : [];
   const note = document.querySelector('#role-sidebar-note');
   if (!project) {
     if (note) {
@@ -856,6 +864,7 @@ function renderRoles() {
     const isSupervisor=role.id===project.supervisorRoleId;
     const displayName=isSupervisor?t('Supervisor@@roleCard'):role.name;
     const card = create('article', `worker-card role-card is-${activity.tone}${role.enabled ? '' : ' disabled'}${isSupervisor?' is-supervisor':''}`);
+    if(!isSupervisor)card.dataset.orderId=role.id;
     card.tabIndex = 0;
     card.setAttribute('role', 'button');
     card.setAttribute('aria-label', isSupervisor?t('Edit supervisor settings'):t('Edit role {name}', { name: role.name }));
@@ -899,6 +908,11 @@ function renderRoles() {
       if (quota.childElementCount) activityRow.append(quota);
     }
     card.append(head, ids, activityRow);
+    if(activity.lastFailure){
+      const failure=activity.lastFailure,history=create('button','role-last-failure',t('Last execution failed · View record'));history.type='button';
+      history.title=[t('Last execution failed'),failure.at?new Date(failure.at).toLocaleString(dateLocale()):'',failure.reason].filter(Boolean).join('\n');
+      history.addEventListener('click',event=>{event.stopPropagation();openTask(failure.taskId,failure.runId);});card.append(history);
+    }
     const open = () => {
       if(!isSupervisor){room.openRoleEditor(role.id);return;}
       supervisorsUI.open();
@@ -1121,6 +1135,7 @@ function renderSettingsDevices() {
     edit.setAttribute('aria-label', t('Edit {v}', { v: workerDisplayName(worker) }));
     setActionIcon(edit,'edit');
     head.append(edit);
+    if (!worker.online) head.append(platformUI.deleteDeviceButton(entry));
     if (app.data.homePlatform === 'darwin' && workerKind(worker) === 'cloud' && device) {
       const desktop = create('button', 'secondary compact device-open-desktop', 'Open remote desktop');
       desktop.type = 'button';
@@ -1187,21 +1202,6 @@ function renderSettingsDevices() {
   }
 }
 
-function renderPlatformPromptPreview() {
-  if (!dom.promptsForm || !dom.promptsPreview) return;
-  const platform = dom.promptsForm.elements.platformPrompt.value.trim();
-  dom.promptsPreview.textContent = [
-    t('[Platform hard rules (built in, not editable)]'),
-    t('Permissions, workspace, approvals and cross-role call boundaries'),
-    '',
-    t('[Platform prompt]'),
-    platform || t('(not configured)'),
-    '',
-    t('[Current role prompt]'),
-    t('(added at run time from the role configuration)')
-  ].join('\n');
-}
-
 function setSupervisorDefaultOptions(name, values, selected, blank) {
   const select = dom.promptsForm?.elements[name];
   if (!select) return '';
@@ -1261,7 +1261,6 @@ function renderPlatformPrompts() {
     dom.promptsForm.elements.defaultSupervisorEffort.selectedOptions[0]?.textContent || t('CLI default reasoning effort')
   ].join(' · ');
   dom.promptsFeedback.hidden = true;
-  renderPlatformPromptPreview();
   const organizer=settings.conversationOrganizer||{};
   const worker=app.data.workers?.find(item=>item.id===organizer.nodeId);
   document.querySelector('#conversation-organizer-summary').textContent=organizer.nodeId
@@ -1297,7 +1296,6 @@ function openPromptEditor(mode) {
   renderPlatformPrompts();
   dom.promptsDialog.dataset.editMode = mode;
   for (const section of dom.promptsForm.querySelectorAll('[data-prompt-field]')) section.hidden = mode === 'supervisor-prompt' ? section.dataset.promptField !== 'supervisor' : mode === 'platform' ? section.dataset.promptField !== 'platform' : section.dataset.promptField === 'platform';
-  document.querySelector('#prompt-merge-preview').hidden = mode !== 'platform';
   document.querySelector('#restore-platform-prompts').textContent = mode !== 'platform' ? 'Restore default prompts' : 'Restore defaults';
   document.querySelector('#platform-prompts-dialog-title').textContent = {
     platform: 'Edit platform prompt', supervisor: 'Edit supervisor settings', 'supervisor-prompt': 'Edit default supervisor prompt'
@@ -1315,6 +1313,7 @@ function appendRuntimeModels(parent, worker, runtime) {
     create('strong', '', label),
     create('span', `runtime-state ${runtime.available ? 'is-ready' : 'is-unavailable'}`, runtime.available ? 'Available' : 'Unavailable')
   );
+  if (!runtime.available) summary.append(platformUI.deleteRuntimeButton(worker,runtime));
   details.append(summary);
   const auth = runtime.authReady === true ? 'Signed in' : runtime.authReady === false ? 'Not signed in' : 'Sign-in status unknown';
   details.append(create('p', 'workspace-note runtime-meta', `${auth}${runtime.version ? ` · ${runtime.version}` : ''}${runtime.checkedAt ? t(' · Checked {time}', { time: formatTime(runtime.checkedAt) }) : ''}`));
@@ -1382,26 +1381,28 @@ function modelQuotaLabel(runtime, model) {
 function renderWechat() {
   const state = app.data.wechat || { links: [] };
   const summary = document.querySelector('#wechat-summary');
-  summary.textContent = !state.client ? 'WeChat service needs an update; currently not enabled' : !state.configured ? 'Home-specific client configuration not installed' : `${state.enabled ? t('Enabled') : t('Disabled')} · ${state.health || t('Connection not checked yet')}`;
+  summary.textContent = state.configurationError || (!state.client ? 'WeChat service needs an update; currently not enabled' : !state.configured ? 'Home-specific client configuration not installed' : `${state.enabled ? t('Enabled') : t('Disabled')} · ${state.health || t('Connection not checked yet')}`);
   const dialog = document.querySelector('#wechat-dialog'); if (!dialog.open) return;
   document.querySelector('#wechat-health').textContent = t('{textContent}. Client: {v}; a connection check does not guarantee actual delivery.', { textContent: summary.textContent, v: state.client || t('not configured') });
-  const toggle = document.querySelector('#toggle-wechat'); toggle.textContent = state.enabled ? 'Pause WeChat messaging' : 'Enable WeChat'; toggle.disabled = !state.configured;
+  const toggle = document.querySelector('#toggle-wechat'); toggle.textContent = state.enabled ? 'Pause WeChat messaging' : 'Enable WeChat'; toggle.disabled = !state.configured && !state.enabled;
   document.querySelector('#check-wechat').disabled = !state.configured;
-  const select = document.querySelector('#wechat-project'), selected = select.value || app.selectedProjectId;
-  const projects = app.data.projects.filter(project => project.supervisorRoleId);
-  select.replaceChildren(...projects.map(project => { const option = create('option', '', project.name); option.value = project.id; return option; }));
-  if (projects.some(project => project.id === selected)) select.value = selected;
-  document.querySelector('#send-wechat-entry').disabled = !state.enabled || !projects.length;
+  const select = document.querySelector('#wechat-channel'), channels = state.channels || [];
+  const selected = select.dataset.dirty === '1' ? select.value : state.channelId;
+  select.replaceChildren(...channels.map(channel => { const option = document.createElement('option'); option.textContent = `${channel.platform === 'wechat' ? t('WeChat') : channel.platform} · ${channel.account}`; option.value = channel.id; option.disabled = !channel.configured; option.translate = false; return option; }));
+  if (!channels.length) { const option = document.createElement('option'); option.textContent = t('No configured notification accounts'); option.value = ''; select.append(option); }
+  if (channels.some(channel => channel.id === selected)) select.value = selected;
+  select.disabled = !channels.length;
+  document.querySelector('#save-wechat-channel').disabled = !channels.length;
   const list = document.querySelector('#wechat-records'); list.replaceChildren();
   for (const link of state.links || []) {
     const card = create('section', 'settings-overview-card');
     const project = app.data.projects.find(p => p.id === link.projectId);
-    const kind = { question: 'Pending question', approval: 'CLI approval', project: 'Project entry' }[link.kind] || 'Message';
+    const kind = { question: 'Pending question', approval: 'CLI approval', project: 'Project entry', notification: 'Supervisor notification' }[link.kind] || 'Message';
     card.append(create('strong', '', `${link.code ? t('[{code}]', { code: link.code }) : t('Pending send')} ${project?.name || t('Project removed')} · ${kind}`));
     if (link.preview) card.append(create('p', 'settings-overview-preview', link.preview));
     const status = link.state === 'closed' ? link.closedReason : link.error || (link.deliveryStatus === 'sent' ? t('Sent · {v}', { v: link.lastSeq ? t('reply received; you can keep giving numbered instructions') : t('awaiting reply') }) : 'Sending');
     card.append(create('p', 'workspace-note', `${status} · ${formatTime(new Date(link.createdAt).toISOString())}`));
-    if (link.followupUntil && link.state !== 'closed') card.append(create('p', 'workspace-note', t('This answered number accepts follow-up instructions until {time}; after that, get the entry again. Unanswered questions have no local wait timeout.', { time: formatTime(new Date(link.followupUntil).toISOString()) })));
+    if (link.followupUntil && link.state !== 'closed') card.append(create('p', 'workspace-note', t('This answered number accepts follow-up instructions until {time}; after that, ask the supervisor for a new notification. Unanswered questions have no local wait timeout.', { time: formatTime(new Date(link.followupUntil).toISOString()) })));
     if (link.error === 'weixin_context_expired') card.append(create('p', 'workspace-note', 'Send ClawBot a new message first, then retry the original request.'));
     if (link.state !== 'closed') {
       const actions = create('div', 'form-actions');
@@ -1415,19 +1416,20 @@ function renderWechat() {
     }
     list.append(card);
   }
-  if (!(state.links || []).length) list.append(create('p', 'workspace-note', 'No WeChat messages yet; once enabled, only newly pending questions are notified.'));
+  if (!(state.links || []).length) list.append(create('p', 'workspace-note', 'No notifications yet. Only explicit supervisor tool calls send new messages.'));
 }
 async function wechatAction(button, path, json = {}) {
   button.disabled = true; const feedback = document.querySelector('#wechat-feedback'); feedback.textContent = '';
-  try { await api(path, { method: 'POST', json }); await refreshState(); }
+  try { await api(path, { method: 'POST', json }); document.querySelector('#wechat-channel').dataset.dirty = ''; await refreshState(); }
   catch (error) { feedback.textContent = error.message; }
   finally { button.disabled = false; renderWechat(); }
 }
-document.querySelector('#manage-wechat').onclick = () => { document.querySelector('#wechat-dialog').showModal(); renderWechat(); };
+document.querySelector('#manage-wechat').onclick = () => { document.querySelector('#wechat-channel').dataset.dirty = ''; document.querySelector('#wechat-dialog').showModal(); renderWechat(); };
 document.querySelector('#close-wechat-dialog').onclick = () => document.querySelector('#wechat-dialog').close();
-document.querySelector('#toggle-wechat').onclick = event => void wechatAction(event.currentTarget, '/api/wechat', { enabled: !app.data.wechat?.enabled });
+document.querySelector('#toggle-wechat').onclick = event => void wechatAction(event.currentTarget, '/api/wechat', { enabled: !app.data.wechat?.enabled, channelId: document.querySelector('#wechat-channel').value });
 document.querySelector('#check-wechat').onclick = event => void wechatAction(event.currentTarget, '/api/wechat/health');
-document.querySelector('#send-wechat-entry').onclick = event => void wechatAction(event.currentTarget, `/api/projects/${document.querySelector('#wechat-project').value}/wechat`);
+document.querySelector('#wechat-channel').onchange = event => { event.currentTarget.dataset.dirty = '1'; };
+document.querySelector('#save-wechat-channel').onclick = event => void wechatAction(event.currentTarget, '/api/wechat', { enabled: Boolean(app.data.wechat?.enabled), channelId: document.querySelector('#wechat-channel').value });
 
 /** The sidebar footer marks the page that is currently open, matching the right panel tab bar. */
 function renderSidebarNav() {
@@ -2180,7 +2182,6 @@ dom.settingsPage?.querySelectorAll('[data-settings-tab]').forEach(button => {
   button.addEventListener('click', () => openSettings(button.dataset.settingsTab));
 });
 
-dom.promptsForm?.addEventListener('input', renderPlatformPromptPreview);
 document.querySelectorAll('[data-prompt-edit]').forEach(button => button.addEventListener('click', () => openPromptEditor(button.dataset.promptEdit)));
 document.querySelector('#edit-conversation-organizer')?.addEventListener('click',()=>{
   const saved=app.data.settings?.conversationOrganizer||{};
@@ -2221,7 +2222,6 @@ document.querySelector('#restore-platform-prompts')?.addEventListener('click', (
   if (mode === 'supervisor' || mode === 'supervisor-prompt') dom.promptsForm.elements.supervisorPrompt.value = app.data.promptDefaults?.supervisorPrompt || '';
   dom.promptsFeedback.textContent = 'Prompts have been restored to their defaults; click "Save settings" to apply.';
   dom.promptsFeedback.hidden = false;
-  renderPlatformPromptPreview();
 });
 dom.promptsForm?.addEventListener('submit', async event => {
   event.preventDefault();
@@ -2330,7 +2330,7 @@ onLanguageChange(() => {
   // Each step is independent so one failing renderer cannot leave the rest of the page in the old language.
   for (const step of [
     render,
-    () => { if (dom.promptsDialog?.open) renderPlatformPromptPreview(); else renderPlatformPrompts(); },
+    () => { if (!dom.promptsDialog?.open) renderPlatformPrompts(); },
     () => tokenUI.refresh(),
     () => { if (app.view === 'settings' && app.settingsTab === 'usage') tokenUI.show(); }
   ]) {

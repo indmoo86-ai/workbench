@@ -11,6 +11,7 @@ allowed.add('/api/agent/pass');
 allowed.add('/api/agent/collaboration-sessions');
 allowed.add('/api/agent/documents');
 allowed.add('/api/agent/source-sync');
+allowed.add('/api/agent/notify');
 for(const path of ['/api/agent/read-source','/api/agent/node-query','/api/agent/file-read'])allowed.add(path);
 
 /** Dispatch pause must not swallow accepted work's conclusions; new work and write operations remain blocked. */
@@ -71,7 +72,7 @@ async function agentRequestOnce(pathname,payload) {
   throw Object.assign(new Error(tr('agentBridge.workerCommunicationTimedOutOutcome')),{outcomeUnknown:true});
 }
 
-/** Only allowlisted Agent endpoints can pass through the bridge; there is no user-confirmation, arbitrary-URL, or Shell endpoint. */
+/** Only allowlisted Agent endpoints pass through the bridge; supervisor notifications are checked by Home, never arbitrary URLs or shell. */
 export async function homeRequest(home, token, pathname, payload) {
   if (!home || !allowed.has(pathname)) throw new Error(tr('agentBridge.invalidHomeToolPath'));
   try {

@@ -6,7 +6,7 @@ import {SourceSyncWorker} from './source-sync-worker.mjs';
 import {SourceSyncConflicts} from './source-sync-conflicts.mjs';
 import {SourceSyncAgent} from './source-sync-agent.mjs';
 import {runtimeIssue} from './runtime-probe.mjs';
-import {validateSourceCapture,syncError,contentHash} from './source-sync-manifest.mjs';
+import {validateSourceCapture,syncError,syncLimitError,contentHash,entryEqual,SOURCE_SYNC_LIMITS} from './source-sync-manifest.mjs';
 import {sourceScopeBinding} from './source-sync-scopes.mjs';
 import {SourceSyncWatch} from './source-sync-watch.mjs';
 import {saveSourceBlob,readSourceBlob} from './source-sync-files.mjs';
@@ -53,7 +53,12 @@ export class SourceSyncHome {
     const configs=this.db.list('sourceSyncConfigs').filter(c=>c.enabled&&c.scopeKind==='directory'&&c.mode==='continuous');
     for(const worker of this.db.list('workers').filter(w=>w.capabilities?.sourceSyncDirectory===1)){
       const socket=this.socket(worker.id);if(!socket?.workerReady||socket.readyState!==1)continue;
-      const scopes=configs.flatMap(c=>c.bindings.filter(b=>b.nodeId===worker.id&&sourceScopeBinding(this.db,c.projectId,b.repositoryId,b.nodeId)?.localRoot===b.root).map(b=>({...b,projectId:c.projectId,generation:c.generation})));
+      const supported=configs.filter(c=>c.contentMode!=='source-and-outputs'||worker.capabilities.sourceSyncOutputs===1);
+      for(const c of configs.filter(c=>!supported.includes(c)))for(const b of c.bindings.filter(b=>b.nodeId===worker.id)){
+        const id=`${worker.id}:${c.projectId}:${b.repositoryId}`,old=this.db.get('sourceSyncWatchStates',id);
+        if(old?.error!=='worker_unsupported'||old.generation!==c.generation)this.db.put('sourceSyncWatchStates',{id,projectId:c.projectId,repositoryId:b.repositoryId,nodeId:worker.id,generation:c.generation,status:'blocked',error:'worker_unsupported'});
+      }
+      const scopes=supported.flatMap(c=>c.bindings.filter(b=>b.nodeId===worker.id&&sourceScopeBinding(this.db,c.projectId,b.repositoryId,b.nodeId)?.localRoot===b.root).map(b=>({...b,projectId:c.projectId,generation:c.generation})));
       const version=contentHash(JSON.stringify(scopes));
       if(socket.sourceWatchAck!==version&&(!socket.sourceWatchSent||Date.now()-socket.sourceWatchSent>5000)){socket.sourceWatchSent=Date.now();socket.send(JSON.stringify({type:'source_sync_watch_config',version,scopes}));}
     }
@@ -84,7 +89,7 @@ export class SourceSyncHome {
       if(message.type==='source_sync_dirty')this.socket(nodeId)?.send(JSON.stringify({type:'source_sync_dirty_ack',noticeId:message.noticeId,disposition:'obsolete'}));return;
     }
     const id=`${nodeId}:${message.projectId}:${message.repositoryId}`;
-    if(message.type==='source_sync_watch_status'){this.db.put('sourceSyncWatchStates',{id,projectId:message.projectId,nodeId,repositoryId:message.repositoryId,generation:message.generation,status:message.status,error:message.error,checkedAt:message.checkedAt,digest:message.digest});return;}
+    if(message.type==='source_sync_watch_status'){this.db.put('sourceSyncWatchStates',{id,projectId:message.projectId,nodeId,repositoryId:message.repositoryId,generation:message.generation,status:message.status,error:message.error,limit:message.limit,checkedAt:message.checkedAt,digest:message.digest});return;}
     if(!/^[a-f0-9-]{36}$/.test(message.noticeId||'')||!/^[a-f0-9]{64}$/.test(message.digest||''))throw syncError('invalid_notice');
     const prior=this.db.get('sourceSyncWatchNotices',id);
     if(prior?.noticeId!==message.noticeId)this.db.put('sourceSyncWatchNotices',{id,projectId:message.projectId,nodeId,repositoryId:message.repositoryId,generation:message.generation,noticeId:message.noticeId,digest:message.digest,observedAt:message.observedAt});
@@ -112,7 +117,7 @@ export class SourceSyncHome {
     if(result?.receiptId)throw syncError('receipt_missing');
     if(result?.captureId){const bundle=this.db.get('sourceSyncUploads',c.id)?.bundle;if(!bundle)throw syncError('manifest_missing');
       if(result.captureId!==c.id||c.action!=='capture')throw syncError('receipt_owner_mismatch');
-      if(!c.result&&this.db.get('sourceSyncBatches',c.batchId)?.status!=='cancelled')for(const entry of entries(bundle))if(!await this.storage.has(c.projectId,entry))throw syncError('blob_missing');
+      if(!bundle.manifest.metadataOnly&&!c.result&&this.db.get('sourceSyncBatches',c.batchId)?.status!=='cancelled')for(const entry of entries(bundle))if(!await this.storage.has(c.projectId,entry))throw syncError('blob_missing');
       result={status:'completed',...bundle};
     }
     if(!['completed','partial_conflict','cancelled','blocked'].includes(result?.status)){
@@ -167,9 +172,20 @@ export class SourceSyncHome {
       if(c.scopeKind!=='directory'&&(bundle.base.baseCommit!==bundle.manifest.baseCommit||c.baseCommit&&c.baseCommit!==bundle.base.baseCommit))throw syncError('git_baseline_mismatch');
       const fingerprint=contentHash(JSON.stringify(bundle)),old=this.db.get('sourceSyncUploads',c.id);
       if(old&&old.fingerprint!==fingerprint)throw syncError('capture_changed');
+      if(batch.contentMode==='source-and-outputs'&&!c.result&&batch.status!=='cancelled'){
+        const offered=new Set();let bytes=0;
+        for(const capture of this.db.listSourceSyncCommands({projectId:c.projectId,batchId:c.batchId,action:'capture'})){
+          const snapshot=capture.id===c.id?bundle.manifest:this.db.get('sourceSyncUploads',capture.id)?.bundle.manifest;
+          for(const [path,entry] of Object.entries(snapshot?.entries||{})){
+            if(!entry||entryEqual(entry,capture.baselineEntries?.[path]||null)||offered.has(entry.hash))continue;
+            offered.add(entry.hash);bytes+=entry.size;
+            if(bytes>SOURCE_SYNC_LIMITS.batchBytes)throw syncLimitError('batch_too_large','batch',SOURCE_SYNC_LIMITS.batchBytes,bytes,path);
+          }
+        }
+      }
       this.db.put('sourceSyncUploads',{id:c.id,projectId:c.projectId,bundle,fingerprint});
       // Terminal commands only retain late evidence; they cannot consume source blobs or advance a version.
-      if(c.result||batch.status==='cancelled'){json(res,{missing:[]});return true;}
+      if(bundle.manifest.metadataOnly||c.result||batch.status==='cancelled'){json(res,{missing:[]});return true;}
       const missing=[];for(const entry of new Map(entries(bundle).map(e=>[e.hash,e])).values())if(!await this.storage.has(c.projectId,entry))missing.push(entry);
       json(res,{missing});return true;
     }
@@ -177,7 +193,7 @@ export class SourceSyncHome {
       const bundle=this.db.get('sourceSyncUploads',c.id)?.bundle;
       const allowed=c.action==='capture'&&bundle?entries(bundle):(c.changes||[]).map(x=>x.after).filter(Boolean);
       const entry=allowed.find(e=>e.hash===m[3]);if(!entry)throw syncError('blob_not_in_command');
-      if(req.method==='PUT'&&c.action==='capture'){json(res,await this.storage.receive(c.projectId,entry,req));return true;}
+      if(req.method==='PUT'&&c.action==='capture'){if(bundle.manifest.metadataOnly)throw syncError('preview_metadata_only');json(res,await this.storage.receive(c.projectId,entry,req));return true;}
       if(req.method==='GET'&&c.action==='apply'){const bytes=await this.storage.read(c.projectId,entry.hash);res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':bytes.length,'Cache-Control':'no-store'});res.end(bytes);return true;}
     }
     throw syncError('invalid_sync_action');
@@ -193,7 +209,7 @@ export class SourceSyncHome {
     else if(req.method==='POST'&&/^batches\/[a-f0-9]{64}\/cancel$/.test(route))value=this.sync.cancel(projectId,route.split('/')[1],(await body(req,100000)).revision);
     else if(req.method==='GET'&&/^batches\/[a-f0-9]{64}$/.test(route)){
       const batch=this.db.get('sourceSyncBatches',route.split('/')[1]);if(batch?.projectId!==projectId)throw syncError('batch_changed');
-      value={batch:{...batch,fingerprint:undefined},captures:this.db.listSourceSyncCommands({projectId,batchId:batch.id,action:'capture'}).map(c=>({nodeId:c.nodeId,repositoryId:c.repositoryId,status:c.status,root:c.root,entries:c.result?.manifest?.entries,excluded:c.result?.manifest?.excluded}))};
+      value={batch:{...batch,fingerprint:undefined},captures:this.db.listSourceSyncCommands({projectId,batchId:batch.id,action:'capture'}).map(c=>({nodeId:c.nodeId,repositoryId:c.repositoryId,status:c.status,root:c.root,entries:c.result?.manifest?.entries,newlyIncluded:c.result?.manifest?.newlyIncluded,excluded:c.result?.manifest?.excluded,reason:c.result?.reason,limit:c.result?.limit}))};
     }
     else if(req.method==='GET'&&/^conflicts\/[^/]+$/.test(route))value=await this.agent.execute({projectId},'read',{conflictId:route.split('/')[1]});
     else if(req.method==='POST'&&/^conflicts\/[^/]+\/read$/.test(route))value=await this.agent.execute({projectId},'read',{...await body(req,100000),conflictId:route.split('/')[1]});
@@ -230,12 +246,17 @@ export class SourceSyncClient {
   }
   async request(message,path,method='GET',value){
     const response=await fetch(`${this.home}/api/worker/source-sync/${message.commandId}/${path}`,{method,headers:{Authorization:`Bearer ${message.secret}`,...(value&&!Buffer.isBuffer(value)?{'Content-Type':'application/json'}:{})},body:value===undefined?undefined:Buffer.isBuffer(value)?value:JSON.stringify(value),signal:AbortSignal.timeout(60000)});
-    if(!response.ok){const result=await response.json();throw syncError(result.code||'transfer_failed',result.error||'');}return response;
+    if(!response.ok){const result=await response.json();throw Object.assign(syncError(result.code||'transfer_failed',result.error||''),result.limit?{limit:result.limit}:{});}return response;
   }
   async execute(message){
     if(this.inFlight.has(message.commandId))return;
     this.inFlight.add(message.commandId);
     try{
+      const settled=this.db.get('sourceSyncTransport',message.commandId);
+      if(settled?.terminalResult){
+        if(!this.db.get('sourceSyncReceipts',message.commandId))this.db.put('sourceSyncReceipts',{id:message.commandId,projectId:settled.projectId,result:settled.terminalResult,createdAt:new Date().toISOString()});
+        this.send({type:'source_sync_receipt',commandId:message.commandId,result:settled.terminalResult,receiptHash:contentHash(JSON.stringify(settled.terminalResult))});return;
+      }
       const prior=this.db.get('sourceSyncCommands',message.commandId);
       const command=prior?.result&&prior.command?prior.command:await (await this.request(message,'plan')).json();
       const transport=this.db.get('sourceSyncTransport',command.id);
@@ -261,8 +282,14 @@ export class SourceSyncClient {
       if(!['completed','partial_conflict','cancelled'].includes(result.status))this.send({type:'source_sync_receipt',commandId:command.id,result});
     }catch(error){
       const transport=this.db.get('sourceSyncTransport',message.commandId),attempts=(transport?.recoveryAttempts||0)+1;
+      if(transport&&error.limit&&!transportFailure(error)){
+        // Capture success is evidence, not successful transfer. Retain it and acknowledge the terminal quota result separately.
+        const result={status:'blocked',reason:error.code,limit:error.limit};
+        this.db.transaction(()=>{this.db.put('sourceSyncTransport',{...transport,ready:true,terminalResult:result,nextReceiptAt:0});this.db.put('sourceSyncReceipts',{...this.db.get('sourceSyncReceipts',message.commandId),id:message.commandId,projectId:transport.projectId,result,createdAt:new Date().toISOString()});});
+        this.send({type:'source_sync_receipt',commandId:message.commandId,result,receiptHash:contentHash(JSON.stringify(result))});return;
+      }
       if(transport)this.db.put('sourceSyncTransport',{...transport,recoveryAttempts:attempts,nextRecoveryAt:Date.now()+retryDelay(attempts),recoveryError:transportFailure(error)?'transfer_failed':error.code});
-      this.send({type:'source_sync_receipt',commandId:message.commandId,result:{status:transportFailure(error)?'reconciling':'blocked',reason:transportFailure(error)?'transfer_failed':error.code}});
+      this.send({type:'source_sync_receipt',commandId:message.commandId,result:{status:transportFailure(error)?'reconciling':'blocked',reason:transportFailure(error)?'transfer_failed':error.code,...(error.limit?{limit:error.limit}:{})}});
     }finally{this.inFlight.delete(message.commandId);}
   }
   acknowledge(id,message={}){
@@ -282,7 +309,7 @@ export class SourceSyncClient {
       if(transport?.message){void this.execute(transport.message);return;}
       this.send({type:'source_sync_receipt',commandId:id,result:{status:'reconciling',reason:'recovery_required'}});return;
     }
-    this.send({type:'source_sync_receipt',commandId:id,result:record?.result||{status:'cancelled',files:[]}});
+    this.send({type:'source_sync_receipt',commandId:id,result:transport?.terminalResult||record?.result||{status:'cancelled',files:[]}});
   }
   flush(){
     const at=Date.now(),exclude=[...this.inFlight];

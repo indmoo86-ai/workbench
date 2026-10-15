@@ -3,13 +3,15 @@ import {promisify} from 'node:util';
 import {constants,lstat} from 'node:fs';
 import {mkdir,realpath,open,readFile,writeFile,readdir} from 'node:fs/promises';
 import {join,resolve} from 'node:path';
-import {SOURCE_SYNC_LIMITS,SOURCE_SYNC_CAPTURE_POLICY,DIRECTORY_SYNC_CAPTURE_POLICY,contentHash,syncError,excludedSourcePath,validateSourcePath,manifestDigest,entryEqual} from './source-sync-manifest.mjs';
+import {SOURCE_SYNC_LIMITS,SOURCE_SYNC_CAPTURE_POLICY,DIRECTORY_SYNC_CAPTURE_POLICY,OUTPUT_SYNC_CAPTURE_POLICY,includesSyncOutputs,contentHash,syncError,syncLimitError,excludedSourcePath,validateSourcePath,manifestDigest,entryEqual} from './source-sync-manifest.mjs';
 
 const exec=promisify(execFile);
 const git=async(root,args,encoding='utf8')=>(await exec('git',args,{cwd:root,encoding,timeout:30000,maxBuffer:24*1024*1024})).stdout;
 // Missing .git markers are routine during each safety walk; avoid rejected promises while keeping a fresh lstat.
 const exists=path=>new Promise((resolve,reject)=>lstat(path,(error,info)=>{if(!error)resolve(info);else if(error.code==='ENOENT')resolve(null);else reject(error);}));
 const blobSaves=new Map();
+// Custom DATA_DIRs can live under .local; their database identifies the whole private runtime, including staging.
+const runtimeDirectory=async dir=>Boolean(await exists(join(dir,'home.sqlite'))||await exists(join(dir,'worker.sqlite')));
 
 /** Bound file I/O and drain in-flight captures before rejecting, so a failed snapshot leaves no background writes. */
 export async function captureSourceEntries(paths,capture) {
@@ -25,6 +27,7 @@ export async function sourceFilePath(root,path,{createParents=false,policy={}}={
   validateSourcePath(path,policy);const canonical=await realpath(root);let current=canonical,info;
   const parts=path.split('/');
   for(let i=0;i<parts.length;i++){
+    if(includesSyncOutputs(policy)&&await runtimeDirectory(current))throw syncError('runtime_directory',path);
     current=join(current,parts[i]);info=await exists(current);
     if(!info&&i<parts.length-1&&createParents){await mkdir(current,{mode:0o755}).catch(e=>{if(e.code!=='EEXIST')throw e;});info=await exists(current);}
     if(!info){if(i<parts.length-1)return {path:current,missing:true};return {path:current,missing:true};}
@@ -42,7 +45,7 @@ export async function readSourceFile(root,path,policy={}) {
     try {
       file=await open(checked.path,constants.O_RDONLY|constants.O_NOFOLLOW);
       const before=await file.stat();if(!before.isFile()||before.nlink!==1)throw syncError('unsafe_file',path);
-      if(before.size>SOURCE_SYNC_LIMITS.fileBytes)throw syncError('file_too_large',path);
+      if(before.size>SOURCE_SYNC_LIMITS.fileBytes)throw syncLimitError('file_too_large','file',SOURCE_SYNC_LIMITS.fileBytes,before.size,path);
       const bytes=Buffer.alloc(before.size);let offset=0;
       while(offset<bytes.length){const r=await file.read(bytes,offset,bytes.length-offset,offset);if(!r.bytesRead)break;offset+=r.bytesRead;}
       // The final walk already checks and stats the leaf; compare that fresh identity with the open descriptor.
@@ -137,32 +140,35 @@ export async function captureSourceSnapshot(options) {
 /** Directory scopes use saved-content baselines and the same hash/transfer contract as repository scopes. */
 export async function captureDirectorySnapshot(options) {
   const root=await realpath(options.root),policy=options.scopePolicy||{},entries=Object.create(null),excluded=[],paths=[];
+  const outputs=includesSyncOutputs(policy),metadataOnly=outputs&&options.preview===true;
+  if(outputs&&await runtimeDirectory(root))throw syncError('runtime_directory');
   let visited=0,changedBytes=0,ignored=[];
   // Git ignore is an optional file-selection source, never the directory scope's version history.
-  try{if(await realpath((await git(root,['rev-parse','--show-toplevel'])).trim())===root)ignored=(await git(root,['ls-files','-z','--others','--ignored','--exclude-standard','--directory'])).split('\0').filter(Boolean);}catch(e){if(!e.stderr?.includes('not a git repository')&&!String(e.message).includes('not a git repository')&&e.code!=='ENOENT')throw e;}
+  if(!outputs||metadataOnly)try{if(await realpath((await git(root,['rev-parse','--show-toplevel'])).trim())===root)ignored=(await git(root,['ls-files','-z','--others','--ignored','--exclude-standard','--directory'])).split('\0').filter(Boolean);}catch(e){if(!e.stderr?.includes('not a git repository')&&!String(e.message).includes('not a git repository')&&e.code!=='ENOENT')throw e;}
   const isIgnored=path=>ignored.some(p=>path===p||path.startsWith(p.endsWith('/')?p:p+'/'));
   async function walk(dir,prefix=''){
     for(const item of await readdir(dir,{withFileTypes:true})){
-      const path=prefix+item.name;if(++visited>SOURCE_SYNC_LIMITS.paths*2)throw syncError('manifest_too_large');
+      const path=prefix+item.name;if(++visited>SOURCE_SYNC_LIMITS.paths*2)throw syncLimitError('manifest_too_large','scan_entries',SOURCE_SYNC_LIMITS.paths*2,visited,path);
       const shared=policy.sharedDocs===true&&(path==='.workbench'||path==='.workbench/docs'||path.startsWith('.workbench/docs/'));
       const sharedParent=shared&&(path==='.workbench'||path==='.workbench/docs');
-      if(!sharedParent&&(excludedSourcePath(path,policy)||!shared&&isIgnored(path))){excluded.push({path,reason:'excluded'});continue;}
+      if(!sharedParent&&(excludedSourcePath(path,policy)||!outputs&&!shared&&isIgnored(path))){excluded.push({path,reason:'excluded'});continue;}
       if(item.isSymbolicLink()||!item.isFile()&&!item.isDirectory())throw syncError('unsafe_file',path);
       if(item.isDirectory()){
+        if(outputs&&await runtimeDirectory(join(dir,item.name))){excluded.push({path,reason:'runtime_directory'});continue;}
         if(await exists(join(dir,item.name,'.git'))){excluded.push({path,reason:'nested_repository'});continue;}
         await walk(join(dir,item.name),path+'/');continue;
       }
-      paths.push(path);if(paths.length>SOURCE_SYNC_LIMITS.paths)throw syncError('manifest_too_large');
+      paths.push(path);if(paths.length>SOURCE_SYNC_LIMITS.paths)throw syncLimitError('manifest_too_large','files',SOURCE_SYNC_LIMITS.paths,paths.length,path);
     }
   }
   await walk(root);
   const captured=await captureSourceEntries(paths,async path=>{
     const value=await readSourceFile(root,path,policy);if(!value.entry)throw syncError('source_busy',path);
     if(!entryEqual(value.entry,options.baselineEntries?.[path]||null))changedBytes+=value.entry.size;
-    if(changedBytes>SOURCE_SYNC_LIMITS.batchBytes)throw syncError('batch_too_large');
-    if(options.blobRoot)await saveSourceBlob(options.blobRoot,value.bytes);
+    if(changedBytes>SOURCE_SYNC_LIMITS.batchBytes)throw syncLimitError('batch_too_large','batch',SOURCE_SYNC_LIMITS.batchBytes,changedBytes,path);
+    if(options.blobRoot&&!metadataOnly)await saveSourceBlob(options.blobRoot,value.bytes);
     return value.entry;
   });
   for(let i=0;i<paths.length;i++)entries[paths[i]]=captured[i];
-  return {repositoryId:options.repositoryId,generation:options.generation,scopeKind:'directory',scopePolicy:policy,capturePolicy:DIRECTORY_SYNC_CAPTURE_POLICY,baseCommit:null,entries,digest:manifestDigest(entries,policy),excluded};
+  return {repositoryId:options.repositoryId,generation:options.generation,scopeKind:'directory',scopePolicy:policy,capturePolicy:outputs?OUTPUT_SYNC_CAPTURE_POLICY:DIRECTORY_SYNC_CAPTURE_POLICY,...(metadataOnly?{metadataOnly:true,newlyIncluded:paths.filter(path=>excludedSourcePath(path,{...policy,contentMode:'source-only'})||!(policy.sharedDocs&&path.startsWith('.workbench/docs/'))&&isIgnored(path))}:{}),baseCommit:null,entries,digest:manifestDigest(entries,policy),excluded};
 }

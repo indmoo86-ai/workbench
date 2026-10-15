@@ -53,7 +53,7 @@ export class SourceSyncWatch {
           if(old?.digest!==manifest.digest)this.db.put('sourceSyncWatchNotices',{id,noticeId:randomUUID(),projectId:scope.projectId,repositoryId:scope.repositoryId,generation:scope.generation,digest:manifest.digest,observedAt:state.checkedAt});
         });
         this.send({type:'source_sync_watch_status',...state,entries:undefined});
-      }catch(e){const state={id,projectId:scope.projectId,repositoryId:scope.repositoryId,generation:scope.generation,status:'blocked',error:e.code||'scan_failed',checkedAt:new Date().toISOString()};this.db.put('sourceSyncWatchStates',{...this.db.get('sourceSyncWatchStates',id),...state});this.send({type:'source_sync_watch_status',...state});}
+      }catch(e){const state={id,projectId:scope.projectId,repositoryId:scope.repositoryId,generation:scope.generation,status:'blocked',error:e.code||'scan_failed',...(e.limit?{limit:e.limit}:{}),checkedAt:new Date().toISOString()};this.db.put('sourceSyncWatchStates',{...this.db.get('sourceSyncWatchStates',id),...state});this.send({type:'source_sync_watch_status',...state});}
     }this.flush();}finally{this.running=false;}
   }
   flush(){for(const notice of this.db.list('sourceSyncWatchNotices')){const sent=this.sent.get(notice.noticeId);if(sent!==undefined&&this.clock()-sent<5000)continue;this.send({type:'source_sync_dirty',...notice});this.sent.set(notice.noticeId,this.clock());}}

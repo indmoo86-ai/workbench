@@ -30,6 +30,8 @@ export function executionRules(run,{minimal=false}={}) {
 const DEFAULT_FIELD_LIMIT = 128;
 // Match only exact previous EN/ZH defaults; custom edits must survive prompt upgrades.
 const LEGACY_SUPERVISOR_DEFAULTS = new Set([
+  'b70469e34eb2fc33bb75bad89ee5be8fdd4e1a79a9c76980d9e3c4f255fdf799',
+  '8f2563680caa7f54a98bef237606618631e486a2e149e6b393a407b8c3fafba4',
   'd9aa330ed0fb40ce9ae07c94125427c03a92da70248d7c8e952f15d93ea754b1',
   '8698bb5f135b63bd01bc77efb6a6067903875831f20c76c1f8520cf30ecb896a',
   '68986281a3826c62394241e4e51068168a575bd615a65c415009538a625a93f7',
@@ -40,6 +42,8 @@ const LEGACY_SUPERVISOR_DEFAULTS = new Set([
   'f4fdcbae86b204daad8506f4f8a431c48fa73052980abafdd6cd55434f2414fe'
 ]);
 const LEGACY_PLATFORM_DEFAULTS = new Set([
+  '4a7bd0d1a4bedbfd714d1493b7fd6c9a439bfec754a23f43d150a845ff249324',
+  '1b15541e57fced0e26eaf3f6b601629e3099cd8a292d8196fcbfcfa38b88d2a9',
   '45204542deb0ef8dc50cf0793405c91417f586d7b8af901158c658667a2b82fe',
   '3be86c9e60917e7f697d6a17f50efd7a36793a69ee8551b49f7df5436aad7671'
 ]);

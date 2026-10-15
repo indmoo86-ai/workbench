@@ -8,6 +8,7 @@ import { createHistoryViewer } from './history-view.js';
 import {createRoleSwitchUI} from './role-switch.js';
 import {createRoleHistoryTabs} from './role-history.js';
 import {createCliRecoveryUI} from './cli-recovery.js';
+import {createMentionInput} from './mention-input.js';
 
 /** Long text only changes its carrier; the file content keeps the original line breaks, whitespace and trailing characters. */
 export function longTextFileName(text) {
@@ -425,7 +426,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
   inputField.addEventListener('dragover',e=>{if(e.dataTransfer?.types.includes('Files')){e.preventDefault();inputField.classList.add('is-dragging');}});
   inputField.addEventListener('dragleave',()=>inputField.classList.remove('is-dragging'));
   inputField.addEventListener('drop',e=>{inputField.classList.remove('is-dragging');if(e.dataTransfer?.files.length){e.preventDefault();void uploadFiles(e.dataTransfer.files);}});
-  function resizeInput() { input.style.height='auto'; input.style.height=`${Math.min(120,Math.max(40,input.scrollHeight))}px`; }
+  function resizeInput() { input.style.height='auto'; input.style.height=`${Math.min(120,Math.max(40,input.scrollHeight))}px`;mentionInput.refresh(); }
   let mentionChoices = [];
   let mentionIndex = 0;
   let mentionRange = null;
@@ -443,6 +444,11 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     catch { setError('Not enough browser draft storage; the original text is still on this page. Copy a backup first and do not close the page'); return false; }
   };
   const draft = () => drafts[projectId] ||= { text: '', replyToId: null, replyLabel: '' };
+  const mentionInput=createMentionInput(input,()=>{
+    const names=[...(data.roles||[]),...(data.supervisorRoles||[])].filter(r=>r.projectId===projectId&&!r.archivedAt).map(r=>r.name);
+    if(data.projects?.find(p=>p.id===projectId)?.supervisorRoleId)names.push('Supervisor','supervisor','\u603b\u7ba1');
+    return names;
+  });
   const hasMention=text=>/(?:^|[\s,.!?;:(\uff0c\u3002\uff01\uff1f\u3001\uff1b\uff1a\uff08])@([\p{L}\p{N}_-]+)/u.test(text);
   const taskProgress=(task,run)=>{
     const request=run?.discussionDeliveryId?null:data.requests?.find(r=>r.id===(run?.requestId||task?.requestId));
@@ -477,7 +483,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     attachTray.hidden = !attachTray.childElementCount;
     resizeInput();
     quoteBar.replaceChildren(); quoteBar.hidden = !d.replyToId;
-    if (d.replyToId) quoteBar.append(create('span', '', t('Quoting {replyLabel}', { replyLabel: d.replyLabel })), button('Cancel', () => {
+    if (d.replyToId) quoteBar.append(create('span', '', t('Quoting {replyLabel}', { replyLabel: d.replyLabel })), iconAction('close', 'Cancel quote', () => {
       if (d.pending || busy) return;
       if(d.replyMention&&input.value.startsWith(d.replyMention)){input.value=input.value.slice(d.replyMention.length);d.text=input.value;}
       delete d.replyMention;
@@ -566,7 +572,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     let display=String(text||'');
     const targets=new Set(recipients.flatMap(role=>[role.id,role.name]).filter(Boolean).map(String));
     while(targets.size) {
-      const mention=display.match(/^@([^\s]+)[ \t]+/u);
+      const mention=display.match(/^\s*[@\uFF20]([\p{L}\p{N}_-]+)(?=$|[^\p{L}\p{N}_-])\s*/u);
       if(!mention||!targets.has(mention[1]))break;
       display=display.slice(mention[0].length);
     }
@@ -829,13 +835,16 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
       bubble.append(quote);
     }
     const recipients=messageRecipients(m,replyDirection);
-    if(recipients.length){const list=create('div','chat-recipient-list');for(const recipient of recipients)list.append(create('span','chat-recipient',`@${recipient.name}`));bubble.append(list);}
     const bodyText=messageDisplayText(handoff?m.handoff.summary||m.text:m.text,recipients);
-    if (handoff) {
-      bubble.append(replyPreview(bodyText,true,m.runId,`message:${m.id}`));
-    } else {
-      bubble.append(replyPreview(bodyText, agent, m.runId,`message:${m.id}`));
+    const body=replyPreview(bodyText,handoff||agent,m.runId,`message:${m.id}`);
+    if(recipients.length){
+      const list=create('span','chat-recipient-list');list.translate=false;
+      for(const recipient of recipients)list.append(create('span','chat-recipient role-mention-token',`@${recipient.name}`),document.createTextNode(' '));
+      const content=body.firstElementChild,first=content.firstElementChild;
+      // Ordinary Markdown paragraphs accept the inline prefix; lists and code blocks keep their own structure.
+      (content.classList.contains('markdown-body')&&first?.tagName==='P'?first:content).prepend(list);
     }
+    bubble.append(body);
     if (m.attachments?.length) {
       const files = create('div','chat-attachments');
       for(const item of m.attachments) files.append(attachmentCard(item));
@@ -985,6 +994,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     const { start, end } = mentionRange;
     const next = `${input.value.slice(0, start)}@${name} ${input.value.slice(end)}`;
     input.value = next;
+    resizeInput();
     const pos = start + name.length + 2;
     input.setSelectionRange(pos, pos);
     if (projectId) { draft().text = next; saveDrafts(); }
@@ -1036,6 +1046,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
   input.addEventListener('click', () => renderMentionMenu());
   input.addEventListener('blur', () => setTimeout(hideMentionMenu, 120));
   input.addEventListener('keydown', e => {
+    if(e.isComposing||e.keyCode===229)return;
     if (!mentionMenu?.hidden && mentionChoices.length) {
       if (e.key === 'ArrowDown') { e.preventDefault(); mentionIndex = (mentionIndex + 1) % mentionChoices.length; renderMentionMenu(); return; }
       if (e.key === 'ArrowUp') { e.preventDefault(); mentionIndex = (mentionIndex - 1 + mentionChoices.length) % mentionChoices.length; renderMentionMenu(); return; }
@@ -1184,7 +1195,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     const fresh = r?.checkedAt && Date.now() - Date.parse(r.checkedAt) < 600000;
     const binding = roleBinding(w?.id);
     const ready = w?.online && w.capabilities?.runtimeDiscovery && r?.supported && r.available && fresh && select.value && binding;
-    const reason = !w?.online ? 'Please select an online device' : !w.capabilities?.runtimeDiscovery ? 'Please upgrade the Worker on this device' : !r?.available ? (w.runtimes?.[0]?.reason || 'No connected and available CLI Agent') : !fresh ? 'CLI check is stale; refresh it in "Basic Settings > Devices, CLIs and Models"' : !select.value ? 'Select a model actually returned by this CLI; the previously selected model is not replaced automatically' : !binding ? 'First bind the project folder in "Project Settings > Project Workspace"' : 'Device, CLI, model and project folder match; they are checked again on save';
+    const reason = !w?.online ? 'Please select an online device' : !w.capabilities?.runtimeDiscovery ? 'Please upgrade the Worker on this device' : !r?.available ? (w.runtimes?.[0]?.reason || 'No connected and available CLI Agent') : !fresh ? 'CLI check is stale; refresh it in "Basic Settings > Devices and CLIs"' : !select.value ? 'Select a model actually returned by this CLI; the previously selected model is not replaced automatically' : !binding ? 'First bind the project folder in "Project Settings > Project Workspace"' : 'Device, CLI, model and project folder match; they are checked again on save';
     document.querySelector('#role-runtime-note').textContent = t('{reason}{v}. The check does not invoke model inference; actual runs may still be limited by network or quota.', { reason: t(reason), v: r?.checkedAt ? t('. Checked {time}', { time: formatTime(r.checkedAt) }) : '' });
     roleRuntimeReady = ready;
     renderRoleSaveState();
