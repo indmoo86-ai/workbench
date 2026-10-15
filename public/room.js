@@ -1124,7 +1124,9 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     const presets = roleForm.elements.preset;
     presets.replaceChildren();
     for (const template of [customPreset, ...(data.roleTemplates || [])]) {
-      const option = create('option', '', template.key === 'custom' ? 'Blank role' : t(template.name));
+      // Home localizes built-ins; saved template names and prompt text remain user content.
+      const option = create('option', '', template.key === 'custom' ? 'Blank role' : template.name);
+      if (template.key !== 'custom') option.setAttribute('translate', 'no');
       option.value = template.key; presets.append(option);
     }
     presets.disabled = Boolean(role);
@@ -1260,7 +1262,7 @@ export function createRoomUI({ api, refreshState, openTask, stopRun, decideAppro
     if (editingRoleId) return;
     const preset = rolePreset(roleForm.elements.preset.value);
     if (preset) {
-      for (const key of ['name', 'mode', 'responsibility', 'instructions']) roleForm.elements[key].value = key === 'mode' ? preset[key] : t(preset[key] || '');
+      for (const key of ['name', 'mode', 'responsibility', 'instructions']) roleForm.elements[key].value = preset[key] || '';
       roleForm.elements.autoApprove.checked = preset.autoApprove !== false;
       renderModelOptions();
     }

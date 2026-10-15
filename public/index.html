@@ -325,7 +325,25 @@
                 <section class="settings-overview-card"><span class="settings-kicker">GLOBAL RULES</span><h4>Platform Prompts</h4><p id="platform-prompt-summary" class="settings-overview-preview"></p><button class="secondary compact" type="button" data-prompt-edit="platform" aria-label="Edit platform prompt">Edit</button></section>
                 <section class="settings-overview-card" data-supervisor-settings><span class="settings-kicker">SUPERVISOR</span><h4>Supervisor Settings</h4><p id="supervisor-prompt-summary" class="settings-overview-preview"></p><p class="settings-overview-subline">New project defaults:<span id="supervisor-defaults-summary"></span></p><button class="secondary compact" type="button" data-prompt-edit="supervisor" aria-label="Edit supervisor settings">Edit</button></section>
                 <section class="settings-overview-card"><span class="settings-kicker">CONVERSATION MEMORY</span><h4>Conversation Organizer Model</h4><p id="conversation-organizer-summary" class="settings-overview-preview">Not configured; dispatch uses original excerpts.</p><button class="secondary compact" id="edit-conversation-organizer" type="button">Edit</button></section>
+                <section class="settings-overview-card"><span class="settings-kicker">ROLE TEMPLATES</span><h4>Role Templates</h4><p id="role-templates-summary" class="settings-overview-preview"></p><button class="secondary compact" id="manage-role-templates" type="button">Manage</button></section>
               </div>
+              <dialog id="role-templates-dialog" class="settings-edit-dialog prompt-edit-dialog" aria-labelledby="role-templates-title">
+                <div class="dialog-heading"><div><p class="eyebrow">ROLE TEMPLATES</p><h3 id="role-templates-title">Role templates</h3></div><button class="icon-button" id="close-role-templates" type="button" aria-label="Close">×</button></div>
+                <div id="role-templates-browser" class="role-templates-browser">
+                  <p class="workspace-note">Templates prefill the name, responsibility and prompt when creating a role. Changes apply only to roles created later; existing roles keep their own text.</p>
+                  <div id="role-templates-list" class="role-templates-list"></div>
+                  <section id="role-templates-hidden" class="role-templates-hidden" hidden><h4>Deleted built-in templates</h4><div id="role-templates-hidden-list" class="role-templates-list"></div></section>
+                  <p id="role-templates-feedback" class="form-feedback" role="status" hidden></p>
+                  <div class="form-actions"><button class="primary" id="new-role-template" type="button">New template</button></div>
+                </div>
+                <form id="role-template-form" class="prompt-settings-grid" hidden>
+                  <label>Template name<input name="name" required maxlength="32" placeholder="e.g. Tester"></label>
+                  <label>Role responsibility<textarea name="responsibility" rows="3" maxlength="1000" placeholder="Describe when other roles should ask this role for help."></textarea></label>
+                  <label>Role prompt<textarea name="instructions" rows="14" maxlength="12000" placeholder="Describe execution methods, checks, boundaries and output format."></textarea></label>
+                  <p id="role-template-error" class="inline-error" role="status" hidden></p>
+                  <div class="form-actions prompt-settings-actions"><button class="secondary" id="cancel-role-template" type="button">Back</button><button class="primary" type="submit">Save template</button></div>
+                </form>
+              </dialog>
               <dialog id="conversation-organizer-dialog" class="settings-edit-dialog prompt-edit-dialog" aria-labelledby="conversation-organizer-title">
                 <div class="dialog-heading"><div><p class="eyebrow">CONVERSATION MEMORY</p><h3 id="conversation-organizer-title">Edit conversation organizer model</h3></div><button class="icon-button" id="close-conversation-organizer" type="button" aria-label="Close">×</button></div>
                 <form id="conversation-organizer-form" class="prompt-settings-grid">

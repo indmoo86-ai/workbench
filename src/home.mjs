@@ -21,7 +21,7 @@ import { Rooms } from './rooms.mjs';
 import { CollaborationSessions, reviewView, reviewDocumentAllowed, setCollaborationSessionsEnabled } from './collaboration-sessions.mjs';
 import { SessionQueue, QueuePump, queueConfig, setQueueConfig, setSessionBroadcast, setTestProject, grantBudget, reassignRequest } from './session-queue.mjs';
 import { renderBatch } from './session-queue-worker.mjs';
-import { defaultRoleTemplates } from './default-roles.mjs';
+import { listRoleTemplates, hiddenRoleTemplates, saveRoleTemplate, deleteRoleTemplate, restoreRoleTemplate } from './role-templates.mjs';
 import { Coordinator } from './coordinator.mjs';
 import { RoleCalls } from './role-calls.mjs';
 import {createAgentCalls} from './agent-calls.mjs';
@@ -314,7 +314,7 @@ function snapshot() {
     repositories: db.list('repositories'), repositoryWorkspaces: db.list('repositoryWorkspaces'), setupProposals: db.list('setupProposals'), projectGitVersions:db.list('projectGitVersions'),
     approvals: db.list('approvals'), gitChecks: db.list('gitChecks'), settings: normalizePlatformSettings(db.get('settings', 'main')), wechat: wechat.status(),
     promptDefaults: { platformPrompt: defaultPlatformPrompt(), supervisorPrompt: defaultSupervisorPrompt() },
-    roleTemplates: defaultRoleTemplates(), supervisors: db.list('supervisorConfigs'),
+    roleTemplates: listRoleTemplates(db), hiddenRoleTemplates: hiddenRoleTemplates(db), supervisors: db.list('supervisorConfigs'),
     executionPlans: db.list('executionPlans').map(({fingerprint,...p})=>p),
     roleSessions:db.list('roleSessions').filter(session=>!session.historyClearedAt).map(({nativeSession,...session})=>session),
     scheduledJobs: db.list('scheduledJobs'),scheduledOccurrences:db.list('scheduledOccurrences').slice(-200),runReports:db.list('runReports'),runAlerts:db.list('runAlerts').filter(a=>a.status==='open'),
@@ -654,7 +654,7 @@ const server = http.createServer(async (req, res) => {
         if (pathname === '/api/agent/sessions/summary') return json(res,new SessionTools(readView).summary(run,b.roleSessionId));
         if (pathname === '/api/agent/sessions/read') return json(res,new SessionTools(readView).read(run,b.roleSessionId,b));
         if (pathname === '/api/agent/conversation/summary') return json(res,new SessionTools(readView).chatSummary(run,b));
-        if (pathname === '/api/agent/setup/catalog') return json(res, run.roleSnapshot?.platformAssistant ? assistant.catalog(run) : { ...setup.catalog(run), roleTemplates: defaultRoleTemplates() });
+        if (pathname === '/api/agent/setup/catalog') return json(res, run.roleSnapshot?.platformAssistant ? assistant.catalog(run) : { ...setup.catalog(run), roleTemplates: listRoleTemplates(db) });
         if (pathname === '/api/agent/schedule') { const p=executionPlans.submit(run,b);change();return json(res,{planId:p.id,status:p.status,note:tr('home.waitScheduledEndCurrentTurn')},201); }
         if (pathname === '/api/agent/timers') {
           if (db.get('workers',run.nodeId)?.capabilities?.timerTools!==1) throw new Error(tr('home.upgradeCurrentWorkerUseScheduled'));
@@ -1071,6 +1071,17 @@ const server = http.createServer(async (req, res) => {
         for (const ws of sockets.values()) send(ws, { type: 'settings', ...settings });
         change(); return json(res, settings);
       }
+      if (pathname === '/api/settings/role-templates' && req.method === 'POST') {
+        const template = saveRoleTemplate(db, await body(req)); change(); return json(res, template);
+      }
+      if ((m = pathname.match(/^\/api\/settings\/role-templates\/([^/]+)\/restore$/)) && req.method === 'POST') {
+        const input = await body(req);
+        const template = restoreRoleTemplate(db, decodeURIComponent(m[1]), input.revision); change(); return json(res, template);
+      }
+      if ((m = pathname.match(/^\/api\/settings\/role-templates\/([^/]+)$/)) && req.method === 'DELETE') {
+        const revision = new URL(req.url, 'http://local').searchParams.get('revision');
+        const result = deleteRoleTemplate(db, decodeURIComponent(m[1]), revision === null ? undefined : Number(revision)); change(); return json(res, result);
+      }
       if (pathname === '/api/settings/prompts' && req.method === 'POST') {
         const settings = db.put('settings', updatePlatformPrompts(db.get('settings', 'main'), await body(req)));
         change(); return json(res, settings);
@@ -1101,6 +1112,7 @@ const server = http.createServer(async (req, res) => {
     files['/browser-token.js']='browser-token.js';
     files['/role-switch.js']='role-switch.js';
     files['/role-history.js']='role-history.js';
+    files['/role-templates.js']='role-templates.js';
     files['/i18n.js']='i18n.js';
     files['/output-language.js']='output-language.js';
     files['/native-sessions.js']='native-sessions.js';
