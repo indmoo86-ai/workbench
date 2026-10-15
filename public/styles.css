@@ -371,16 +371,57 @@ body[data-navigation-mode="sessions"] #node-sidebar > :not(#native-session-sideb
   body[data-project-sidebar="collapsed"] .native-session-filters,
   body[data-project-sidebar="collapsed"] .native-session-note { display: none; }
 }
-.native-session-content { min-height: 0; flex: 1; overflow: auto; padding: 24px; }
+.native-session-content { min-height: 0; flex: 1; display: flex; flex-direction: column; overflow: hidden; padding: 0; }
+.native-session-content > .native-empty, .native-session-content > p { padding: 30px 24px; }
+.native-session-scroll { flex: 1; min-height: 0; overflow: auto; padding: 24px; scrollbar-width: thin; scrollbar-color: #b2c4dc transparent; }
+.native-history .native-title { margin: 0 0 16px; }
+.native-chat-row .chat-col { min-width: 0; max-width: min(820px, 88%); display: grid; gap: 4px; }
+.native-chat-row .chat-name { font-size: 12px; color: var(--muted); }
+.native-chat-row .chat-bubble .chat-message-text { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
+.native-chat-row .chat-bubble .markdown-body { white-space: normal; }
+.native-session-content .chat-row.human .chat-bubble { background: #e7f1ff; }
+.native-takeover-feed:empty { display: none; }
+.native-session-footer { border-top: 1px solid var(--line); background: #f8fafd; }
+.native-takeover-bar { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 18px; }
+.native-takeover-copy { display: grid; gap: 2px; min-width: 0; font-size: 13px; }
+.native-takeover-copy span { color: var(--muted); font-size: 12px; }
+.native-takeover-button { flex: none; padding: 9px 18px; border-radius: 8px; }
+.native-takeover-form.chat-composer { border-top: 0; background: transparent; }
+.native-takeover-form .chat-input-field { grid-template-columns: minmax(0, 1fr); }
+.native-takeover-status { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; color: var(--muted); font-size: 12px; }
+.native-takeover-status .native-release { margin-left: auto; padding: 4px 10px; min-height: 28px; font-size: 12px; border-radius: 7px; }
+.native-takeover-dot { width: 7px; height: 7px; border-radius: 50%; background: #2fb36b; box-shadow: 0 0 0 3px rgb(47 179 107 / 15%); }
+.native-takeover-note { margin: 0 0 8px; font-size: 12px; }
+.native-turn-state { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 8px; color: var(--muted); font-size: 12px; }
+.native-turn-state button { padding: 3px 10px; min-height: 26px; font-size: 12px; }
+.native-turn-tool { padding: 2px 8px; border-radius: 6px; background: #f1f4f9; font-family: ui-monospace, monospace; font-size: 11px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.native-turn-error { color: #b4442f; }
+.native-turn-live { width: 18px; height: 6px; background: radial-gradient(circle, currentColor 2px, transparent 2.5px) 0 0 / 6px 6px repeat-x; animation: native-live 1s steps(3) infinite; }
+@keyframes native-live { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
 .native-empty { color: var(--muted); padding: 30px 0; }
 .native-title { font-size: 18px; overflow-wrap: anywhere; }
 .native-history-message { padding: 16px; border: 1px solid var(--line); background: white; border-radius: 14px; margin: 14px 0; }
 .native-history-message.user { background: #e7f1ff; }
 .native-history-message pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.65; margin: 10px 0 0; }
-.native-session-sidebar { padding: 24px; overflow: auto; min-height: 0; }
-.native-session-sidebar h2 { margin-top: 0; font-size: 18px; }
-.native-session-meta dt { color: var(--muted); margin-top: 20px; font-size: 12px; }
-.native-session-meta dd { margin: 6px 0; overflow-wrap: anywhere; }
+.native-session-sidebar { display: grid; align-content: start; gap: 12px; padding: 20px 18px; overflow: auto; min-height: 0; background: #f8fafd; }
+.native-side-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.native-session-sidebar h2.native-side-title { margin: 0; font-size: 17px; }
+.native-side-badge { padding: 2px 9px; border-radius: 999px; background: #eef1f6; color: var(--muted); font-size: 11px; font-weight: 600; }
+.native-side-badge.is-live { background: #e5f6ec; color: #23824f; }
+.native-side-card { padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; }
+.native-side-card h3 { margin: 0 0 4px; color: var(--muted); font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+.native-session-meta { margin: 0; }
+.native-session-meta dt { color: var(--muted); margin-top: 12px; font-size: 12px; }
+.native-session-meta dd { display: flex; align-items: flex-start; gap: 6px; margin: 4px 0 0; overflow-wrap: anywhere; font-size: 13px; line-height: 1.5; color: var(--ink); }
+.native-meta-value { flex: 1; min-width: 0; }
+.native-session-meta dd.has-copy .native-meta-value { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; padding: 6px 8px; border-radius: 7px; background: #f4f6fa; }
+.native-agent-line { display: inline-flex; align-items: center; gap: 6px; }
+.native-agent-line .role-icon, .native-agent-line svg, .native-agent-line img { width: 18px; height: 18px; border-radius: 5px; }
+.native-copy { flex: none; display: grid; place-items: center; width: 28px; height: 28px; min-height: 28px; padding: 0; border-radius: 7px; color: var(--muted); }
+.native-copy svg { width: 15px; height: 15px; }
+.native-copy.is-copied { color: #23824f; background: #e5f6ec; }
+.native-side-hint { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.native-side-actions button { width: 100%; padding: 9px 14px; border-radius: 8px; }
 .settings-edit-dialog.native-session-dialog, .settings-edit-dialog.native-file-picker { width: min(680px,calc(100vw - 32px)); height: fit-content; min-height: 0; margin: auto; box-sizing: border-box; }
 .native-session-dialog .native-session-form { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 16px; margin-top: 4px; }
 .native-session-form .native-field { display: grid; min-width: 0; gap: 7px; color: #425a73; font-size: 13px; font-weight: 600; }

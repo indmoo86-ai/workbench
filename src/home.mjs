@@ -1,3 +1,5 @@
+import {NativeTurnsHome} from './native-turns.mjs';
+import {assertNativeSessionIdle} from './native-sessions.mjs';
 import http from 'node:http';
 import { sendBufferedResponse } from './http-response.mjs';
 import { readFile, mkdir, writeFile, chmod } from 'node:fs/promises';
@@ -142,6 +144,8 @@ db.transaction(()=>{
 });
 for (const run of db.list('runs').filter(r => !terminal.has(r.status))) db.put('runs', { ...run, status: run.status === 'stopping' ? 'stopping' : 'reconciling' });
 const sockets = new Map();
+const nativeTurns=new NativeTurnsHome({db,send:(nodeId,payload)=>send(sockets.get(nodeId),{...payload,language:getLanguage()}),online:id=>sockets.get(id)?.readyState===1,change:()=>change(),assertIdle:input=>assertNativeSessionIdle(db,{...input,workspace:null,projectId:null})});
+nativeTurns.recover();
 const viewers = new Set();
 const queries = new Map();
 const cliRecovery=new CliRecoveryHome({db,query:workerQuery,online:id=>online(id),change:()=>change()});
@@ -493,6 +497,15 @@ const server = http.createServer(async (req, res) => {
       const wechatProject = pathname.match(/^\/api\/projects\/([^/]+)\/wechat$/);
       if (wechatProject && req.method === 'POST') {
         const link = wechat.openProject(wechatProject[1]); void wechat.tick().catch(() => {}); return json(res, { id: link.id }, 201);
+      }
+      const nativeTurnMatch=pathname.match(/^\/api\/native-sessions\/([^/]+)\/turns(?:\/([^/]+)\/(stop))?$/);
+      if(nativeTurnMatch){
+        const nodeId=decodeURIComponent(nativeTurnMatch[1]),worker=db.get('workers',nodeId);
+        if(!worker)throw Error('Device is unavailable');
+        if(req.method==='GET'&&!nativeTurnMatch[2]){const q=url.searchParams;return json(res,{items:nativeTurns.list(nodeId,q.get('runtime'),q.get('sessionId')),supported:worker.capabilities?.nativeTurns===1});}
+        if(req.method==='POST'&&nativeTurnMatch[3]==='stop')return json(res,nativeTurns.stop(nodeId,decodeURIComponent(nativeTurnMatch[2])));
+        if(req.method==='POST'&&!nativeTurnMatch[2])return json(res,nativeTurns.create(nodeId,worker,await body(req)),201);
+        throw Error('Invalid session action');
       }
       const nativeMatch=pathname.match(/^\/api\/native-sessions\/([^/]+)(?:\/(terminal|folders))?$/);
       if(nativeMatch){
@@ -1187,6 +1200,7 @@ wss.on('connection', ws => {
         send(ws, { type: 'ack', id: m.event.id });
         if(['message','tool','usage','context_usage'].includes(m.event.type))outputChanged();else change();
       }
+      if (m.type === 'native_turn_event') { nativeTurns.receive(nodeId,m); return; }
       if (m.type === 'command_ack') { const c = db.get('commands', m.id); if (c?.nodeId === nodeId&&!c.acked) {db.put('commands', { ...c, acked: true,ackedAt:new Date().toISOString() });change();} }
       if (m.type === 'reply') { const q = queries.get(m.id); if (q?.nodeId === nodeId) {
         queries.delete(m.id);
@@ -1199,6 +1213,7 @@ wss.on('connection', ws => {
     clearTimeout(registerTimer);
     if (nodeId && sockets.get(nodeId) === ws) {
       sockets.delete(nodeId);
+      nativeTurns.disconnected(nodeId);
       for (const [id, q] of queries) if (q.nodeId === nodeId) { queries.delete(id); q.reject(new Error(tr('home.executionNodeDisconnectedTryAgain'))); }
       for (const r of db.list('runs').filter(r => r.nodeId === nodeId && !terminal.has(r.status))) db.put('runs', { ...r, status: r.status === 'stopping' ? 'stopping' : 'reconciling', updatedAt: new Date().toISOString() });
       change();

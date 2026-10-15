@@ -58,7 +58,9 @@ async function gitMetadataRoots(roots) {
 
 /** A managed role may briefly reuse the App Server, rebinding instructions and events every turn; stdio exposes no control port. */
 export class CodexSession {
-  constructor({ cwd, writableRoots = [], attachments = [], model, mode, emit, roleInstructions = '', roleName = '', effort = 'low', autoApprove = true, env = process.env, resumeSessionId = null, keepAlive = false, maintenance = false,minimalInstructions=false,configurationUpdate='',beforeInput,onProcess }) {
+  constructor({ cwd, writableRoots = [], attachments = [], model, mode, emit, roleInstructions = '', roleName = '', effort = 'low', autoApprove = true, env = process.env, resumeSessionId = null, keepAlive = false, maintenance = false,minimalInstructions=false,configurationUpdate='',beforeInput,onProcess,native=false }) {
+    // native: a user-driven takeover turn; no Workbench role rules, model or env overrides are injected.
+    this.native=native;
     this.beforeInput=beforeInput;this.onProcess=onProcess;this.inputAttempted=false;
     this.minimalInstructions=minimalInstructions;
     this.configurationUpdate=configurationUpdate;
@@ -149,6 +151,7 @@ export class CodexSession {
         .filter(key => typeof this.env[key] === 'string').map(key => [`shell_environment_policy.set.${key}`, this.env[key]])), 'sandbox_workspace_write.writable_roots':writableRoots, 'sandbox_workspace_write.network_access':true },
       developerInstructions: this.minimalInstructions?this.roleInstructions:executionText('codex.you', { p1: this.roleName ? executionText('codex.roleInProjectGroupChat', { roleName: this.roleName }) : executionText('codex.executorTask'), p2: this.roleInstructions || '' })
     };
+    if(this.native){delete options.model;delete options.developerInstructions;delete options.config;}
     const response = await this.request(this.resumeSessionId?'thread/resume':'thread/start',this.resumeSessionId?{threadId:this.resumeSessionId,...options}:options);
     if(this.resumeSessionId && response.thread?.id!==this.resumeSessionId)throw new Error(tr('codex.resumedCodexSessionIdDoes'));
     return response.thread;
