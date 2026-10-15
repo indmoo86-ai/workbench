@@ -1962,12 +1962,32 @@ dialog.role-switch-dialog { width: min(640px, calc(100vw - 32px)); }
   #settings-page .usage-device-card { grid-template-columns: 96px minmax(0, 1fr); gap: 12px; }
   #settings-page .timer-job-head { align-items: flex-start; }
 }
-/* Sidebar navigation toggle: light active state, subtle border, groove divider under the heading row. */
-.navigation-mode { border:1px solid #d7dfeb; border-radius:7px; overflow:hidden; }
-.navigation-mode button + button { border-left:1px solid #d7dfeb; }
-.navigation-mode button[aria-pressed="true"] { background:#e5efff; color:#0866ff; }
-.sidebar-heading .new-conversation-button { border:1px solid #d7dfeb; }
-.sidebar-heading { border-bottom:1px solid rgba(0,0,0,.08); box-shadow:0 1px 0 #fff; margin-bottom:10px; }
+/* Scoped to the project menu: footer actions and session/runtime icons retain their existing appearance. */
+body .project-sidebar .sidebar-heading { align-items:stretch; gap:10px; padding:0; margin-bottom:16px; border-bottom:1px solid #dfe5ee; box-shadow:none; }
+.project-sidebar .navigation-mode { gap:16px; border:0; border-radius:0; overflow:visible; }
+.project-sidebar .navigation-mode button { position:relative; padding:12px 8px; border:0; border-radius:0; background:transparent; color:#687890; font-size:14px; line-height:20px; }
+.project-sidebar .navigation-mode button:hover { color:#0866ff; background:transparent; }
+.project-sidebar .navigation-mode button[aria-pressed="true"] { color:#0866ff; background:transparent; }
+.project-sidebar .navigation-mode button[aria-pressed="true"]::after { content:''; position:absolute; left:8px; right:8px; bottom:-1px; height:3px; border-radius:2px; background:#0866ff; }
+.project-sidebar .sidebar-heading .new-conversation-button { align-self:center; flex:none; width:34px; height:34px; min-height:34px; margin:0 2px 6px 0; padding:7px; border:1px solid #d4dcff; border-radius:7px; background:#f2f5ff; color:#4f50e9; }
+.project-sidebar .sidebar-heading .new-conversation-button:hover { background:#e8eeff; border-color:#adbaff; }
+.project-sidebar .sidebar-heading .new-conversation-button:focus-visible { outline:2px solid #0866ff; outline-offset:2px; }
+.project-sidebar .new-conversation-button svg { width:20px; height:20px; }
+#project-list { gap:8px; }
+#project-list .project-item { position:relative; grid-template-columns:26px minmax(0,1fr); gap:10px; min-height:64px; padding:10px 18px 10px 8px; border-radius:8px; color:#172338; background:transparent; box-shadow:none; }
+#project-list .project-item strong { font-size:13px; font-weight:650; line-height:1.4; }
+#project-list .project-item small { margin-top:3px; color:#697b94; font-size:12px; line-height:1.4; }
+#project-list .project-item:hover { background:#f0f4fa; }
+#project-list .project-item.active { color:#0866ff; background:#eaf2ff; box-shadow:none; }
+#project-list .project-item.active::after { content:''; position:absolute; right:8px; top:calc(50% - 3px); width:6px; height:6px; border-radius:50%; background:#0866ff; }
+#project-list .project-item:focus-visible { outline:2px solid #0866ff; outline-offset:-2px; }
+#project-list .project-item-icon { width:26px; height:26px; color:#687890; background:transparent; border-radius:0; box-shadow:none; }
+#project-list .project-item-icon svg { width:24px; height:24px; }
+#project-list .project-item.active .project-item-icon { color:#0866ff; box-shadow:none; }
+@media (min-width:1001px) {
+  body[data-project-sidebar="collapsed"] #project-list .project-item { min-height:44px; padding:7px; }
+  body[data-project-sidebar="collapsed"] #project-list .project-item.active::after { display:none; }
+}
 /* Native fields retain values, validation and form bindings; only their popup is replaced. */
 body select:not([multiple]):not([size]), body select[size="1"] {
   appearance:none; -webkit-appearance:none; min-height:42px; padding:10px 38px 10px 13px;

@@ -22,7 +22,7 @@ The cross-device prompt revision distinguishes opt-in scoped saved-file synchron
 
 ### Managed input language
 
-The sidebar mode selector uses adjacent Group chats / Sessions buttons with a highlighted pressed state and left/right keyboard switching. It shares the existing native-session mode transition and binds the double-chat-bubble plus icon to the currently selected mode.
+The sidebar mode selector uses text-only Group chats / Sessions buttons with a blue active underline over a full-width gray divider and left/right keyboard switching. It shares the existing native-session mode transition and binds a single-chat-bubble plus icon to the currently selected mode. Project rows use a pale blue selected background and dot, with unboxed outline icons. These frontend styles leave footer controls, native-session behavior and backend routing unchanged.
 
 Native takeover ownership and return controls share the contract in [native session browser](design-native-session-browser.md). Exact device/runtime/native identity, including historical Runs, takes precedence over folder inference; conflicting or unknown ownership is rejected. The shared project lock also protects history clearing/reset, CLI switching, deletion and managed reads, including legacy terminal-only leases. Session-page controls consume existing state updates and the existing scoped return/stop APIs; `nativeTakeover:1` gates preparation on upgraded Workers.
 
